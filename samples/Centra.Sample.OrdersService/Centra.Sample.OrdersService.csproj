@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>Showcase sample microservice demonstrating pure business logic with Centra in .NET 10.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Core\Centra.Core.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.InMemory\Centra.Providers.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
+  </ItemGroup>
+</Project>

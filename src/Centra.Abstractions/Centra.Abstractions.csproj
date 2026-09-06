@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Core abstractions, interfaces, and CloudEvent contracts for the Centra distributed application framework.</Description>
+  </PropertyGroup>
+</Project>
