@@ -2,7 +2,7 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-50%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-77%20Passed-brightgreen.svg)]()
 
 > A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, and allow developers to write pure business logic where **"code is focused on code"**.
 
@@ -57,8 +57,14 @@ builder.Services.AddCentra(options =>
 // builder.Services.AddCentraState();
 // builder.Services.AddCentraLocks();
 
-// Add In-Memory Provider for lightning-fast zero-dependency local dev & testing
+// Add Providers:
+// Option 1: In-Memory Provider (zero-dependency local dev & testing)
 builder.Services.AddCentraInMemory();
+
+// Option 2: Production Distributed Providers
+// builder.Services.AddCentraRedis(options => options.Configuration = "localhost:6379");
+// builder.Services.AddCentraPostgreSql(options => options.ConnectionString = "Host=localhost;Database=centra;...");
+// builder.Services.AddCentraRabbitMQ(options => options.HostName = "localhost");
 
 // Register typed RPC client interface
 builder.Services.AddCentraServiceClient<IInventoryClient>();
@@ -144,6 +150,47 @@ public sealed class PaymentNotificationHandler : IEventHandler<OrderCreatedEvent
 
 ---
 
+## 🔌 Production Distributed Providers
+
+Centra provides high-performance, production-ready distributed providers with zero sidecars and native C# drivers:
+
+| Provider | Components Supported | Features | Package |
+| :--- | :--- | :--- | :--- |
+| **Redis** | State Store, Pub/Sub, Distributed Lock | Atomic Lua Compare-And-Swap (ETag validation), multi-key transactions, CloudEvents binary framing, consumer groups, DLQ, lock heartbeat renewal | `Centra.Providers.Redis` |
+| **PostgreSQL** | State Store, Distributed Lock | Schema-isolated JSONB state table, ACID transactions, optimistic concurrency with ETags, TTL expiration pruning, mutual exclusion lease table | `Centra.Providers.PostgreSql` |
+| **RabbitMQ** | Pub/Sub | AMQP topic exchange, CNCF CloudEvents headers mapping, dead-letter exchanges (DLX), durable queues, competing consumers | `Centra.Providers.RabbitMQ` |
+
+### Provider Configuration Examples
+
+```csharp
+// Redis: State Store, Pub/Sub, Distributed Locks
+builder.Services.AddCentraRedis(options =>
+{
+    options.Configuration = "localhost:6379";
+    options.InstanceName = "app:";
+    options.DefaultDatabase = 0;
+});
+
+// PostgreSQL: State Store & Distributed Locks
+builder.Services.AddCentraPostgreSql(options =>
+{
+    options.ConnectionString = "Host=localhost;Database=centra;Username=postgres;Password=postgres";
+    options.Schema = "centra";
+    options.AutoCreateSchema = true;
+});
+
+// RabbitMQ: CloudEvents AMQP Pub/Sub
+builder.Services.AddCentraRabbitMQ(options =>
+{
+    options.HostName = "localhost";
+    options.ExchangeName = "centra.events";
+    options.ExchangeType = "topic";
+    options.Durable = true;
+});
+```
+
+---
+
 ## 🧪 Testing
 
 The solution includes comprehensive unit and integration test suites:
@@ -152,7 +199,7 @@ The solution includes comprehensive unit and integration test suites:
 # Build the entire solution
 dotnet build Centra.slnx
 
-# Run all unit and integration tests (50 tests)
+# Run all unit and integration tests (77 tests)
 dotnet test Centra.slnx --logger "console;verbosity=normal"
 ```
 
@@ -174,6 +221,9 @@ Centra.slnx
 │   ├── Centra.Sync.Abstractions/      # IControlPlaneClient & live streaming sync event DTOs
 │   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, diagnostics, RPC proxies, SSE client
 │   ├── Centra.Providers.InMemory/     # Zero-dependency in-memory driver implementations
+│   ├── Centra.Providers.Redis/        # Redis State (Lua CAS/Tx), Pub/Sub (CloudEvents v1.0 binary), Locks (Lease/Renewal)
+│   ├── Centra.Providers.PostgreSql/   # PostgreSQL State (ACID table, ETags, Tx, TTL) & Locks (Lease table heartbeat)
+│   ├── Centra.Providers.RabbitMQ/     # RabbitMQ Pub/Sub (AMQP topic exchange, CloudEvents headers, consumer groups, DLX)
 │   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, hosted services, composable DI extensions
 │   ├── Centra.ControlPlane/           # Central component catalog, secret resolver, topology tracker, SSE sync dispatcher
 │   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
@@ -183,7 +233,10 @@ Centra.slnx
 └── tests/
     ├── Centra.Tests.Unit/             # Core, runtime & composable DI TDD test suites (40 tests)
     ├── Centra.ControlPlane.Tests.Unit/# Control Plane TDD test suites (8 tests)
-    └── Centra.Tests.Integration/      # End-to-end distributed workflow & live sync integration tests (2 tests)
+    ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (17 tests)
+    ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
+    ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (2 tests)
+    └── Centra.Tests.Integration/      # End-to-end workflows & Testcontainers integration tests (8 tests)
 ```
 
 ---
