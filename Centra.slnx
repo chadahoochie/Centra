@@ -13,6 +13,9 @@
     <Project Path="src/Centra.Providers.Redis/Centra.Providers.Redis.csproj" />
     <Project Path="src/Centra.Providers.PostgreSql/Centra.Providers.PostgreSql.csproj" />
     <Project Path="src/Centra.Providers.RabbitMQ/Centra.Providers.RabbitMQ.csproj" />
+    <Project Path="src/Centra.Providers.SqlServer/Centra.Providers.SqlServer.csproj" />
+    <Project Path="src/Centra.Providers.AzureServiceBus/Centra.Providers.AzureServiceBus.csproj" />
+    <Project Path="src/Centra.Providers.CosmosDb/Centra.Providers.CosmosDb.csproj" />
     <Project Path="src/Centra.Hosting/Centra.Hosting.csproj" />
     <Project Path="src/Centra.ControlPlane/Centra.ControlPlane.csproj" />
     <Project Path="src/Centra.Aspire.Hosting/Centra.Aspire.Hosting.csproj" />
@@ -37,6 +40,9 @@
     <Project Path="tests/Centra.Providers.Redis.Tests.Unit/Centra.Providers.Redis.Tests.Unit.csproj" />
     <Project Path="tests/Centra.Providers.PostgreSql.Tests.Unit/Centra.Providers.PostgreSql.Tests.Unit.csproj" />
     <Project Path="tests/Centra.Providers.RabbitMQ.Tests.Unit/Centra.Providers.RabbitMQ.Tests.Unit.csproj" />
+    <Project Path="tests/Centra.Providers.SqlServer.Tests.Unit/Centra.Providers.SqlServer.Tests.Unit.csproj" />
+    <Project Path="tests/Centra.Providers.AzureServiceBus.Tests.Unit/Centra.Providers.AzureServiceBus.Tests.Unit.csproj" />
+    <Project Path="tests/Centra.Providers.CosmosDb.Tests.Unit/Centra.Providers.CosmosDb.Tests.Unit.csproj" />
     <Project Path="tests/Centra.Tests.Integration/Centra.Tests.Integration.csproj" />
   </Folder>
 </Solution>

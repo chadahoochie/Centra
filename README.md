@@ -2,7 +2,7 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-77%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-95%20Passed-brightgreen.svg)]()
 
 > A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, and allow developers to write pure business logic where **"code is focused on code"**.
 
@@ -159,6 +159,9 @@ Centra provides high-performance, production-ready distributed providers with ze
 | **Redis** | State Store, Pub/Sub, Distributed Lock | Atomic Lua Compare-And-Swap (ETag validation), multi-key transactions, CloudEvents binary framing, consumer groups, DLQ, lock heartbeat renewal | `Centra.Providers.Redis` |
 | **PostgreSQL** | State Store, Distributed Lock | Schema-isolated JSONB state table, ACID transactions, optimistic concurrency with ETags, TTL expiration pruning, mutual exclusion lease table | `Centra.Providers.PostgreSql` |
 | **RabbitMQ** | Pub/Sub | AMQP topic exchange, CNCF CloudEvents headers mapping, dead-letter exchanges (DLX), durable queues, competing consumers | `Centra.Providers.RabbitMQ` |
+| **SQL Server** | State Store, Distributed Lock | Atomic `MERGE` upsert, optimistic concurrency with ETags, `SqlTransaction` multi-operation batches, TTL expiration indexing, lease table mutual exclusion | `Centra.Providers.SqlServer` |
+| **Azure Service Bus** | Pub/Sub | Cloud-native topics and subscriptions, CNCF CloudEvents application properties, W3C tracecontext propagation, dead-lettering, settlement (`Complete`, `Abandon`, `DeadLetter`) | `Centra.Providers.AzureServiceBus` |
+| **Azure Cosmos DB** | State Store, Distributed Lock | Direct mode point reads, optimistic concurrency (`IfMatchEtag`), container TTL, `TransactionalBatch` single-partition ACID operations, lease locking with renewal | `Centra.Providers.CosmosDb` |
 
 ### Provider Configuration Examples
 
@@ -187,6 +190,29 @@ builder.Services.AddCentraRabbitMQ(options =>
     options.ExchangeType = "topic";
     options.Durable = true;
 });
+
+// SQL Server: Enterprise State Store & Distributed Locks
+builder.Services.AddCentraSqlServer(options =>
+{
+    options.ConnectionString = "Server=localhost,1433;Database=centra;User Id=sa;Password=Your_password123;TrustServerCertificate=True;";
+    options.SchemaName = "dbo";
+    options.AutoCreateTable = true;
+});
+
+// Azure Service Bus: Cloud-Native Pub/Sub
+builder.Services.AddCentraAzureServiceBus(options =>
+{
+    options.ConnectionString = "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...";
+    options.SubscriptionName = "orders-worker";
+});
+
+// Azure Cosmos DB: Globally-Distributed State & Locks
+builder.Services.AddCentraCosmosDb(options =>
+{
+    options.ConnectionString = "AccountEndpoint=https://your-account.documents.azure.com:443/;AccountKey=...;";
+    options.DatabaseName = "centra";
+    options.AutoCreateDatabaseAndContainers = true;
+});
 ```
 
 ---
@@ -199,7 +225,7 @@ The solution includes comprehensive unit and integration test suites:
 # Build the entire solution
 dotnet build Centra.slnx
 
-# Run all unit and integration tests (77 tests)
+# Run all unit and integration tests (95 tests)
 dotnet test Centra.slnx --logger "console;verbosity=normal"
 ```
 
@@ -224,6 +250,9 @@ Centra.slnx
 │   ├── Centra.Providers.Redis/        # Redis State (Lua CAS/Tx), Pub/Sub (CloudEvents v1.0 binary), Locks (Lease/Renewal)
 │   ├── Centra.Providers.PostgreSql/   # PostgreSQL State (ACID table, ETags, Tx, TTL) & Locks (Lease table heartbeat)
 │   ├── Centra.Providers.RabbitMQ/     # RabbitMQ Pub/Sub (AMQP topic exchange, CloudEvents headers, consumer groups, DLX)
+│   ├── Centra.Providers.SqlServer/    # SQL Server State (MERGE, ETags, Tx, TTL) & Locks (Lease table renewal)
+│   ├── Centra.Providers.AzureServiceBus/# Azure Service Bus Pub/Sub (Topics, Subscriptions, CloudEvents headers, Dead-lettering)
+│   ├── Centra.Providers.CosmosDb/     # Azure Cosmos DB State (Point reads, TransactionalBatch, ETags, TTL) & Locks
 │   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, hosted services, composable DI extensions
 │   ├── Centra.ControlPlane/           # Central component catalog, secret resolver, topology tracker, SSE sync dispatcher
 │   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
@@ -236,7 +265,10 @@ Centra.slnx
     ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (17 tests)
     ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
     ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (2 tests)
-    └── Centra.Tests.Integration/      # End-to-end workflows & Testcontainers integration tests (8 tests)
+    ├── Centra.Providers.SqlServer.Tests.Unit/   # SQL Server State and Locks unit tests (5 tests)
+    ├── Centra.Providers.AzureServiceBus.Tests.Unit/ # Azure Service Bus Pub/Sub unit tests (4 tests)
+    ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (7 tests)
+    └── Centra.Tests.Integration/      # End-to-end workflows & Testcontainers integration tests (10 tests)
 ```
 
 ---

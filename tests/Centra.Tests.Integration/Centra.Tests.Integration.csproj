@@ -15,6 +15,9 @@
     <ProjectReference Include="..\..\src\Centra.Providers.Redis\Centra.Providers.Redis.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.PostgreSql\Centra.Providers.PostgreSql.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.SqlServer\Centra.Providers.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.AzureServiceBus\Centra.Providers.AzureServiceBus.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.CosmosDb\Centra.Providers.CosmosDb.csproj" />
     <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
   </ItemGroup>
@@ -23,6 +26,7 @@
     <PackageReference Include="Testcontainers.Redis" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.RabbitMq" />
+    <PackageReference Include="Testcontainers.MsSql" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="AutoFixture.Xunit2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
