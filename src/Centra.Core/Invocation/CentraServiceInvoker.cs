@@ -11,11 +11,16 @@ public sealed class CentraServiceInvoker : IServiceInvoker
 {
     private readonly HttpClient _httpClient;
     private readonly ICentraSerializer _serializer;
+    private readonly IServiceEndpointResolver _endpointResolver;
 
-    public CentraServiceInvoker(HttpClient httpClient, ICentraSerializer? serializer = null)
+    public CentraServiceInvoker(
+        HttpClient httpClient,
+        ICentraSerializer? serializer = null,
+        IServiceEndpointResolver? endpointResolver = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _serializer = serializer ?? JsonCentraSerializer.Default;
+        _endpointResolver = endpointResolver ?? PassThroughServiceEndpointResolver.Instance;
     }
 
     public async ValueTask<TResponse> InvokeMethodAsync<TRequest, TResponse>(
@@ -55,7 +60,10 @@ public sealed class CentraServiceInvoker : IServiceInvoker
         CancellationToken cancellationToken = default)
     {
         var verb = new HttpMethod(httpVerb ?? "POST");
-        var uri = new Uri($"http://{serviceAppId}/{methodName.TrimStart('/')}", UriKind.RelativeOrAbsolute);
+        var baseUri = await _endpointResolver.ResolveEndpointAsync(serviceAppId, cancellationToken).ConfigureAwait(false)
+            ?? new Uri($"http://{serviceAppId}/", UriKind.Absolute);
+
+        var uri = new Uri(baseUri, methodName.TrimStart('/'));
 
         using var requestMessage = new HttpRequestMessage(verb, uri);
 

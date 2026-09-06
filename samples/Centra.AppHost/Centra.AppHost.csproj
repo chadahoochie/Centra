@@ -9,6 +9,7 @@
     <ProjectReference Include="..\..\src\Centra.Aspire.Hosting\Centra.Aspire.Hosting.csproj" IsAspireProjectResource="false" />
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
     <ProjectReference Include="..\Centra.Sample.OrdersService\Centra.Sample.OrdersService.csproj" />
+    <ProjectReference Include="..\Centra.Sample.MultiInstance\Centra.Sample.MultiInstance.csproj" />
   </ItemGroup>
 
 </Project>

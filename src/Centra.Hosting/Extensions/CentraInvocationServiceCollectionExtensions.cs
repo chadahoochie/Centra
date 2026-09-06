@@ -14,6 +14,17 @@ public static class CentraInvocationServiceCollectionExtensions
         services.AddCentraCore(configure);
 
         services.AddHttpClient();
+        services.TryAddSingleton<IServiceEndpointResolver>(sp =>
+        {
+            var cpClient = sp.GetService<Centra.Sync.IControlPlaneClient>();
+            if (cpClient is not null)
+            {
+                return new ControlPlaneServiceEndpointResolver(
+                    cpClient,
+                    sp.GetService<Microsoft.Extensions.Logging.ILogger<ControlPlaneServiceEndpointResolver>>());
+            }
+            return PassThroughServiceEndpointResolver.Instance;
+        });
         services.TryAddSingleton<IServiceInvoker, CentraServiceInvoker>();
 
         return services;

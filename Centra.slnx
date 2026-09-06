@@ -32,6 +32,7 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Centra.Sample.OrdersService/Centra.Sample.OrdersService.csproj" />
+    <Project Path="samples/Centra.Sample.MultiInstance/Centra.Sample.MultiInstance.csproj" />
     <Project Path="samples/Centra.AppHost/Centra.AppHost.csproj" />
   </Folder>
   <Folder Name="/tests/">

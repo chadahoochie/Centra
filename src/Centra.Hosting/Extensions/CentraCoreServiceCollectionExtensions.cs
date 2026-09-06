@@ -15,13 +15,18 @@ public static class CentraCoreServiceCollectionExtensions
         this IServiceCollection services,
         Action<CentraOptions>? configure = null)
     {
+        services.AddOptions<CentraOptions>().Configure<IServiceProvider>((opts, sp) =>
+        {
+            var config = sp.GetService<Microsoft.Extensions.Configuration.IConfiguration>();
+            if (config is not null)
+            {
+                Microsoft.Extensions.Configuration.ConfigurationBinder.Bind(config.GetSection("Centra"), opts);
+            }
+        });
+
         if (configure is not null)
         {
             services.Configure(configure);
-        }
-        else
-        {
-            services.AddOptions<CentraOptions>();
         }
 
         // Component Registry & Serializer

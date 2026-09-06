@@ -2,7 +2,7 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-95%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-98%20Passed-brightgreen.svg)]()
 
 > A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, and allow developers to write pure business logic where **"code is focused on code"**.
 
@@ -148,6 +148,27 @@ public sealed class PaymentNotificationHandler : IEventHandler<OrderCreatedEvent
 }
 ```
 
+### 3. Multi-Instance Cluster Example (`Centra.Sample.MultiInstance`)
+
+Showcases distributed coordination and service discovery across multiple service instances:
+- **Native Service Discovery & Client-Side Load Balancing**: Service instances resolve peer endpoints dynamically via `IServiceEndpointResolver` and `ControlPlaneServiceEndpointResolver` with round-robin dispatch, eliminating custom cluster coordinators.
+- **Leader Election & Mutex Locking**: Multiple instances compete for a shared resource lock (`IDistributedLockProvider`); only one active leader with automatic failover.
+- **Shared State & Optimistic Concurrency Control**: Multiple instances concurrently mutate shared state (`IStateStore<T>`) with automatic ETag collision detection and retries.
+- **CNCF CloudEvents Pub/Sub**: Instances publish and consume domain events across the cluster with ambient W3C trace context.
+- **Cluster Topology Tracking**: Each replica registers its `InstanceId`, service address metadata, and heartbeats with the Control Plane (`/api/v1/topology`).
+
+**Run Options**:
+```bash
+# Option 1: Run the automated in-process 3-node simulation:
+dotnet run --project samples/Centra.Sample.MultiInstance -- --demo
+
+# Option 2: Run as a standalone web node:
+dotnet run --project samples/Centra.Sample.MultiInstance -- --instance-id node-1 --urls "http://localhost:5101"
+
+# Option 3: Run multi-replica cluster orchestrated with .NET Aspire:
+dotnet run --project samples/Centra.AppHost
+```
+
 ---
 
 ## 🔌 Production Distributed Providers
@@ -225,7 +246,7 @@ The solution includes comprehensive unit and integration test suites:
 # Build the entire solution
 dotnet build Centra.slnx
 
-# Run all unit and integration tests (95 tests)
+# Run all unit and integration tests (112 tests)
 dotnet test Centra.slnx --logger "console;verbosity=normal"
 ```
 
@@ -241,7 +262,7 @@ Centra.slnx
 │   ├── Centra.PubSub.Abstractions/    # IPubSubClient, IEventHandler, Topic contracts
 │   ├── Centra.State.Abstractions/     # IStateStore, StateEntry, transactions, optimistic concurrency
 │   ├── Centra.Locks.Abstractions/     # IDistributedLockProvider & IDistributedLock contracts
-│   ├── Centra.Invocation.Abstractions/# IServiceInvoker & typed RPC client attributes
+│   ├── Centra.Invocation.Abstractions/# IServiceInvoker, IServiceEndpointResolver & typed RPC client attributes
 │   ├── Centra.Bindings.Abstractions/  # IOutputBinding & Cron trigger contracts
 │   ├── Centra.Components.Abstractions/# ComponentDefinition, ComponentType, IComponentRegistry
 │   ├── Centra.Sync.Abstractions/      # IControlPlaneClient & live streaming sync event DTOs
@@ -258,9 +279,10 @@ Centra.slnx
 │   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
 ├── samples/
 │   ├── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
-│   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator
+│   ├── Centra.Sample.MultiInstance/   # Multi-instance cluster: native service discovery, distributed locks, shared state with ETags, CloudEvents pub/sub, topology tracking
+│   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator (multi-replica orchestration)
 └── tests/
-    ├── Centra.Tests.Unit/             # Core, runtime & composable DI TDD test suites (40 tests)
+    ├── Centra.Tests.Unit/             # Core, runtime & composable DI TDD test suites (54 tests)
     ├── Centra.ControlPlane.Tests.Unit/# Control Plane TDD test suites (8 tests)
     ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (17 tests)
     ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
@@ -268,7 +290,7 @@ Centra.slnx
     ├── Centra.Providers.SqlServer.Tests.Unit/   # SQL Server State and Locks unit tests (5 tests)
     ├── Centra.Providers.AzureServiceBus.Tests.Unit/ # Azure Service Bus Pub/Sub unit tests (4 tests)
     ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (7 tests)
-    └── Centra.Tests.Integration/      # End-to-end workflows & Testcontainers integration tests (10 tests)
+    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster & Testcontainers integration tests (13 tests)
 ```
 
 ---

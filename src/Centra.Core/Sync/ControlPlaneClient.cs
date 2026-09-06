@@ -26,6 +26,16 @@ public sealed class ControlPlaneClient : IControlPlaneClient
         return response ?? (IReadOnlyCollection<ComponentDefinition>)Array.Empty<ComponentDefinition>();
     }
 
+    public async Task<IReadOnlyCollection<ServiceNodeDto>> GetTopologyAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<List<ServiceNodeDto>>(
+            "api/v1/topology",
+            JsonOptions,
+            cancellationToken).ConfigureAwait(false);
+
+        return response ?? (IReadOnlyCollection<ServiceNodeDto>)Array.Empty<ServiceNodeDto>();
+    }
+
     public async IAsyncEnumerable<ComponentSyncEventDto> StreamUpdatesAsync(
         string appId,
         string instanceId,

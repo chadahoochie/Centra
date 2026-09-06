@@ -72,7 +72,8 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
         {
             try
             {
-                await _client.SendHeartbeatAsync(_options.AppId, instanceId, "Healthy", null, stoppingToken).ConfigureAwait(false);
+                var metadata = _options.ControlPlane.Metadata.Count > 0 ? _options.ControlPlane.Metadata : null;
+                await _client.SendHeartbeatAsync(_options.AppId, instanceId, "Healthy", metadata, stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {
