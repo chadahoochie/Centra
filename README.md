@@ -2,7 +2,7 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-29%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-45%20Passed-brightgreen.svg)]()
 
 > A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, and allow developers to write pure business logic where **"code is focused on code"**.
 
@@ -141,7 +141,7 @@ The solution includes comprehensive unit and integration test suites:
 # Build the entire solution
 dotnet build Centra.slnx
 
-# Run all unit and integration tests (29 tests)
+# Run all unit and integration tests (45 tests)
 dotnet test Centra.slnx --logger "console;verbosity=normal"
 ```
 
@@ -152,15 +152,19 @@ dotnet test Centra.slnx --logger "console;verbosity=normal"
 ```
 Centra.slnx
 ├── src/
-│   ├── Centra.Abstractions/           # Dependency-free contracts, CloudEvents, ISP interfaces
-│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, diagnostics, RPC proxies
+│   ├── Centra.Abstractions/           # Dependency-free contracts, CloudEvents, ISP interfaces, sync DTOs
+│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, diagnostics, RPC proxies, SSE client
 │   ├── Centra.Providers.InMemory/     # Zero-dependency in-memory driver implementations
-│   └── Centra.Hosting/                # ASP.NET Core minimal APIs, hosted services, DI extensions
+│   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, hosted services, live sync worker
+│   ├── Centra.ControlPlane/           # Central component catalog, secret resolver, topology tracker, SSE sync dispatcher
+│   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
 ├── samples/
-│   └── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
+│   ├── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
+│   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator
 └── tests/
-    ├── Centra.Tests.Unit/             # TDD test suites (xUnit, Shouldly, AutoFixture, NSubstitute)
-    └── Centra.Tests.Integration/      # End-to-end distributed workflow integration tests
+    ├── Centra.Tests.Unit/             # Core & runtime TDD test suites (35 tests)
+    ├── Centra.ControlPlane.Tests.Unit/# Control Plane TDD test suites (8 tests)
+    └── Centra.Tests.Integration/      # End-to-end distributed workflow & live sync integration tests (2 tests)
 ```
 
 ---

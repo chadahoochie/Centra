@@ -10,6 +10,7 @@ using Centra.PubSub;
 using Centra.Registry;
 using Centra.Serialization;
 using Centra.State;
+using Centra.Sync;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -67,6 +68,18 @@ public static class CentraServiceCollectionExtensions
         // Service Invocation
         services.AddHttpClient();
         services.TryAddSingleton<IServiceInvoker, CentraServiceInvoker>();
+
+        // Control Plane Client & Sync Service
+        services.AddHttpClient<IControlPlaneClient, ControlPlaneClient>((sp, http) =>
+        {
+            var options = sp.GetRequiredService<IOptions<CentraOptions>>().Value;
+            var endpoint = options.ControlPlaneEndpoint ?? options.ControlPlane.Endpoint;
+            if (!string.IsNullOrWhiteSpace(endpoint))
+            {
+                http.BaseAddress = new Uri(endpoint.TrimEnd('/') + "/");
+            }
+        });
+        services.AddHostedService<CentraControlPlaneSyncHostedService>();
 
         // Runtime Hosted Service
         services.AddHostedService<CentraRuntimeHostedService>();

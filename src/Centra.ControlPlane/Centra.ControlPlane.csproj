@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>Central Control Plane for Centra: centralized component catalog, secret resolution, cluster topology, and real-time streaming sync.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Abstractions\Centra.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Core\Centra.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -11,12 +11,16 @@
     <Project Path="src/Centra.Core/Centra.Core.csproj" />
     <Project Path="src/Centra.Providers.InMemory/Centra.Providers.InMemory.csproj" />
     <Project Path="src/Centra.Hosting/Centra.Hosting.csproj" />
+    <Project Path="src/Centra.ControlPlane/Centra.ControlPlane.csproj" />
+    <Project Path="src/Centra.Aspire.Hosting/Centra.Aspire.Hosting.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Centra.Sample.OrdersService/Centra.Sample.OrdersService.csproj" />
+    <Project Path="samples/Centra.AppHost/Centra.AppHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Centra.Tests.Unit/Centra.Tests.Unit.csproj" />
+    <Project Path="tests/Centra.ControlPlane.Tests.Unit/Centra.ControlPlane.Tests.Unit.csproj" />
     <Project Path="tests/Centra.Tests.Integration/Centra.Tests.Integration.csproj" />
   </Folder>
 </Solution>

@@ -12,10 +12,27 @@ public sealed class ComponentRegistry : IComponentRegistry
     private readonly ConcurrentDictionary<string, IDistributedLockDriver> _lockDrivers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, IBindingDriver> _bindingDrivers = new(StringComparer.OrdinalIgnoreCase);
 
+    public event Action<ComponentDefinition>? ComponentUpdated;
+    public event Action<string>? ComponentRemoved;
+
     public void RegisterComponent(ComponentDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         _definitions[definition.Name] = definition;
+        ComponentUpdated?.Invoke(definition);
+    }
+
+    public void RemoveComponent(string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (_definitions.TryRemove(name, out _))
+        {
+            _stateStoreDrivers.TryRemove(name, out _);
+            _pubSubDrivers.TryRemove(name, out _);
+            _lockDrivers.TryRemove(name, out _);
+            _bindingDrivers.TryRemove(name, out _);
+            ComponentRemoved?.Invoke(name);
+        }
     }
 
     public ComponentDefinition? GetComponent(string name)

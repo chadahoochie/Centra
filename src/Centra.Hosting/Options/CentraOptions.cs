@@ -10,4 +10,5 @@ public sealed class CentraOptions
     public string DefaultLockStore { get; set; } = "lockstore";
     public CloudEventMode DefaultCloudEventMode { get; set; } = CloudEventMode.Binary;
     public string? ControlPlaneEndpoint { get; set; }
+    public CentraControlPlaneOptions ControlPlane { get; set; } = new();
 }

@@ -1,0 +1,14 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.3">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Centra.Aspire.Hosting\Centra.Aspire.Hosting.csproj" IsAspireProjectResource="false" />
+    <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
+    <ProjectReference Include="..\Centra.Sample.OrdersService\Centra.Sample.OrdersService.csproj" />
+  </ItemGroup>
+
+</Project>

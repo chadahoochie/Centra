@@ -6,6 +6,7 @@ using Xunit;
 
 namespace Centra.Tests.Unit.Diagnostics;
 
+[Collection("CentraDiagnostics")]
 public sealed class DiagnosticsTests
 {
     [Fact]
@@ -15,17 +16,20 @@ public sealed class DiagnosticsTests
         using var listener = new TestActivityListener();
 
         // Act
-        using (var activity = CentraDiagnostics.StartPublishActivity("orders-bus", "orders.created"))
+        using (var activity = CentraDiagnostics.StartPublishActivity("orders-bus-pub", "orders.created"))
         {
             activity.ShouldNotBeNull();
             activity.Kind.ShouldBe(ActivityKind.Producer);
             activity.GetTagItem("centra.component").ShouldBe("pubsub");
             activity.GetTagItem("messaging.destination").ShouldBe("orders.created");
-            activity.GetTagItem("centra.pubsub.name").ShouldBe("orders-bus");
+            activity.GetTagItem("centra.pubsub.name").ShouldBe("orders-bus-pub");
         }
 
         // Assert
-        listener.StoppedActivities.Count.ShouldBe(1);
+        var activities = listener.StoppedActivities
+            .Where(a => a.GetTagItem("centra.pubsub.name") as string == "orders-bus-pub")
+            .ToList();
+        activities.Count.ShouldBe(1);
     }
 
     [Fact]
@@ -36,14 +40,14 @@ public sealed class DiagnosticsTests
 
         // 1. Producer activity
         ActivityContext producerContext;
-        using (var producer = CentraDiagnostics.StartPublishActivity("orders-bus", "orders.created"))
+        using (var producer = CentraDiagnostics.StartPublishActivity("orders-bus-sub", "orders.created"))
         {
             producer.ShouldNotBeNull();
             producerContext = producer.Context;
         }
 
         // 2. Consumer activity linked to parent
-        using (var consumer = CentraDiagnostics.StartProcessActivity("orders-bus", "orders.created", producerContext))
+        using (var consumer = CentraDiagnostics.StartProcessActivity("orders-bus-sub", "orders.created", producerContext))
         {
             consumer.ShouldNotBeNull();
             consumer.Kind.ShouldBe(ActivityKind.Consumer);
@@ -54,7 +58,10 @@ public sealed class DiagnosticsTests
         }
 
         // Assert
-        listener.StoppedActivities.Count.ShouldBe(2);
+        var activities = listener.StoppedActivities
+            .Where(a => a.GetTagItem("centra.pubsub.name") as string == "orders-bus-sub")
+            .ToList();
+        activities.Count.ShouldBe(2);
     }
 
     [Fact]
