@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Control plane sync client and streaming event DTO abstractions for Centra.</Description>
+    <RootNamespace>Centra.Sync</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Components.Abstractions\Centra.Components.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

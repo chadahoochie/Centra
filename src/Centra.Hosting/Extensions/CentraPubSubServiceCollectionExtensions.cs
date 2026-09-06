@@ -1,0 +1,53 @@
+using System.Reflection;
+using Centra.Hosting.Options;
+using Centra.Hosting.Routing;
+using Centra.PubSub;
+using Centra.Registry;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+
+namespace Centra.Hosting.Extensions;
+
+public static class CentraPubSubServiceCollectionExtensions
+{
+    public static IServiceCollection AddCentraPubSub(
+        this IServiceCollection services,
+        Action<CentraOptions>? configure = null)
+    {
+        services.AddCentraCore(configure);
+
+        services.TryAddSingleton<IPubSubClient>(sp =>
+        {
+            var registry = sp.GetRequiredService<ComponentRegistry>();
+            var options = sp.GetRequiredService<IOptions<CentraOptions>>().Value;
+            return new CentraPubSubClient(registry, options.AppId, options.DefaultPubSub);
+        });
+
+        return services;
+    }
+
+    public static IServiceCollection AddCentraEventHandler<THandler, TEvent>(
+        this IServiceCollection services,
+        string? pubSubName = null,
+        string? topic = null,
+        string? deadLetterTopic = null)
+        where THandler : class, IEventHandler<TEvent>
+    {
+        services.TryAddTransient<THandler>();
+
+        var topicAttr = typeof(THandler).GetCustomAttribute<TopicAttribute>();
+        var resolvedPubSub = pubSubName ?? topicAttr?.PubSubName ?? "pubsub";
+        var resolvedTopic = topic ?? topicAttr?.Topic ?? typeof(TEvent).Name;
+        var resolvedDlTopic = deadLetterTopic ?? topicAttr?.DeadLetterTopic;
+
+        services.AddSingleton(new CentraTopicRegistration(
+            resolvedPubSub,
+            resolvedTopic,
+            typeof(TEvent),
+            typeof(THandler),
+            resolvedDlTopic));
+
+        return services;
+    }
+}

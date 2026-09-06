@@ -12,7 +12,7 @@ public sealed class ComponentSyncDispatcherTests
     {
         // Arrange
         var dispatcher = new ComponentSyncDispatcher();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         var def = new ComponentDefinition
         {
@@ -34,8 +34,11 @@ public sealed class ComponentSyncDispatcherTests
             }
         });
 
-        // Give channel a moment to subscribe
-        await Task.Delay(50);
+        // Deterministically wait until subscriber is registered
+        while (dispatcher.SubscriberCount == 0 && !cts.IsCancellationRequested)
+        {
+            await Task.Delay(10);
+        }
 
         // Publish event
         await dispatcher.PublishEventAsync(syncEvent);

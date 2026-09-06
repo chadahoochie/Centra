@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Distributed lock and mutual exclusion abstractions for Centra.</Description>
+    <RootNamespace>Centra.Locks</RootNamespace>
+  </PropertyGroup>
+</Project>

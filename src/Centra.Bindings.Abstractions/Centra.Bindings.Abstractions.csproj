@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Input and output binding trigger abstractions for Centra.</Description>
+    <RootNamespace>Centra.Bindings</RootNamespace>
+  </PropertyGroup>
+</Project>

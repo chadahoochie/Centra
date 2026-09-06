@@ -71,4 +71,88 @@ public sealed class ServiceCollectionExtensionsTests
         // Assert
         client.ShouldNotBeNull();
     }
+
+    [Fact]
+    public void Should_Register_Only_PubSub_When_AddCentraPubSub_Is_Called()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCentraPubSub();
+
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Assert
+        serviceProvider.GetService<IPubSubClient>().ShouldNotBeNull();
+        serviceProvider.GetService<IStateStore>().ShouldBeNull();
+        serviceProvider.GetService<IDistributedLockProvider>().ShouldBeNull();
+        serviceProvider.GetService<IServiceInvoker>().ShouldBeNull();
+    }
+
+    [Fact]
+    public void Should_Register_Only_State_When_AddCentraState_Is_Called()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCentraState();
+
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Assert
+        serviceProvider.GetService<IStateStore>().ShouldNotBeNull();
+        serviceProvider.GetService<IPubSubClient>().ShouldBeNull();
+        serviceProvider.GetService<IDistributedLockProvider>().ShouldBeNull();
+        serviceProvider.GetService<IServiceInvoker>().ShouldBeNull();
+    }
+
+    [Fact]
+    public void Should_Register_Only_Locks_When_AddCentraLocks_Is_Called()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCentraLocks();
+
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Assert
+        serviceProvider.GetService<IDistributedLockProvider>().ShouldNotBeNull();
+        serviceProvider.GetService<IStateStore>().ShouldBeNull();
+        serviceProvider.GetService<IPubSubClient>().ShouldBeNull();
+        serviceProvider.GetService<IServiceInvoker>().ShouldBeNull();
+    }
+
+    [Fact]
+    public void Should_Register_Only_Invocation_When_AddCentraInvocation_Is_Called()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCentraInvocation();
+
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Assert
+        serviceProvider.GetService<IServiceInvoker>().ShouldNotBeNull();
+        serviceProvider.GetService<IStateStore>().ShouldBeNull();
+        serviceProvider.GetService<IPubSubClient>().ShouldBeNull();
+        serviceProvider.GetService<IDistributedLockProvider>().ShouldBeNull();
+    }
+
+    [Fact]
+    public void Should_Register_Only_Bindings_When_AddCentraBindings_Is_Called()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCentraBindings();
+
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Assert
+        serviceProvider.GetService<Centra.Bindings.IOutputBinding>().ShouldNotBeNull();
+        serviceProvider.GetService<IStateStore>().ShouldBeNull();
+        serviceProvider.GetService<IPubSubClient>().ShouldBeNull();
+    }
 }

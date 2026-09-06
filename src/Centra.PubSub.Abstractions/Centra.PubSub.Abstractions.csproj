@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Pub/Sub messaging, event handler, and topic abstractions for Centra.</Description>
+    <RootNamespace>Centra.PubSub</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Events.Abstractions\Centra.Events.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

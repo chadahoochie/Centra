@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>CNCF CloudEvents v1.0 and ambient context abstractions for Centra.</Description>
+    <RootNamespace>Centra.Events</RootNamespace>
+  </PropertyGroup>
+</Project>

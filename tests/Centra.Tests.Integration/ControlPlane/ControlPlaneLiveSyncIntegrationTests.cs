@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using Centra.Components;
 using Centra.ControlPlane.Endpoints;
 using Centra.ControlPlane.Extensions;
+using Centra.ControlPlane.Sync;
 using Centra.ControlPlane.Topology;
 using Centra.Hosting.Extensions;
 using Centra.Providers.InMemory.Extensions;
@@ -77,6 +78,17 @@ public sealed class ControlPlaneLiveSyncIntegrationTests
             }
         };
 
+        // Ensure SSE stream is established and subscribed
+        var dispatcher = cpApp.Services.GetRequiredService<IComponentSyncDispatcher>() as ComponentSyncDispatcher;
+        if (dispatcher is not null)
+        {
+            var waitDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (dispatcher.SubscriberCount == 0 && DateTime.UtcNow < waitDeadline)
+            {
+                await Task.Delay(20);
+            }
+        }
+
         // 6. Act: Operator adds a brand-new component to the Control Plane via REST API
         var dynamicDef = new ComponentDefinition
         {
@@ -88,7 +100,7 @@ public sealed class ControlPlaneLiveSyncIntegrationTests
         dynamicPostResponse.EnsureSuccessStatusCode();
 
         // 7. Assert: Live SSE stream pushed the new component to runtime without restart
-        var completedTask = await Task.WhenAny(hotReloadTcs.Task, Task.Delay(TimeSpan.FromSeconds(3)));
+        var completedTask = await Task.WhenAny(hotReloadTcs.Task, Task.Delay(TimeSpan.FromSeconds(5)));
         completedTask.ShouldBe(hotReloadTcs.Task, "Timed out waiting for dynamic hot-reload via SSE stream");
 
         var hotReloadedComponent = await hotReloadTcs.Task;

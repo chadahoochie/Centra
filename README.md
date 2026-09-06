@@ -2,7 +2,7 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-45%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-50%20Passed-brightgreen.svg)]()
 
 > A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, and allow developers to write pure business logic where **"code is focused on code"**.
 
@@ -13,19 +13,23 @@
 1. **Native In-Process Performance (Zero Sidecars)**:
    - Eliminates sidecar loopback HTTP/gRPC serialization hops and process overhead.
    - High-throughput in-process pipeline using `ValueTask`, `readonly record struct`, `ReadOnlyMemory<byte>`, and `ArrayPool<byte>`.
-2. **Centralized Component Management**:
+2. **Modular & Pluggable Abstractions (Zero Dependency Drag)**:
+   - Fine-grained, decoupled contracts following Interface Segregation Principle (ISP).
+   - Consume *only* what you need (e.g. `Centra.PubSub.Abstractions` without dragging State Store or Distributed Locks).
+   - Composable DI registrations (`AddCentraPubSub`, `AddCentraState`, `AddCentraLocks`, `AddCentraInvocation`, `AddCentraBindings`, or full-stack `AddCentra`).
+3. **Centralized Component Management**:
    - Eliminates fragmented, desynchronized YAML component files and Kubernetes CRD drift.
-   - Components (State Stores, Pub/Sub Brokers, Distributed Locks, and Bindings) are managed, versioned, and monitored centrally.
-3. **Observability as a Core Tenant**:
+   - Components (State Stores, Pub/Sub Brokers, Distributed Locks, and Bindings) are managed, versioned, and monitored centrally with real-time SSE hot-reloading.
+4. **Observability as a Core Tenant**:
    - **Distributed Tracing**: Built directly on `System.Diagnostics.ActivitySource("Centra", "1.0.0")` with W3C `DistributedContextPropagator` context propagation (`traceparent`, `tracestate`).
    - **Semantic Span Roles**: Proper `ActivityKind` assignment (`Producer` on pub, `Consumer` on sub, `Client` on RPC invoke, `Server` on RPC handle, `Internal` on state/locks).
    - **Standard Metrics**: Built on `System.Diagnostics.Metrics.Meter("Centra", "1.0.0")` reporting operation counters, latency histograms, and active gauges.
    - **Zero-Allocation Logging**: High-performance `[LoggerMessage]` source generators.
-4. **CNCF CloudEvents v1.0 Standard**:
+5. **CNCF CloudEvents v1.0 Standard**:
    - Transparently wraps and unwraps domain records into CloudEvents v1.0.
    - Supports **Binary Mode** (default zero-allocation: raw body + `ce-*` headers) and **Structured Mode** (single JSON document).
    - Automatically tracks enterprise extensions: `ce-correlationid`, `ce-causationid`, `ce-tenantid`, `ce-schemaversion`.
-5. **Code Focused on Code**:
+6. **Code Focused on Code**:
    - Domain developers interact with clean, strongly typed interfaces (`IStateStore<T>`, `IPubSubClient`, `IDistributedLockProvider`, typed RPC clients) without vendor plumbing.
 
 ---
@@ -34,10 +38,12 @@
 
 ### 1. Register Centra in ASP.NET Core (`Program.cs`)
 
+You can register the complete framework or only specific building blocks:
+
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// Add Centra with default store names
+// OPTION A: Full-Stack Registration (All Building Blocks)
 builder.Services.AddCentra(options =>
 {
     options.AppId = "orders-service";
@@ -45,6 +51,11 @@ builder.Services.AddCentra(options =>
     options.DefaultPubSub = "pubsub";
     options.DefaultLockStore = "lockstore";
 });
+
+// OPTION B: Composable Modular Registration (Only what you need!)
+// builder.Services.AddCentraPubSub();
+// builder.Services.AddCentraState();
+// builder.Services.AddCentraLocks();
 
 // Add In-Memory Provider for lightning-fast zero-dependency local dev & testing
 builder.Services.AddCentraInMemory();
@@ -141,7 +152,7 @@ The solution includes comprehensive unit and integration test suites:
 # Build the entire solution
 dotnet build Centra.slnx
 
-# Run all unit and integration tests (45 tests)
+# Run all unit and integration tests (50 tests)
 dotnet test Centra.slnx --logger "console;verbosity=normal"
 ```
 
@@ -152,17 +163,25 @@ dotnet test Centra.slnx --logger "console;verbosity=normal"
 ```
 Centra.slnx
 ├── src/
-│   ├── Centra.Abstractions/           # Dependency-free contracts, CloudEvents, ISP interfaces, sync DTOs
+│   ├── Centra.Abstractions/           # Umbrella metapackage referencing all 8 modular abstractions
+│   ├── Centra.Events.Abstractions/    # CNCF CloudEvents v1.0 contracts & ambient context
+│   ├── Centra.PubSub.Abstractions/    # IPubSubClient, IEventHandler, Topic contracts
+│   ├── Centra.State.Abstractions/     # IStateStore, StateEntry, transactions, optimistic concurrency
+│   ├── Centra.Locks.Abstractions/     # IDistributedLockProvider & IDistributedLock contracts
+│   ├── Centra.Invocation.Abstractions/# IServiceInvoker & typed RPC client attributes
+│   ├── Centra.Bindings.Abstractions/  # IOutputBinding & Cron trigger contracts
+│   ├── Centra.Components.Abstractions/# ComponentDefinition, ComponentType, IComponentRegistry
+│   ├── Centra.Sync.Abstractions/      # IControlPlaneClient & live streaming sync event DTOs
 │   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, diagnostics, RPC proxies, SSE client
 │   ├── Centra.Providers.InMemory/     # Zero-dependency in-memory driver implementations
-│   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, hosted services, live sync worker
+│   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, hosted services, composable DI extensions
 │   ├── Centra.ControlPlane/           # Central component catalog, secret resolver, topology tracker, SSE sync dispatcher
 │   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
 ├── samples/
 │   ├── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
 │   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator
 └── tests/
-    ├── Centra.Tests.Unit/             # Core & runtime TDD test suites (35 tests)
+    ├── Centra.Tests.Unit/             # Core, runtime & composable DI TDD test suites (40 tests)
     ├── Centra.ControlPlane.Tests.Unit/# Control Plane TDD test suites (8 tests)
     └── Centra.Tests.Integration/      # End-to-end distributed workflow & live sync integration tests (2 tests)
 ```

@@ -8,6 +8,8 @@ public sealed class ComponentSyncDispatcher : IComponentSyncDispatcher
 {
     private readonly ConcurrentDictionary<string, Channel<ComponentSyncEvent>> _subscribers = new();
 
+    public int SubscriberCount => _subscribers.Count;
+
     public ValueTask PublishEventAsync(ComponentSyncEvent syncEvent, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(syncEvent);
