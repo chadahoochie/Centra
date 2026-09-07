@@ -1,6 +1,8 @@
 using System.Net.Mime;
 using System.Text.Json;
 using Centra.Components;
+using Centra.Actors;
+using Centra.Core.Actors;
 using Centra.ControlPlane.Catalog;
 using Centra.ControlPlane.Diagnostics;
 using Centra.ControlPlane.Secrets;
@@ -10,6 +12,7 @@ using Centra.Sync;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Centra.ControlPlane.Endpoints;
@@ -313,6 +316,39 @@ public static class ControlPlaneEndpoints
                 version = "1.0.0",
                 timestampUtc = timeProvider.GetUtcNow()
             });
+        });
+
+        // Actor Runtime Inspection & Lifecycle
+        group.MapGet("/actors/types", (IServiceProvider serviceProvider) =>
+        {
+            var registrations = serviceProvider.GetServices<ActorRegistration>();
+            var types = registrations.Select(r => r.ActorType.Name).Distinct().ToList();
+            return Results.Ok(types);
+        });
+
+        group.MapGet("/actors/activations", (IServiceProvider serviceProvider) =>
+        {
+            var actorManager = serviceProvider.GetService<ActorManager>();
+            var count = actorManager?.ActiveCount ?? 0;
+            return Results.Ok(new { activeCount = count });
+        });
+
+        group.MapPost("/actors/{actorType}/{actorId}/passivate", async (
+            string actorType,
+            string actorId,
+            IServiceProvider serviceProvider,
+            CancellationToken ct) =>
+        {
+            var actorManager = serviceProvider.GetService<ActorManager>();
+            var passivated = false;
+            if (actorManager is not null)
+            {
+                passivated = await actorManager.PassivateActorAsync(
+                    new ActorIdentity(new ActorType(actorType), new ActorId(actorId)),
+                    ct);
+            }
+
+            return Results.Ok(new { passivated });
         });
 
         return endpoints;

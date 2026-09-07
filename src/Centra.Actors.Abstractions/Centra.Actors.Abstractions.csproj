@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Virtual actor runtime abstractions, turn-based contracts, lifecycle, and proxy interfaces for Centra.</Description>
+    <RootNamespace>Centra.Actors</RootNamespace>
+  </PropertyGroup>
+</Project>

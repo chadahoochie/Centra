@@ -174,4 +174,24 @@ public static class CentraDiagnostics
 
         return activity;
     }
+
+    public static Activity? StartActorInvokeActivity(string actorType, string actorId, string methodName)
+    {
+        if (!Source.HasListeners())
+        {
+            return null;
+        }
+
+        var activity = Source.StartActivity("Actor.Invoke", ActivityKind.Client);
+        if (activity is not null && activity.IsAllDataRequested)
+        {
+            activity.DisplayName = $"Actor.Invoke {actorType}/{actorId}/{methodName}";
+            activity.SetTag("centra.component", "actors");
+            activity.SetTag("actor.type", actorType);
+            activity.SetTag("actor.id", actorId);
+            activity.SetTag("actor.method", methodName);
+        }
+
+        return activity;
+    }
 }

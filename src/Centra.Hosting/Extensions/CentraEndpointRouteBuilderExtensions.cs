@@ -137,6 +137,125 @@ public static class CentraEndpointRouteBuilderExtensions
             }
         });
 
+        endpoints.MapCentraActorEndpoints();
+
+        return endpoints;
+    }
+
+    public static IEndpointRouteBuilder MapCentraActorEndpoints(this IEndpointRouteBuilder endpoints)
+    {
+        // Map Virtual Actor Invocations
+        endpoints.MapPost("/centra/actors/{actorType}/{actorId}/method/{methodName}", async (
+            string actorType,
+            string actorId,
+            string methodName,
+            HttpContext context) =>
+        {
+            var actorManager = context.RequestServices.GetService<Centra.Core.Actors.ActorManager>();
+            if (actorManager is null)
+            {
+                return Results.NotFound();
+            }
+
+            var identity = new Centra.Actors.ActorIdentity(actorType, actorId);
+
+            using var ms = new MemoryStream();
+            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
+            var bodyBytes = ms.ToArray();
+
+            try
+            {
+                var response = await actorManager.DispatchAsync(identity, async actor =>
+                {
+                    var actorClassType = actor.GetType();
+                    var method = actorClassType.GetMethods()
+                        .FirstOrDefault(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase));
+
+                    if (method == null)
+                    {
+                        throw new MissingMethodException(actorClassType.Name, methodName);
+                    }
+
+                    var parameters = method.GetParameters();
+                    object?[] args;
+
+                    if (parameters.Length == 0)
+                    {
+                        args = Array.Empty<object?>();
+                    }
+                    else if (parameters.Length == 1 && parameters[0].ParameterType == typeof(CancellationToken))
+                    {
+                        args = [context.RequestAborted];
+                    }
+                    else
+                    {
+                        var paramType = parameters[0].ParameterType;
+                        var paramValue = bodyBytes.Length > 0
+                            ? System.Text.Json.JsonSerializer.Deserialize(bodyBytes, paramType)
+                            : null;
+
+                        if (parameters.Length == 2 && parameters[1].ParameterType == typeof(CancellationToken))
+                        {
+                            args = [paramValue, context.RequestAborted];
+                        }
+                        else
+                        {
+                            args = [paramValue];
+                        }
+                    }
+
+                    var rawResult = method.Invoke(actor, args);
+                    if (rawResult is Task task)
+                    {
+                        await task.ConfigureAwait(false);
+                        var taskType = task.GetType();
+                        if (taskType.IsGenericType)
+                        {
+                            var prop = taskType.GetProperty("Result");
+                            return prop?.GetValue(task);
+                        }
+                        return null;
+                    }
+
+                    if (rawResult != null)
+                    {
+                        var rawType = rawResult.GetType();
+                        if (rawType.IsGenericType && rawType.GetGenericTypeDefinition() == typeof(ValueTask<>))
+                        {
+                            var asTaskMethod = rawType.GetMethod("AsTask")!;
+                            var asTask = (Task)asTaskMethod.Invoke(rawResult, null)!;
+                            await asTask.ConfigureAwait(false);
+                            var prop = asTask.GetType().GetProperty("Result");
+                            return prop?.GetValue(asTask);
+                        }
+
+                        if (rawResult is ValueTask vt)
+                        {
+                            await vt.ConfigureAwait(false);
+                            return null;
+                        }
+                    }
+
+                    return rawResult;
+                }, context.RequestAborted);
+
+                if (response is null)
+                {
+                    return Results.Ok();
+                }
+
+                return Results.Ok(response);
+            }
+            catch (MissingMethodException)
+            {
+                return Results.NotFound();
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
         return endpoints;
     }
 }

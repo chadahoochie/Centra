@@ -91,6 +91,8 @@ Repo-level skills are saved in [`.agents/skills/`](file:///home/chad/source/dotn
 5. **No Blind Overwrites**: State mutations must use ETags and optimistic concurrency (`TrySetAsync`).
 6. **Central Package Management**: Never specify package versions in `.csproj` files; declare them in [`Directory.Packages.props`](file:///home/chad/source/dotnet/distributed-framework/Directory.Packages.props).
 7. **Strict Build Settings**: `<Nullable>enable</Nullable>` and `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` are active across all projects.
+8. **Virtual Actor Concurrency & State Invariant**: Actor turns must execute sequentially via the actor mailbox (`ActorMailbox`). State mutations are staged in `ActorStateManager` and committed atomically on turn completion using ETags.
+9. **Durable Reminders Distributed Coordination**: Reminders surviving actor passivation must coordinate using distributed locks (`ActorReminderCoordinator`) to guarantee single-execution across cluster replicas.
 
 ---
 
@@ -108,6 +110,9 @@ dotnet test Centra.slnx --logger "console;verbosity=normal"
 
 # Run the 3-node simulation
 dotnet run --project samples/Centra.Sample.MultiInstance -- --demo
+
+# Run the virtual actors simulation
+dotnet run --project samples/Centra.Sample.Actors -- --demo
 
 # Run with Aspire orchestration
 dotnet run --project samples/Centra.AppHost

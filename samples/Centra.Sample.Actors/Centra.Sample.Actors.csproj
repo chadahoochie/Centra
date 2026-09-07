@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>Virtual Actors sample showcasing turn-based concurrency, state persistence across passivation, durable reminders, and dynamic proxy dispatch with Centra.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Actors.Abstractions\Centra.Actors.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Core\Centra.Core.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.InMemory\Centra.Providers.InMemory.csproj" />
+  </ItemGroup>
+</Project>

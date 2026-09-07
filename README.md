@@ -2,9 +2,9 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-271%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-328%20Passed-brightgreen.svg)]()
 
-> A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, integrate enterprise **Distributed Resilience & Fault Tolerance** powered by Polly Core v8, and allow developers to write pure business logic where **"code is focused on code"**.
+> A high-performance, cloud-native distributed application framework for .NET 10 engineered natively in C# to deliver zero-sidecar in-process speed, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, integrate enterprise **Distributed Resilience & Fault Tolerance** powered by Polly Core v8, host stateful **Distributed Virtual Actors**, and allow developers to write pure business logic where **"code is focused on code"**.
 
 ---
 
@@ -16,7 +16,7 @@
 2. **Modular & Pluggable Abstractions (Zero Dependency Drag)**:
    - Fine-grained, decoupled contracts following Interface Segregation Principle (ISP).
    - Consume *only* what you need (e.g. `Centra.PubSub.Abstractions` or `Centra.Resilience.Abstractions` without dragging State Store or Distributed Locks).
-   - Composable DI registrations (`AddCentraPubSub`, `AddCentraState`, `AddCentraLocks`, `AddCentraInvocation`, `AddCentraBindings`, `AddCentraResilience`, or full-stack `AddCentra`).
+   - Composable DI registrations (`AddCentraPubSub`, `AddCentraState`, `AddCentraLocks`, `AddCentraInvocation`, `AddCentraBindings`, `AddCentraResilience`, `AddCentraActors`, or full-stack `AddCentra`).
 3. **Distributed Resilience & Fault Tolerance Pipeline**:
    - Zero-allocation execution engine wrapping **Polly Core v8** with composite pipelines: **Timeout -> Bulkhead / Concurrency Limiter -> Rate Limiter -> Circuit Breaker -> Retry**.
    - Exponential, linear, or constant backoff with jitter and cancellation token propagation.
@@ -35,7 +35,14 @@
    - Supports **Binary Mode** (default zero-allocation: raw body + `ce-*` headers) and **Structured Mode** (single JSON document).
    - Automatically tracks enterprise extensions: `ce-correlationid`, `ce-causationid`, `ce-tenantid`, `ce-schemaversion`.
 7. **Code Focused on Code**:
-   - Domain developers interact with clean, strongly typed interfaces (`IStateStore<T>`, `IPubSubClient`, `IDistributedLockProvider`, `IResiliencePipelineProvider`, typed RPC clients) without vendor plumbing.
+   - Domain developers interact with clean, strongly typed interfaces (`IStateStore<T>`, `IPubSubClient`, `IDistributedLockProvider`, `IResiliencePipelineProvider`, typed RPC clients, `IActorProxyFactory`) without vendor plumbing.
+8. **Distributed Virtual Actors Runtime**:
+   - High-throughput virtual actors with turn-based sequential single-threaded execution (zero race conditions).
+   - Consistent hash ring partition placement (`ConsistentHashRing`) across cluster nodes with virtual vnodes.
+   - Dynamic client RPC proxy generation (`IActorProxyFactory`, `DispatchProxy`).
+   - Optimistic concurrency state management (`IActorStateManager`, ETag CAS) with dirty-tracking and automatic turn-based commits.
+   - Ephemeral timers (`IActorTimerManager`) and durable reminders (`IActorReminderManager`, `IRemindable`) with distributed lock coordination across cluster replicas.
+   - Automatic activation lifecycle with async deduplication, idle timeout passivation, and clean shutdown.
 
 ---
 
@@ -174,6 +181,19 @@ dotnet run --project samples/Centra.Sample.MultiInstance -- --instance-id node-1
 dotnet run --project samples/Centra.AppHost
 ```
 
+### 4. Distributed Virtual Actors Example (`Centra.Sample.Actors`)
+
+Showcases stateful virtual actors with turn-based concurrency, durable reminders, and dynamic RPC dispatch:
+- **Turn-Based Concurrency**: 50 concurrent client turns dispatch against an actor instance, executed strictly sequentially without race conditions or locks.
+- **State Persistence & Passivation**: Inactive actors passivate to conserve resources; incoming turns or reminders seamlessly reactivate them with restored state.
+- **Durable Reminders**: Reminders survive actor deactivation and cluster node failovers, executed with distributed lock mutual exclusion.
+- **Dynamic Proxy Dispatch**: Interacting with actors is pure C# interface code via `IActorProxyFactory`.
+
+**Run Simulation**:
+```bash
+dotnet run --project samples/Centra.Sample.Actors -- --demo
+```
+
 ---
 
 ## 🔌 Production Distributed Providers
@@ -262,6 +282,9 @@ dotnet run --project samples/Centra.Sample.Resilience -- --demo
 
 # Run interactive distributed bindings & schedulers demo (cron triggers, inbound webhooks, resilient output bindings)
 dotnet run --project samples/Centra.Sample.Bindings -- --demo
+
+# Run interactive distributed virtual actors simulation (turn-based concurrency, state persistence, durable reminders)
+dotnet run --project samples/Centra.Sample.Actors -- --demo
 ```
 
 ---
@@ -347,6 +370,82 @@ All RPC invocations (`CentraServiceInvoker`), state store mutations (`CentraStat
 
 ---
 
+## 🎭 Distributed Virtual Actors Runtime
+
+Centra features a native, high-performance **Distributed Virtual Actors Runtime Engine** built for .NET 10. Virtual actors exist conceptually forever; they are activated on-demand upon first invocation and passivated when idle, with state backed by Centra's pluggable state stores.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                   IActorProxyFactory                     │
+└────────────────────────────┬─────────────────────────────┘
+                             │ Creates Dynamic DispatchProxy
+                             ▼
+┌──────────────────────────────────────────────────────────┐
+│               IActorPlacementDirector                    │
+│    (ConsistentHashRing: Virtual Nodes Partitioning)      │
+└──────────────┬────────────────────────────┬──────────────┘
+               │ Local                      │ Remote HTTP
+               ▼                            ▼
+┌──────────────────────────────┐ ┌─────────────────────────┐
+│         ActorManager         │ │ Remote Node (Actor HTTP)│
+│  ┌────────────────────────┐  │ │ POST /centra/actors/    │
+│  │     ActorMailbox       │  │ │      {type}/{id}/method │
+│  │ (Turn-Based FIFO Queue)│  │ └─────────────────────────┘
+│  └───────────┬────────────┘  │
+│              ▼               │
+│  ┌────────────────────────┐  │
+│  │     Actor Instance     │  │
+│  │  - ActorStateManager   │  │
+│  │  - ActorTimerManager   │  │
+│  │  - IActorReminderMgr   │  │
+│  └───────────┬────────────┘  │
+└──────────────┼───────────────┘
+               │ Auto-Commit on Turn Completion
+               ▼
+┌──────────────────────────────────────────────────────────┐
+│             IStateStore (ETag CAS Persistence)           │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Key Actor Capabilities
+
+1. **Turn-Based Concurrency**: Every actor activation owns an `ActorMailbox`. Turns are queued and dispatched sequentially. An actor never processes two turns simultaneously, eliminating multi-threading race conditions without manual locks.
+2. **Optimistic Concurrency State Manager**: State mutations are tracked in-memory through `ActorStateManager`. Upon turn completion, dirty keys are atomically committed to `IStateStore` using ETag Compare-And-Swap.
+3. **Consistent Hash Partition Placement**: The `ConsistentHashRing` uniformly maps `ActorIdentity` across cluster replicas via 100 virtual vnodes per physical node, minimizing re-partitioning churn when nodes join or leave.
+4. **Ephemeral Timers & Durable Reminders**:
+   - **Timers**: In-memory periodic callbacks tied to an active actor's lifecycle (`ActorTimerManager`).
+   - **Reminders**: Persistent schedules recorded in `IStateStore`. If an actor is passivated, `ActorReminderCoordinator` automatically wakes the actor up to execute `ReceiveReminderAsync`. Reminders coordinate using distributed locks to guarantee single-execution across the cluster.
+5. **Dynamic Proxy Generation**: Strongly typed interfaces (e.g., `IAccountActor`) are dynamically proxied via `IActorProxyFactory.CreateActorProxy<T>()`. Method calls route locally if placed on the current node or fall back to HTTP RPC dispatch across cluster nodes.
+
+```csharp
+// Define Actor Contract & Remindable Hook
+public interface IAccountActor : IActor, IRemindable
+{
+    ValueTask<decimal> GetBalanceAsync();
+    ValueTask<decimal> DepositAsync(decimal amount);
+    ValueTask ScheduleInterestReminderAsync(TimeSpan period);
+}
+
+// Implement Actor with State & Reminders
+public sealed class AccountActor : Actor, IAccountActor
+{
+    public async ValueTask<decimal> DepositAsync(decimal amount)
+    {
+        var current = await StateManager.GetStateAsync<decimal>("balance");
+        var updated = current + amount;
+        await StateManager.SetStateAsync("balance", updated);
+        return updated; // Auto-saved to state store at end of turn!
+    }
+
+    public async ValueTask ReceiveReminderAsync(string name, ReadOnlyMemory<byte> state, TimeSpan dueTime, TimeSpan period, CancellationToken ct)
+    {
+        // Executes across cluster with distributed lock coordination!
+    }
+}
+```
+
+---
+
 ## 📦 Solution Architecture
 
 ```
@@ -362,7 +461,8 @@ Centra.slnx
 │   ├── Centra.Components.Abstractions/# ComponentDefinition, ComponentType, IComponentRegistry
 │   ├── Centra.Sync.Abstractions/      # IControlPlaneClient & live streaming sync event DTOs
 │   ├── Centra.Resilience.Abstractions/# Resilience pipelines, retry, circuit breaker, timeout & bulkhead contracts
-│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, cron parser, RPC proxies, Polly v8 engine
+│   ├── Centra.Actors.Abstractions/    # IActor, Actor, ActorId, IActorStateManager, IActorReminderManager contracts
+│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, cron parser, RPC proxies, Polly v8, actors engine
 │   ├── Centra.Providers.InMemory/     # Zero-dependency in-memory driver implementations
 │   ├── Centra.Providers.Redis/        # Redis State (Lua CAS/Tx), Pub/Sub (CloudEvents v1.0 binary), Locks (Lease/Renewal)
 │   ├── Centra.Providers.PostgreSql/   # PostgreSQL State (ACID table, ETags, Tx, TTL) & Locks (Lease table heartbeat)
@@ -370,25 +470,26 @@ Centra.slnx
 │   ├── Centra.Providers.SqlServer/    # SQL Server State (MERGE, ETags, Tx, TTL) & Locks (Lease table renewal)
 │   ├── Centra.Providers.AzureServiceBus/# Azure Service Bus Pub/Sub (Topics, Subscriptions, CloudEvents headers, Dead-lettering)
 │   ├── Centra.Providers.CosmosDb/     # Azure Cosmos DB State (Point reads, TransactionalBatch, ETags, TTL) & Locks
-│   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, bindings hosted service, composable DI extensions
-│   ├── Centra.ControlPlane/           # Central component catalog, resilience catalog, topology tracker, SSE sync dispatcher
+│   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, actor endpoints, bindings hosted service, composable DI
+│   ├── Centra.ControlPlane/           # Central component catalog, resilience catalog, topology tracker, actor inspector, SSE sync
 │   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
 ├── samples/
 │   ├── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
 │   ├── Centra.Sample.MultiInstance/   # Multi-instance cluster: native service discovery, locks, shared state, pub/sub
 │   ├── Centra.Sample.Resilience/      # Resilience & Chaos simulation: retries, circuit breaker trip/recover, timeouts, hot-reload
 │   ├── Centra.Sample.Bindings/        # Bindings simulation: distributed cron, HTTP webhooks, and state persistence
+│   ├── Centra.Sample.Actors/          # Virtual actors simulation: turn-based concurrency, state persistence, durable reminders
 │   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator (multi-replica orchestration)
 └── tests/
-    ├── Centra.Tests.Unit/             # Core, runtime, invocation, state, pubsub, bindings & Polly v8 resilience tests (198 tests)
-    ├── Centra.ControlPlane.Tests.Unit/# Control Plane component, bindings & resilience catalog/endpoints tests (19 tests)
+    ├── Centra.Tests.Unit/             # Core, runtime, invocation, state, pubsub, bindings, resilience & actors tests (248 tests)
+    ├── Centra.ControlPlane.Tests.Unit/# Control Plane catalog, resilience, topology & actor inspection tests (22 tests)
     ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (17 tests)
     ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (7 tests)
     ├── Centra.Providers.SqlServer.Tests.Unit/   # SQL Server State and Locks unit tests (5 tests)
     ├── Centra.Providers.AzureServiceBus.Tests.Unit/ # Azure Service Bus Pub/Sub unit tests (4 tests)
     ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (2 tests)
     ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
-    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster, bindings & Testcontainers (17 tests)
+    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster, bindings, actors & Testcontainers (21 tests)
 ```
 
 ---
@@ -399,3 +500,5 @@ Centra.slnx
 - **File per Type**: Exactly one type per `.cs` file.
 - **Zero Allocation**: `ValueTask`, `readonly record struct`, `ReadOnlyMemory<byte>`, `ArrayPool<byte>`.
 - **Standards Compliant**: CNCF CloudEvents v1.0, W3C TraceContext, OpenTelemetry semantic conventions.
+- **Actor Concurrency Safety**: Single-threaded FIFO turn execution via `ActorMailbox` with optimistic concurrency ETag commits.
+- **Durable Reminders Mutual Exclusion**: Distributed lock coordination across cluster nodes preventing duplicate ticks.
