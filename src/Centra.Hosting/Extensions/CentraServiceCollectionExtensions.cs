@@ -16,6 +16,8 @@ public static class CentraServiceCollectionExtensions
         services.AddCentraLocks();
         services.AddCentraBindings();
         services.AddCentraInvocation();
+        services.AddCentraActors();
+        services.AddCentraWorkflows();
         services.AddCentraControlPlaneSync();
 
         return services;

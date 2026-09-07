@@ -7,6 +7,7 @@ using Centra.Locks;
 using Centra.State;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace Centra.Hosting.Extensions;
 
@@ -16,9 +17,13 @@ public static class CentraActorServiceCollectionExtensions
         this IServiceCollection services,
         Action<ActorOptions>? configure = null)
     {
-        var options = new ActorOptions();
-        configure?.Invoke(options);
-        services.TryAddSingleton(options);
+        services.AddOptions<ActorOptions>();
+        if (configure is not null)
+        {
+            services.Configure(configure);
+        }
+
+        services.TryAddSingleton(sp => sp.GetRequiredService<IOptions<ActorOptions>>().Value);
 
         services.TryAddSingleton<ConsistentHashRing>(sp => new ConsistentHashRing());
         services.TryAddSingleton<IActorPlacementDirector>(sp =>
@@ -34,6 +39,12 @@ public static class CentraActorServiceCollectionExtensions
         {
             var stateStore = sp.GetRequiredService<IStateStore>();
             var opt = sp.GetRequiredService<ActorOptions>();
+            var centraOpt = sp.GetService<CentraOptions>();
+            var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
+                ? opt.DefaultStateStore
+                : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
+            opt.DefaultStateStore = storeName;
+
             var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
             var registrations = sp.GetServices<ActorRegistration>();
             return new ActorManager(sp, stateStore, opt, timeProvider, registrations);
@@ -44,6 +55,12 @@ public static class CentraActorServiceCollectionExtensions
             var manager = sp.GetRequiredService<ActorManager>();
             var stateStore = sp.GetRequiredService<IStateStore>();
             var opt = sp.GetRequiredService<ActorOptions>();
+            var centraOpt = sp.GetService<CentraOptions>();
+            var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
+                ? opt.DefaultStateStore
+                : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
+            opt.DefaultStateStore = storeName;
+
             var lockProvider = sp.GetService<IDistributedLockProvider>();
             var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
             return new ActorReminderCoordinator(manager, stateStore, opt, lockProvider, timeProvider);

@@ -3,6 +3,8 @@ using System.Text.Json;
 using Centra.Components;
 using Centra.Actors;
 using Centra.Core.Actors;
+using Centra.Workflows;
+using Centra.Core.Workflows;
 using Centra.ControlPlane.Catalog;
 using Centra.ControlPlane.Diagnostics;
 using Centra.ControlPlane.Secrets;
@@ -349,6 +351,68 @@ public static class ControlPlaneEndpoints
             }
 
             return Results.Ok(new { passivated });
+        });
+
+        // Workflow Runtime Inspection
+        group.MapGet("/workflows/definitions", (IServiceProvider serviceProvider) =>
+        {
+            var registry = serviceProvider.GetService<IWorkflowRegistry>();
+            var defs = registry?.GetWorkflows().Select(w => new
+            {
+                name = w.Name,
+                workflowType = w.WorkflowType.Name,
+                inputType = w.InputType.Name,
+                outputType = w.OutputType.Name
+            }) ?? [];
+            return Results.Ok(defs);
+        });
+
+        group.MapGet("/workflows/activities", (IServiceProvider serviceProvider) =>
+        {
+            var registry = serviceProvider.GetService<IWorkflowRegistry>();
+            var activities = registry?.GetActivities().Select(a => new
+            {
+                name = a.Name,
+                activityType = a.ActivityType.Name,
+                inputType = a.InputType.Name,
+                outputType = a.OutputType.Name
+            }) ?? [];
+            return Results.Ok(activities);
+        });
+
+        group.MapGet("/workflows/instances/{instanceId}", async (
+            string instanceId,
+            IServiceProvider serviceProvider,
+            CancellationToken ct) =>
+        {
+            var engine = serviceProvider.GetService<IWorkflowEngine>();
+            if (engine is null) return Results.NotFound();
+
+            var state = await engine.GetWorkflowStateAsync(new WorkflowInstanceId(instanceId), ct);
+            if (state is null) return Results.NotFound();
+
+            return Results.Ok(new
+            {
+                instanceId = state.Value.InstanceId.Value,
+                workflowName = state.Value.WorkflowName,
+                status = state.Value.Status.ToString(),
+                customStatus = state.Value.CustomStatus,
+                createdAt = state.Value.CreatedAt,
+                lastUpdatedAt = state.Value.LastUpdatedAt,
+                failureDetails = state.Value.FailureDetails
+            });
+        });
+
+        group.MapGet("/workflows/instances/{instanceId}/history", async (
+            string instanceId,
+            IServiceProvider serviceProvider,
+            CancellationToken ct) =>
+        {
+            var engine = serviceProvider.GetService<IWorkflowEngine>();
+            if (engine is null) return Results.NotFound();
+
+            var history = await engine.GetWorkflowHistoryAsync(new WorkflowInstanceId(instanceId), ct);
+            return Results.Ok(history);
         });
 
         return endpoints;

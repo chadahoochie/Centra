@@ -93,6 +93,7 @@ Repo-level skills are saved in [`.agents/skills/`](file:///home/chad/source/dotn
 7. **Strict Build Settings**: `<Nullable>enable</Nullable>` and `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` are active across all projects.
 8. **Virtual Actor Concurrency & State Invariant**: Actor turns must execute sequentially via the actor mailbox (`ActorMailbox`). State mutations are staged in `ActorStateManager` and committed atomically on turn completion using ETags.
 9. **Durable Reminders Distributed Coordination**: Reminders surviving actor passivation must coordinate using distributed locks (`ActorReminderCoordinator`) to guarantee single-execution across cluster replicas.
+10. **Workflow Determinism & Saga Rollback Invariant**: Orchestration turns must be deterministic; side effects, clock checks, and random values must execute within activities or use `IWorkflowContext` (`CurrentUtcDateTime`, `NewGuid()`). On activity failure or cancellation, registered saga compensations must execute in strict reverse (LIFO) order.
 
 ---
 
@@ -113,6 +114,9 @@ dotnet run --project samples/Centra.Sample.MultiInstance -- --demo
 
 # Run the virtual actors simulation
 dotnet run --project samples/Centra.Sample.Actors -- --demo
+
+# Run the workflows and distributed sagas simulation
+dotnet run --project samples/Centra.Sample.Workflows -- --demo
 
 # Run with Aspire orchestration
 dotnet run --project samples/Centra.AppHost

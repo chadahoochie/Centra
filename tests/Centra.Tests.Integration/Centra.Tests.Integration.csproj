@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\samples\Centra.Sample.Resilience\Centra.Sample.Resilience.csproj" />
     <ProjectReference Include="..\..\samples\Centra.Sample.Bindings\Centra.Sample.Bindings.csproj" />
     <ProjectReference Include="..\..\samples\Centra.Sample.Actors\Centra.Sample.Actors.csproj" />
+    <ProjectReference Include="..\..\samples\Centra.Sample.Workflows\Centra.Sample.Workflows.csproj" />
   </ItemGroup>
 
   <ItemGroup>

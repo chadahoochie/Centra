@@ -4,6 +4,8 @@ using Centra.Diagnostics;
 using Centra.Events;
 using Centra.Hosting.Routing;
 using Centra.PubSub;
+using Centra.Workflows;
+using Centra.Core.Workflows;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -138,6 +140,7 @@ public static class CentraEndpointRouteBuilderExtensions
         });
 
         endpoints.MapCentraActorEndpoints();
+        endpoints.MapCentraWorkflowEndpoints();
 
         return endpoints;
     }
@@ -254,6 +257,137 @@ public static class CentraEndpointRouteBuilderExtensions
             {
                 return Results.Problem(ex.Message, statusCode: StatusCodes.Status500InternalServerError);
             }
+        });
+
+        return endpoints;
+    }
+
+    public static IEndpointRouteBuilder MapCentraWorkflowEndpoints(this IEndpointRouteBuilder endpoints)
+    {
+        // Workflow Endpoints
+        endpoints.MapPost("/centra/workflows/{workflowName}/start", async (
+            string workflowName,
+            HttpContext context) =>
+        {
+            var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
+            if (workflowClient is null) return Results.NotFound();
+
+            using var ms = new MemoryStream();
+            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
+            var payload = ms.Length > 0 ? ms.ToArray() : null;
+
+            var instanceId = await workflowClient.StartWorkflowAsync(
+                workflowName,
+                payload,
+                null,
+                context.RequestAborted).ConfigureAwait(false);
+
+            return Results.Accepted($"/centra/workflows/{instanceId.Value}", new { instanceId = instanceId.Value });
+        });
+
+        endpoints.MapPost("/centra/workflows/{workflowName}/{instanceId}/start", async (
+            string workflowName,
+            string instanceId,
+            HttpContext context) =>
+        {
+            var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
+            if (workflowClient is null) return Results.NotFound();
+
+            using var ms = new MemoryStream();
+            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
+            var payload = ms.Length > 0 ? ms.ToArray() : null;
+
+            var actualId = await workflowClient.StartWorkflowAsync(
+                workflowName,
+                payload,
+                instanceId,
+                context.RequestAborted).ConfigureAwait(false);
+
+            return Results.Accepted($"/centra/workflows/{actualId.Value}", new { instanceId = actualId.Value });
+        });
+
+        endpoints.MapGet("/centra/workflows/{instanceId}", async (
+            string instanceId,
+            HttpContext context) =>
+        {
+            var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
+            if (workflowClient is null) return Results.NotFound();
+
+            var state = await workflowClient.GetWorkflowStateAsync(new WorkflowInstanceId(instanceId), context.RequestAborted).ConfigureAwait(false);
+            if (state is null) return Results.NotFound();
+
+            return Results.Ok(new
+            {
+                instanceId = state.Value.InstanceId.Value,
+                workflowName = state.Value.WorkflowName,
+                status = state.Value.Status.ToString(),
+                customStatus = state.Value.CustomStatus,
+                createdAt = state.Value.CreatedAt,
+                lastUpdatedAt = state.Value.LastUpdatedAt,
+                failureDetails = state.Value.FailureDetails
+            });
+        });
+
+        endpoints.MapGet("/centra/workflows/{instanceId}/history", async (
+            string instanceId,
+            HttpContext context) =>
+        {
+            var workflowEngine = context.RequestServices.GetService<IWorkflowEngine>();
+            if (workflowEngine is null) return Results.NotFound();
+
+            var history = await workflowEngine.GetWorkflowHistoryAsync(new WorkflowInstanceId(instanceId), context.RequestAborted).ConfigureAwait(false);
+            return Results.Ok(history);
+        });
+
+        endpoints.MapPost("/centra/workflows/{instanceId}/raise-event/{eventName}", async (
+            string instanceId,
+            string eventName,
+            HttpContext context) =>
+        {
+            var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
+            if (workflowClient is null) return Results.NotFound();
+
+            using var ms = new MemoryStream();
+            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
+            var payload = ms.Length > 0 ? ms.ToArray() : null;
+
+            await workflowClient.RaiseEventAsync(
+                new WorkflowInstanceId(instanceId),
+                eventName,
+                payload,
+                context.RequestAborted).ConfigureAwait(false);
+
+            return Results.Accepted();
+        });
+
+        endpoints.MapPost("/centra/workflows/{instanceId}/terminate", async (
+            string instanceId,
+            HttpContext context) =>
+        {
+            var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
+            if (workflowClient is null) return Results.NotFound();
+
+            using var reader = new StreamReader(context.Request.Body);
+            var reason = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(reason)) reason = "Terminated via API";
+
+            await workflowClient.TerminateWorkflowAsync(
+                new WorkflowInstanceId(instanceId),
+                reason,
+                context.RequestAborted).ConfigureAwait(false);
+
+            return Results.Ok();
+        });
+
+        endpoints.MapDelete("/centra/workflows/{instanceId}", async (
+            string instanceId,
+            HttpContext context) =>
+        {
+            var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
+            if (workflowClient is null) return Results.NotFound();
+
+            await workflowClient.PurgeWorkflowAsync(new WorkflowInstanceId(instanceId), context.RequestAborted).ConfigureAwait(false);
+            return Results.NoContent();
         });
 
         return endpoints;
