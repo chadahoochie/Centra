@@ -101,4 +101,43 @@ public static class CentraMeters
         LockHoldDuration.Record(holdDurationMs,
             new KeyValuePair<string, object?>("centra.lock_store.name", lockStore));
     }
+
+    // Resilience instruments
+    private static readonly Counter<long> ResilienceRetriesCounter =
+        Meter.CreateCounter<long>("centra.resilience.retries_total", "ea", "Total resilience retry attempts");
+    private static readonly Counter<long> ResilienceCircuitTransitionsCounter =
+        Meter.CreateCounter<long>("centra.resilience.circuit_state_transitions_total", "ea", "Total circuit breaker state transitions");
+    private static readonly Counter<long> ResilienceTimeoutsCounter =
+        Meter.CreateCounter<long>("centra.resilience.timeouts_total", "ea", "Total resilience timeout expirations");
+    private static readonly Counter<long> ResilienceRejectionsCounter =
+        Meter.CreateCounter<long>("centra.resilience.rejections_total", "ea", "Total resilience rejected executions");
+
+    public static void RecordResilienceRetry(string pipelineName, int attemptNumber, string? exceptionType)
+    {
+        ResilienceRetriesCounter.Add(1,
+            new KeyValuePair<string, object?>("centra.resilience.pipeline", pipelineName),
+            new KeyValuePair<string, object?>("centra.resilience.attempt", attemptNumber),
+            new KeyValuePair<string, object?>("exception.type", exceptionType ?? "none"));
+    }
+
+    public static void RecordResilienceCircuitTransition(string pipelineName, string state)
+    {
+        ResilienceCircuitTransitionsCounter.Add(1,
+            new KeyValuePair<string, object?>("centra.resilience.pipeline", pipelineName),
+            new KeyValuePair<string, object?>("centra.resilience.circuit_state", state));
+    }
+
+    public static void RecordResilienceTimeout(string pipelineName, double timeoutSeconds)
+    {
+        ResilienceTimeoutsCounter.Add(1,
+            new KeyValuePair<string, object?>("centra.resilience.pipeline", pipelineName),
+            new KeyValuePair<string, object?>("centra.resilience.timeout_seconds", timeoutSeconds));
+    }
+
+    public static void RecordResilienceRejection(string pipelineName, string strategyName)
+    {
+        ResilienceRejectionsCounter.Add(1,
+            new KeyValuePair<string, object?>("centra.resilience.pipeline", pipelineName),
+            new KeyValuePair<string, object?>("centra.resilience.strategy", strategyName));
+    }
 }

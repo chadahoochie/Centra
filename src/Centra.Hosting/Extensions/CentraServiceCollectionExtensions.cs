@@ -10,6 +10,7 @@ public static class CentraServiceCollectionExtensions
         Action<CentraOptions>? configure = null)
     {
         services.AddCentraCore(configure);
+        services.AddCentraResilience();
         services.AddCentraState();
         services.AddCentraPubSub();
         services.AddCentraLocks();

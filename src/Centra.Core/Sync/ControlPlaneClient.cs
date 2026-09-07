@@ -36,6 +36,16 @@ public sealed class ControlPlaneClient : IControlPlaneClient
         return response ?? (IReadOnlyCollection<ServiceNodeDto>)Array.Empty<ServiceNodeDto>();
     }
 
+    public async Task<IReadOnlyCollection<ResiliencePolicyDto>> GetResiliencePoliciesAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<List<ResiliencePolicyDto>>(
+            "api/v1/resilience",
+            JsonOptions,
+            cancellationToken).ConfigureAwait(false);
+
+        return response ?? (IReadOnlyCollection<ResiliencePolicyDto>)Array.Empty<ResiliencePolicyDto>();
+    }
+
     public async IAsyncEnumerable<ComponentSyncEventDto> StreamUpdatesAsync(
         string appId,
         string instanceId,
@@ -55,6 +65,30 @@ public sealed class ControlPlaneClient : IControlPlaneClient
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
         await foreach (var evt in SseStreamReader.ReadEventsAsync(stream, cancellationToken).ConfigureAwait(false))
+        {
+            yield return evt;
+        }
+    }
+
+    public async IAsyncEnumerable<ResilienceSyncEventDto> StreamResilienceUpdatesAsync(
+        string appId,
+        string instanceId,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var requestUri = $"api/v1/resilience/stream?appId={Uri.EscapeDataString(appId)}&instanceId={Uri.EscapeDataString(instanceId)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.ParseAdd("text/event-stream");
+
+        using var response = await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+
+        await foreach (var evt in SseStreamReader.ReadResilienceEventsAsync(stream, cancellationToken).ConfigureAwait(false))
         {
             yield return evt;
         }

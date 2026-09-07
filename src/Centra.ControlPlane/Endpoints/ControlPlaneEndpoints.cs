@@ -6,6 +6,7 @@ using Centra.ControlPlane.Diagnostics;
 using Centra.ControlPlane.Secrets;
 using Centra.ControlPlane.Sync;
 using Centra.ControlPlane.Topology;
+using Centra.Sync;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -94,6 +95,116 @@ public static class ControlPlaneEndpoints
             await dispatcher.PublishEventAsync(syncEvent, ct);
 
             return Results.NoContent();
+        });
+
+        // Resilience Policy CRUD
+        group.MapGet("/resilience", async (IResiliencePolicyCatalog catalog, CancellationToken ct) =>
+        {
+            var entries = await catalog.GetAllPoliciesAsync(ct);
+            var list = entries.Select(e => e.Policy).ToList();
+            return Results.Ok(list);
+        });
+
+        group.MapGet("/resilience/{name}", async (string name, IResiliencePolicyCatalog catalog, CancellationToken ct) =>
+        {
+            var entry = await catalog.GetPolicyAsync(name, ct);
+            if (entry is null)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.Ok(entry.Policy);
+        });
+
+        group.MapPost("/resilience", async (
+            ResiliencePolicyDto policy,
+            IResiliencePolicyCatalog catalog,
+            IComponentSyncDispatcher dispatcher,
+            TimeProvider timeProvider,
+            CancellationToken ct) =>
+        {
+            var entry = await catalog.UpsertPolicyAsync(policy, ct);
+            var syncEvent = new ResilienceSyncEventDto
+            {
+                Action = "Upserted",
+                PolicyName = policy.PolicyName,
+                Policy = policy,
+                Revision = entry.Revision,
+                TimestampUtc = entry.UpdatedAtUtc
+            };
+
+            await dispatcher.BroadcastResilienceUpdateAsync(syncEvent, ct);
+
+            return Results.Created($"/api/v1/resilience/{policy.PolicyName}", entry.Policy);
+        });
+
+        group.MapDelete("/resilience/{name}", async (
+            string name,
+            IResiliencePolicyCatalog catalog,
+            IComponentSyncDispatcher dispatcher,
+            TimeProvider timeProvider,
+            CancellationToken ct) =>
+        {
+            var deleted = await catalog.DeletePolicyAsync(name, ct);
+            if (!deleted)
+            {
+                return Results.NotFound();
+            }
+
+            var revision = await catalog.GetCurrentRevisionAsync(ct);
+            var syncEvent = new ResilienceSyncEventDto
+            {
+                Action = "Deleted",
+                PolicyName = name,
+                Policy = null,
+                Revision = revision,
+                TimestampUtc = timeProvider.GetUtcNow()
+            };
+
+            await dispatcher.BroadcastResilienceUpdateAsync(syncEvent, ct);
+
+            return Results.NoContent();
+        });
+
+        group.MapGet("/resilience/stream", async (
+            HttpContext httpContext,
+            string? appId,
+            string? instanceId,
+            IResiliencePolicyCatalog catalog,
+            IComponentSyncDispatcher dispatcher,
+            CancellationToken ct) =>
+        {
+            httpContext.Response.ContentType = "text/event-stream";
+            httpContext.Response.Headers.CacheControl = "no-cache";
+            httpContext.Response.Headers.Connection = "keep-alive";
+
+            var effectiveAppId = string.IsNullOrWhiteSpace(appId) ? "anonymous" : appId;
+            var effectiveInstanceId = string.IsNullOrWhiteSpace(instanceId) ? Guid.NewGuid().ToString("N") : instanceId;
+
+            // 1. Initial snapshot
+            var entries = await catalog.GetAllPoliciesAsync(ct);
+            foreach (var entry in entries)
+            {
+                var fullSyncPayload = new ResilienceSyncEventDto
+                {
+                    Action = "Upserted",
+                    PolicyName = entry.Policy.PolicyName,
+                    Policy = entry.Policy,
+                    Revision = entry.Revision,
+                    TimestampUtc = entry.UpdatedAtUtc
+                };
+                var json = JsonSerializer.Serialize(fullSyncPayload, JsonOptions);
+                await httpContext.Response.WriteAsync($"data: {json}\n\n", ct);
+            }
+            await httpContext.Response.Body.FlushAsync(ct);
+
+            // 2. Stream live mutations
+            await foreach (var evt in dispatcher.SubscribeResilienceAsync(effectiveAppId, effectiveInstanceId, ct))
+            {
+                var json = JsonSerializer.Serialize(evt, JsonOptions);
+                await httpContext.Response.WriteAsync($"data: {json}\n\n", ct);
+                await httpContext.Response.Body.FlushAsync(ct);
+            }
         });
 
         // Real-Time Streaming SSE Endpoint

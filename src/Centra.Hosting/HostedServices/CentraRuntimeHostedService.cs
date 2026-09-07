@@ -7,6 +7,7 @@ using Centra.Hosting.Options;
 using Centra.Hosting.Routing;
 using Centra.PubSub;
 using Centra.Registry;
+using Centra.Resilience;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -121,8 +122,23 @@ public sealed class CentraRuntimeHostedService : IHostedService
             var eventContext = (EventContext)contextProp.GetValue(unpacked)!;
 
             var handleMethod = reg.HandlerType.GetMethod(nameof(IEventHandler<object>.HandleAsync))!;
-            var resultTask = (Task<EventHandlingResult>)handleMethod.Invoke(handler, [eventData, eventContext, cancellationToken])!;
-            var result = await resultTask.ConfigureAwait(false);
+
+            var resilienceProvider = _serviceProvider.GetService<IResiliencePipelineProvider>();
+            EventHandlingResult result;
+            if (resilienceProvider is not null)
+            {
+                var pipeline = resilienceProvider.GetPubSubPipeline(reg.PubSubName);
+                result = await pipeline.ExecuteAsync(async ct =>
+                {
+                    var task = (Task<EventHandlingResult>)handleMethod.Invoke(handler, [eventData, eventContext, ct])!;
+                    return await task.ConfigureAwait(false);
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var resultTask = (Task<EventHandlingResult>)handleMethod.Invoke(handler, [eventData, eventContext, cancellationToken])!;
+                result = await resultTask.ConfigureAwait(false);
+            }
 
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, result.ToString(), durationMs);

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Centra.Diagnostics;
 using Centra.Drivers;
 using Centra.Registry;
+using Centra.Resilience;
 using Centra.Serialization;
 using Centra.State;
 
@@ -11,11 +12,16 @@ public sealed class CentraStateStore : IStateStore
 {
     private readonly ComponentRegistry _registry;
     private readonly ICentraSerializer _serializer;
+    private readonly IResiliencePipelineProvider? _resilienceProvider;
 
-    public CentraStateStore(ComponentRegistry registry, ICentraSerializer? serializer = null)
+    public CentraStateStore(
+        ComponentRegistry registry,
+        ICentraSerializer? serializer = null,
+        IResiliencePipelineProvider? resilienceProvider = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _serializer = serializer ?? JsonCentraSerializer.Default;
+        _resilienceProvider = resilienceProvider;
     }
 
     public async ValueTask<StateEntry<T>?> GetAsync<T>(
@@ -30,7 +36,17 @@ public sealed class CentraStateStore : IStateStore
 
         try
         {
-            var rawEntry = await driver.GetAsync(storeName, key, options, cancellationToken).ConfigureAwait(false);
+            StateEntry<byte[]>? rawEntry;
+            if (_resilienceProvider is not null && options?.DisableResilience != true)
+            {
+                var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
+                rawEntry = await pipeline.ExecuteAsync(async ct => await driver.GetAsync(storeName, key, options, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                rawEntry = await driver.GetAsync(storeName, key, options, cancellationToken).ConfigureAwait(false);
+            }
+
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordStateOperation(storeName, "Get", "success", durationMs);
 
@@ -70,7 +86,16 @@ public sealed class CentraStateStore : IStateStore
 
         try
         {
-            await driver.SetAsync(storeName, key, bytes, options, cancellationToken).ConfigureAwait(false);
+            if (_resilienceProvider is not null && options?.DisableResilience != true)
+            {
+                var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
+                await pipeline.ExecuteAsync(async ct => await driver.SetAsync(storeName, key, bytes, options, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await driver.SetAsync(storeName, key, bytes, options, cancellationToken).ConfigureAwait(false);
+            }
+
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordStateOperation(storeName, "Set", "success", durationMs);
         }
@@ -98,7 +123,17 @@ public sealed class CentraStateStore : IStateStore
 
         try
         {
-            var success = await driver.TrySetAsync(storeName, key, bytes, expectedETag, options, cancellationToken).ConfigureAwait(false);
+            bool success;
+            if (_resilienceProvider is not null && options?.DisableResilience != true)
+            {
+                var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
+                success = await pipeline.ExecuteAsync(async ct => await driver.TrySetAsync(storeName, key, bytes, expectedETag, options, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                success = await driver.TrySetAsync(storeName, key, bytes, expectedETag, options, cancellationToken).ConfigureAwait(false);
+            }
+
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordStateOperation(storeName, "TrySet", success ? "success" : "concurrency_conflict", durationMs);
             return success;
@@ -124,7 +159,16 @@ public sealed class CentraStateStore : IStateStore
 
         try
         {
-            await driver.DeleteAsync(storeName, key, options, cancellationToken).ConfigureAwait(false);
+            if (_resilienceProvider is not null && options?.DisableResilience != true)
+            {
+                var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
+                await pipeline.ExecuteAsync(async ct => await driver.DeleteAsync(storeName, key, options, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await driver.DeleteAsync(storeName, key, options, cancellationToken).ConfigureAwait(false);
+            }
+
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordStateOperation(storeName, "Delete", "success", durationMs);
         }
@@ -150,7 +194,17 @@ public sealed class CentraStateStore : IStateStore
 
         try
         {
-            var success = await driver.TryDeleteAsync(storeName, key, expectedETag, options, cancellationToken).ConfigureAwait(false);
+            bool success;
+            if (_resilienceProvider is not null && options?.DisableResilience != true)
+            {
+                var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
+                success = await pipeline.ExecuteAsync(async ct => await driver.TryDeleteAsync(storeName, key, expectedETag, options, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                success = await driver.TryDeleteAsync(storeName, key, expectedETag, options, cancellationToken).ConfigureAwait(false);
+            }
+
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordStateOperation(storeName, "TryDelete", success ? "success" : "concurrency_conflict", durationMs);
             return success;
@@ -175,7 +229,16 @@ public sealed class CentraStateStore : IStateStore
 
         try
         {
-            await driver.ExecuteTransactionAsync(storeName, operations, cancellationToken).ConfigureAwait(false);
+            if (_resilienceProvider is not null)
+            {
+                var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
+                await pipeline.ExecuteAsync(async ct => await driver.ExecuteTransactionAsync(storeName, operations, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await driver.ExecuteTransactionAsync(storeName, operations, cancellationToken).ConfigureAwait(false);
+            }
+
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordStateOperation(storeName, "ExecuteTransaction", "success", durationMs);
         }

@@ -3,6 +3,7 @@ using Centra.Hosting.Options;
 using Centra.Hosting.Routing;
 using Centra.PubSub;
 using Centra.Registry;
+using Centra.Resilience;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -21,7 +22,8 @@ public static class CentraPubSubServiceCollectionExtensions
         {
             var registry = sp.GetRequiredService<ComponentRegistry>();
             var options = sp.GetRequiredService<IOptions<CentraOptions>>().Value;
-            return new CentraPubSubClient(registry, options.AppId, options.DefaultPubSub);
+            var resilience = sp.GetService<IResiliencePipelineProvider>();
+            return new CentraPubSubClient(registry, options.AppId, options.DefaultPubSub, resilience);
         });
 
         return services;

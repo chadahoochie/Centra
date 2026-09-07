@@ -12,5 +12,6 @@
     <ProjectReference Include="..\Centra.Invocation.Abstractions\Centra.Invocation.Abstractions.csproj" />
     <ProjectReference Include="..\Centra.Bindings.Abstractions\Centra.Bindings.Abstractions.csproj" />
     <ProjectReference Include="..\Centra.Sync.Abstractions\Centra.Sync.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Resilience.Abstractions\Centra.Resilience.Abstractions.csproj" />
   </ItemGroup>
 </Project>

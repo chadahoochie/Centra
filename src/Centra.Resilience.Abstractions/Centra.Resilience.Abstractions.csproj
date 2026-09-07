@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Resilience, fault tolerance, circuit breaker, retry, and timeout abstractions for Centra.</Description>
+    <RootNamespace>Centra.Resilience</RootNamespace>
+  </PropertyGroup>
+</Project>

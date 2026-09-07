@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
     <ProjectReference Include="..\..\samples\Centra.Sample.MultiInstance\Centra.Sample.MultiInstance.csproj" />
+    <ProjectReference Include="..\..\samples\Centra.Sample.Resilience\Centra.Sample.Resilience.csproj" />
   </ItemGroup>
 
   <ItemGroup>

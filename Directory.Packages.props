@@ -20,6 +20,8 @@
     <PackageVersion Include="Azure.Messaging.ServiceBus" Version="7.20.2" />
     <PackageVersion Include="Microsoft.Azure.Cosmos" Version="3.62.1" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageVersion Include="Polly.Core" Version="8.6.6" />
+    <PackageVersion Include="Polly.RateLimiting" Version="8.6.6" />
   </ItemGroup>
   <ItemGroup Label="Test Dependencies">
     <PackageVersion Include="Testcontainers" Version="4.14.0" />

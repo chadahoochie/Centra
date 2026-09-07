@@ -155,4 +155,30 @@ public sealed class ServiceCollectionExtensionsTests
         serviceProvider.GetService<IStateStore>().ShouldBeNull();
         serviceProvider.GetService<IPubSubClient>().ShouldBeNull();
     }
+
+    [Fact]
+    public void Should_Register_Only_Resilience_When_AddCentraResilience_Is_Called()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCentraResilience(opt =>
+        {
+            opt.AddPolicy(new Centra.Resilience.CentraResiliencePolicyDefinition(
+                PolicyName: "custom",
+                Retry: new Centra.Resilience.RetryPolicyOptions(MaxRetries: 4)));
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Assert
+        var provider = serviceProvider.GetService<Centra.Resilience.IResiliencePipelineProvider>();
+        var registry = serviceProvider.GetService<Centra.Resilience.IResiliencePolicyRegistry>();
+
+        provider.ShouldNotBeNull();
+        registry.ShouldNotBeNull();
+        registry.GetPolicy("custom").ShouldNotBeNull();
+        registry.GetPolicy("custom")!.Retry!.MaxRetries.ShouldBe(4);
+    }
 }
+

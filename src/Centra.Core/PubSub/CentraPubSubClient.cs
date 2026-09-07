@@ -4,6 +4,7 @@ using Centra.Drivers;
 using Centra.Events;
 using Centra.PubSub;
 using Centra.Registry;
+using Centra.Resilience;
 
 namespace Centra.PubSub;
 
@@ -12,12 +13,18 @@ public sealed class CentraPubSubClient : IPubSubClient
     private readonly ComponentRegistry _registry;
     private readonly string _appId;
     private readonly string _defaultPubSubName;
+    private readonly IResiliencePipelineProvider? _resilienceProvider;
 
-    public CentraPubSubClient(ComponentRegistry registry, string appId, string defaultPubSubName = "pubsub")
+    public CentraPubSubClient(
+        ComponentRegistry registry,
+        string appId,
+        string defaultPubSubName = "pubsub",
+        IResiliencePipelineProvider? resilienceProvider = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _appId = !string.IsNullOrWhiteSpace(appId) ? appId : "centra-app";
         _defaultPubSubName = !string.IsNullOrWhiteSpace(defaultPubSubName) ? defaultPubSubName : "pubsub";
+        _resilienceProvider = resilienceProvider;
     }
 
     public ValueTask PublishAsync<T>(
@@ -51,7 +58,16 @@ public sealed class CentraPubSubClient : IPubSubClient
 
         try
         {
-            await driver.PublishAsync(pubSubName, topic, packed.Payload, packed.Headers, cancellationToken).ConfigureAwait(false);
+            if (_resilienceProvider is not null && options?.DisableResilience != true)
+            {
+                var pipeline = _resilienceProvider.GetPubSubPipeline(pubSubName);
+                await pipeline.ExecuteAsync(async ct => await driver.PublishAsync(pubSubName, topic, packed.Payload, packed.Headers, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await driver.PublishAsync(pubSubName, topic, packed.Payload, packed.Headers, cancellationToken).ConfigureAwait(false);
+            }
+
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordPubSubPublished(pubSubName, topic, "success", durationMs);
         }

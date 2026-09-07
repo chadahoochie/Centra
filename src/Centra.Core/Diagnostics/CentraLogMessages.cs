@@ -51,4 +51,34 @@ public static partial class CentraLogMessages
         Level = LogLevel.Debug,
         Message = "Acquired distributed lock '{LockId}' for resource '{ResourceId}' in store '{StoreName}'")]
     public static partial void LogLockAcquired(this ILogger logger, string lockId, string resourceId, string storeName);
+
+    [LoggerMessage(
+        EventId = 6001,
+        Level = LogLevel.Warning,
+        Message = "Resilience pipeline '{PipelineName}' retry attempt #{AttemptNumber} after delay {DelayMs}ms due to: {Reason}")]
+    public static partial void LogResilienceRetry(this ILogger logger, string pipelineName, int attemptNumber, double delayMs, string reason);
+
+    [LoggerMessage(
+        EventId = 6002,
+        Level = LogLevel.Error,
+        Message = "Resilience pipeline '{PipelineName}' circuit breaker opened for {BreakDurationMs}ms")]
+    public static partial void LogResilienceCircuitOpened(this ILogger logger, string pipelineName, double breakDurationMs);
+
+    [LoggerMessage(
+        EventId = 6003,
+        Level = LogLevel.Information,
+        Message = "Resilience pipeline '{PipelineName}' circuit breaker reset to closed")]
+    public static partial void LogResilienceCircuitClosed(this ILogger logger, string pipelineName);
+
+    [LoggerMessage(
+        EventId = 6004,
+        Level = LogLevel.Warning,
+        Message = "Resilience pipeline '{PipelineName}' circuit breaker testing in half-open state")]
+    public static partial void LogResilienceCircuitHalfOpened(this ILogger logger, string pipelineName);
+
+    [LoggerMessage(
+        EventId = 6005,
+        Level = LogLevel.Error,
+        Message = "Resilience pipeline '{PipelineName}' timed out after {TimeoutMs}ms")]
+    public static partial void LogResilienceTimeout(this ILogger logger, string pipelineName, double timeoutMs);
 }

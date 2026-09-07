@@ -2,9 +2,9 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-98%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-158%20Passed-brightgreen.svg)]()
 
-> A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, and allow developers to write pure business logic where **"code is focused on code"**.
+> A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, integrate enterprise **Distributed Resilience & Fault Tolerance** powered by Polly Core v8, and allow developers to write pure business logic where **"code is focused on code"**.
 
 ---
 
@@ -15,22 +15,27 @@
    - High-throughput in-process pipeline using `ValueTask`, `readonly record struct`, `ReadOnlyMemory<byte>`, and `ArrayPool<byte>`.
 2. **Modular & Pluggable Abstractions (Zero Dependency Drag)**:
    - Fine-grained, decoupled contracts following Interface Segregation Principle (ISP).
-   - Consume *only* what you need (e.g. `Centra.PubSub.Abstractions` without dragging State Store or Distributed Locks).
-   - Composable DI registrations (`AddCentraPubSub`, `AddCentraState`, `AddCentraLocks`, `AddCentraInvocation`, `AddCentraBindings`, or full-stack `AddCentra`).
-3. **Centralized Component Management**:
+   - Consume *only* what you need (e.g. `Centra.PubSub.Abstractions` or `Centra.Resilience.Abstractions` without dragging State Store or Distributed Locks).
+   - Composable DI registrations (`AddCentraPubSub`, `AddCentraState`, `AddCentraLocks`, `AddCentraInvocation`, `AddCentraBindings`, `AddCentraResilience`, or full-stack `AddCentra`).
+3. **Distributed Resilience & Fault Tolerance Pipeline**:
+   - Zero-allocation execution engine wrapping **Polly Core v8** with composite pipelines: **Timeout -> Bulkhead / Concurrency Limiter -> Rate Limiter -> Circuit Breaker -> Retry**.
+   - Exponential, linear, or constant backoff with jitter and cancellation token propagation.
+   - Automatic circuit state machine transitions (`Closed` -> `Open` -> `HalfOpen` -> `Closed`) with microsecond fast-fail rejection under sustained outages.
+   - Live, zero-downtime policy hot-reloading pushed centrally from the Centra Control Plane over Server-Sent Events (SSE).
+4. **Centralized Component Management**:
    - Eliminates fragmented, desynchronized YAML component files and Kubernetes CRD drift.
-   - Components (State Stores, Pub/Sub Brokers, Distributed Locks, and Bindings) are managed, versioned, and monitored centrally with real-time SSE hot-reloading.
-4. **Observability as a Core Tenant**:
+   - Components (State Stores, Pub/Sub Brokers, Distributed Locks, Bindings, and Resilience Policies) are managed, versioned, and monitored centrally with real-time SSE hot-reloading.
+5. **Observability as a Core Tenant**:
    - **Distributed Tracing**: Built directly on `System.Diagnostics.ActivitySource("Centra", "1.0.0")` with W3C `DistributedContextPropagator` context propagation (`traceparent`, `tracestate`).
    - **Semantic Span Roles**: Proper `ActivityKind` assignment (`Producer` on pub, `Consumer` on sub, `Client` on RPC invoke, `Server` on RPC handle, `Internal` on state/locks).
-   - **Standard Metrics**: Built on `System.Diagnostics.Metrics.Meter("Centra", "1.0.0")` reporting operation counters, latency histograms, and active gauges.
+   - **Standard Metrics**: Built on `System.Diagnostics.Metrics.Meter("Centra", "1.0.0")` reporting operation counters, latency histograms, resilience retry/circuit breaker instruments, and active gauges.
    - **Zero-Allocation Logging**: High-performance `[LoggerMessage]` source generators.
-5. **CNCF CloudEvents v1.0 Standard**:
+6. **CNCF CloudEvents v1.0 Standard**:
    - Transparently wraps and unwraps domain records into CloudEvents v1.0.
    - Supports **Binary Mode** (default zero-allocation: raw body + `ce-*` headers) and **Structured Mode** (single JSON document).
    - Automatically tracks enterprise extensions: `ce-correlationid`, `ce-causationid`, `ce-tenantid`, `ce-schemaversion`.
-6. **Code Focused on Code**:
-   - Domain developers interact with clean, strongly typed interfaces (`IStateStore<T>`, `IPubSubClient`, `IDistributedLockProvider`, typed RPC clients) without vendor plumbing.
+7. **Code Focused on Code**:
+   - Domain developers interact with clean, strongly typed interfaces (`IStateStore<T>`, `IPubSubClient`, `IDistributedLockProvider`, `IResiliencePipelineProvider`, typed RPC clients) without vendor plumbing.
 
 ---
 
@@ -238,17 +243,66 @@ builder.Services.AddCentraCosmosDb(options =>
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing & Interactive Simulations
 
-The solution includes comprehensive unit and integration test suites:
+The solution includes comprehensive unit, integration, and chaos simulation suites:
 
 ```bash
-# Build the entire solution
+# Build the entire solution (TreatWarningsAsErrors is active)
 dotnet build Centra.slnx
 
-# Run all unit and integration tests (112 tests)
-dotnet test Centra.slnx --logger "console;verbosity=normal"
+# Run all unit test suites (89 unit + 17 control plane + 37 provider tests)
+dotnet test Centra.slnx --filter "Category!=Integration" --logger "console;verbosity=normal"
+
+# Run interactive 3-node cluster simulation (leader election, shared state CAS, CloudEvents)
+dotnet run --project samples/Centra.Sample.MultiInstance -- --demo
+
+# Run interactive resilience & fault tolerance chaos simulation (retries, circuit breaker trip/recover, timeouts, dynamic hot-reloading)
+dotnet run --project samples/Centra.Sample.Resilience -- --demo
 ```
+
+---
+
+## 🛡️ Distributed Resilience & Fault Tolerance
+
+Centra integrates **Polly Core v8** directly into its execution pipelines without sidecars or separate process boundaries. The resilience engine composes policies in a zero-allocation pipeline:
+
+```
+[Incoming Request] ──> [Timeout] ──> [Bulkhead / Concurrency] ──> [Rate Limiter] ──> [Circuit Breaker] ──> [Retry] ──> [Target Execution]
+```
+
+### Composable Resilience Registration
+
+```csharp
+builder.Services.AddCentraResilience(options =>
+{
+    // Configure targeted policy for downstream payment gateway
+    options.AddPolicy(new CentraResiliencePolicyDefinition(
+        PolicyName: "invocation:payment-gateway",
+        Retry: new RetryPolicyOptions(
+            MaxRetries: 3,
+            BackoffType: CentraBackoffType.Exponential,
+            BaseDelay: TimeSpan.FromMilliseconds(50),
+            MaxDelay: TimeSpan.FromSeconds(2),
+            UseJitter: true),
+        CircuitBreaker: new CircuitBreakerPolicyOptions(
+            FailureRatio: 0.5,
+            SamplingDuration: TimeSpan.FromSeconds(10),
+            MinimumThroughput: 5,
+            BreakDuration: TimeSpan.FromSeconds(5)),
+        Timeout: new TimeoutPolicyOptions(TimeSpan.FromSeconds(3))));
+
+    // Configure global default fallback for state stores
+    options.AddPolicy(new CentraResiliencePolicyDefinition(
+        PolicyName: "default-state",
+        Retry: new RetryPolicyOptions(
+            MaxRetries: 3,
+            BackoffType: CentraBackoffType.Exponential,
+            BaseDelay: TimeSpan.FromMilliseconds(20))));
+});
+```
+
+All RPC invocations (`CentraServiceInvoker`), state store mutations (`CentraStateStore`), and message publications (`CentraPubSubClient`) automatically resolve their corresponding pipeline from `IResiliencePipelineProvider` unless explicitly bypassed with `DisableResilience = true`.
 
 ---
 
@@ -257,7 +311,7 @@ dotnet test Centra.slnx --logger "console;verbosity=normal"
 ```
 Centra.slnx
 ├── src/
-│   ├── Centra.Abstractions/           # Umbrella metapackage referencing all 8 modular abstractions
+│   ├── Centra.Abstractions/           # Umbrella metapackage referencing all modular abstractions
 │   ├── Centra.Events.Abstractions/    # CNCF CloudEvents v1.0 contracts & ambient context
 │   ├── Centra.PubSub.Abstractions/    # IPubSubClient, IEventHandler, Topic contracts
 │   ├── Centra.State.Abstractions/     # IStateStore, StateEntry, transactions, optimistic concurrency
@@ -266,7 +320,8 @@ Centra.slnx
 │   ├── Centra.Bindings.Abstractions/  # IOutputBinding & Cron trigger contracts
 │   ├── Centra.Components.Abstractions/# ComponentDefinition, ComponentType, IComponentRegistry
 │   ├── Centra.Sync.Abstractions/      # IControlPlaneClient & live streaming sync event DTOs
-│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, diagnostics, RPC proxies, SSE client
+│   ├── Centra.Resilience.Abstractions/# Resilience pipelines, retry, circuit breaker, timeout & bulkhead contracts
+│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, diagnostics, RPC proxies, Polly v8 engine
 │   ├── Centra.Providers.InMemory/     # Zero-dependency in-memory driver implementations
 │   ├── Centra.Providers.Redis/        # Redis State (Lua CAS/Tx), Pub/Sub (CloudEvents v1.0 binary), Locks (Lease/Renewal)
 │   ├── Centra.Providers.PostgreSql/   # PostgreSQL State (ACID table, ETags, Tx, TTL) & Locks (Lease table heartbeat)
@@ -275,22 +330,23 @@ Centra.slnx
 │   ├── Centra.Providers.AzureServiceBus/# Azure Service Bus Pub/Sub (Topics, Subscriptions, CloudEvents headers, Dead-lettering)
 │   ├── Centra.Providers.CosmosDb/     # Azure Cosmos DB State (Point reads, TransactionalBatch, ETags, TTL) & Locks
 │   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, hosted services, composable DI extensions
-│   ├── Centra.ControlPlane/           # Central component catalog, secret resolver, topology tracker, SSE sync dispatcher
+│   ├── Centra.ControlPlane/           # Central component catalog, resilience catalog, topology tracker, SSE sync dispatcher
 │   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
 ├── samples/
 │   ├── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
-│   ├── Centra.Sample.MultiInstance/   # Multi-instance cluster: native service discovery, distributed locks, shared state with ETags, CloudEvents pub/sub, topology tracking
+│   ├── Centra.Sample.MultiInstance/   # Multi-instance cluster: native service discovery, locks, shared state, pub/sub
+│   ├── Centra.Sample.Resilience/      # Resilience & Chaos simulation: retries, circuit breaker trip/recover, timeouts, hot-reload
 │   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator (multi-replica orchestration)
 └── tests/
-    ├── Centra.Tests.Unit/             # Core, runtime & composable DI TDD test suites (54 tests)
-    ├── Centra.ControlPlane.Tests.Unit/# Control Plane TDD test suites (8 tests)
+    ├── Centra.Tests.Unit/             # Core, runtime, invocation, state, pubsub & Polly v8 resilience tests (89 tests)
+    ├── Centra.ControlPlane.Tests.Unit/# Control Plane component & resilience catalog/endpoints tests (17 tests)
     ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (17 tests)
     ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
     ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (2 tests)
     ├── Centra.Providers.SqlServer.Tests.Unit/   # SQL Server State and Locks unit tests (5 tests)
     ├── Centra.Providers.AzureServiceBus.Tests.Unit/ # Azure Service Bus Pub/Sub unit tests (4 tests)
     ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (7 tests)
-    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster & Testcontainers integration tests (13 tests)
+    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster, resilience & Testcontainers (15 tests)
 ```
 
 ---

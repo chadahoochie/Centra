@@ -19,6 +19,7 @@ public static class ControlPlaneServiceCollectionExtensions
         services.AddSingleton<InMemorySecretStore>();
         services.AddSingleton<IControlPlaneSecretResolver>(sp => sp.GetRequiredService<InMemorySecretStore>());
 
+        services.AddSingleton<IResiliencePolicyCatalog, InMemoryResiliencePolicyCatalog>();
         services.AddSingleton<ITopologyTracker, InMemoryTopologyTracker>();
         services.AddSingleton<IComponentSyncDispatcher, ComponentSyncDispatcher>();
 
