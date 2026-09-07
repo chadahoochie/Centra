@@ -6,3 +6,4 @@ TestResults/
 *.user
 *.suo
 .DS_Store
+coverage/

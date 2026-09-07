@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Centra.Bindings;
+using Centra.Diagnostics;
 using Centra.Drivers;
 using Centra.Registry;
 using Centra.Resilience;
@@ -23,18 +25,43 @@ public sealed class CentraOutputBinding : IOutputBinding
         BindingRequest request,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bindingName);
+
         var driver = _registry.GetBindingDriver(bindingName);
         if (driver is null)
         {
             throw new InvalidOperationException($"No Binding driver registered for binding '{bindingName}'");
         }
 
-        if (_resilienceProvider is not null)
-        {
-            var pipeline = _resilienceProvider.GetPipeline($"binding:{bindingName}");
-            return await pipeline.ExecuteAsync(async ct => await driver.InvokeAsync(bindingName, request, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
-        }
+        using var activity = CentraDiagnostics.StartBindingOutputActivity(bindingName, request.Operation);
+        var startTime = Stopwatch.GetTimestamp();
 
-        return await driver.InvokeAsync(bindingName, request, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            BindingResponse response;
+
+            if (_resilienceProvider is not null)
+            {
+                var pipeline = _resilienceProvider.GetPipeline($"binding:{bindingName}");
+                response = await pipeline.ExecuteAsync(
+                    async ct => await driver.InvokeAsync(bindingName, request, ct).ConfigureAwait(false),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                response = await driver.InvokeAsync(bindingName, request, cancellationToken).ConfigureAwait(false);
+            }
+
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordBindingInvocation(bindingName, request.Operation ?? "default", "success", durationMs);
+            return response;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordBindingInvocation(bindingName, request.Operation ?? "default", "error", durationMs);
+            throw;
+        }
     }
 }

@@ -41,6 +41,14 @@ public sealed class InMemoryComponentInitializer : IComponentInitializer
         registry.RegisterPubSubDriver(_defaultPubSub, _pubSubDriver);
         registry.RegisterLockDriver(_defaultLockStore, _lockDriver);
         registry.RegisterBindingDriver("binding", _bindingDriver);
+        registry.RegisterBindingDriver("in-memory-binding", _bindingDriver);
+
+        registry.RegisterComponent(new ComponentDefinition
+        {
+            Name = "binding",
+            Type = ComponentType.Binding,
+            Provider = "in-memory"
+        });
 
         registry.RegisterComponent(new ComponentDefinition
         {

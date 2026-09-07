@@ -37,6 +37,16 @@ public static class CentraMeters
     private static readonly Histogram<double> LockHoldDuration =
         Meter.CreateHistogram<double>("centra.lock.hold.duration", "ms", "Duration a distributed lock was held");
 
+    // Binding instruments
+    private static readonly Counter<long> BindingInvocationsCounter =
+        Meter.CreateCounter<long>("centra.binding.invocations.total", "ea", "Total output binding invocations");
+    private static readonly Histogram<double> BindingInvocationDuration =
+        Meter.CreateHistogram<double>("centra.binding.invocation.duration", "ms", "Duration of output binding invocations");
+    private static readonly Counter<long> BindingTriggersCounter =
+        Meter.CreateCounter<long>("centra.binding.triggers.total", "ea", "Total input binding triggers processed");
+    private static readonly Histogram<double> BindingTriggerDuration =
+        Meter.CreateHistogram<double>("centra.binding.trigger.duration", "ms", "Duration of input binding trigger handling");
+
     public static void RecordStateOperation(string store, string operation, string status, double durationMs)
     {
         StateOperationsCounter.Add(1,
@@ -139,5 +149,29 @@ public static class CentraMeters
         ResilienceRejectionsCounter.Add(1,
             new KeyValuePair<string, object?>("centra.resilience.pipeline", pipelineName),
             new KeyValuePair<string, object?>("centra.resilience.strategy", strategyName));
+    }
+
+    public static void RecordBindingInvocation(string bindingName, string operation, string status, double durationMs)
+    {
+        BindingInvocationsCounter.Add(1,
+            new KeyValuePair<string, object?>("centra.binding.name", bindingName),
+            new KeyValuePair<string, object?>("centra.binding.operation", operation),
+            new KeyValuePair<string, object?>("status", status));
+
+        BindingInvocationDuration.Record(durationMs,
+            new KeyValuePair<string, object?>("centra.binding.name", bindingName),
+            new KeyValuePair<string, object?>("centra.binding.operation", operation),
+            new KeyValuePair<string, object?>("status", status));
+    }
+
+    public static void RecordBindingTrigger(string bindingName, string status, double durationMs)
+    {
+        BindingTriggersCounter.Add(1,
+            new KeyValuePair<string, object?>("centra.binding.name", bindingName),
+            new KeyValuePair<string, object?>("status", status));
+
+        BindingTriggerDuration.Record(durationMs,
+            new KeyValuePair<string, object?>("centra.binding.name", bindingName),
+            new KeyValuePair<string, object?>("status", status));
     }
 }

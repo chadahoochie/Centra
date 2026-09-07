@@ -131,4 +131,47 @@ public static class CentraDiagnostics
 
         return activity;
     }
+
+    public static Activity? StartBindingOutputActivity(string bindingName, string? operation)
+    {
+        if (!Source.HasListeners())
+        {
+            return null;
+        }
+
+        var activity = Source.StartActivity("Centra.Binding.Invoke", ActivityKind.Producer);
+        if (activity is not null && activity.IsAllDataRequested)
+        {
+            activity.DisplayName = $"Binding Invoke {bindingName}";
+            activity.SetTag("centra.component", "binding");
+            activity.SetTag("centra.binding.name", bindingName);
+            if (!string.IsNullOrEmpty(operation))
+            {
+                activity.SetTag("centra.binding.operation", operation);
+            }
+        }
+
+        return activity;
+    }
+
+    public static Activity? StartBindingInputActivity(string bindingName, ActivityContext parentContext = default)
+    {
+        if (!Source.HasListeners())
+        {
+            return null;
+        }
+
+        var activity = parentContext != default
+            ? Source.StartActivity("Centra.Binding.Trigger", ActivityKind.Consumer, parentContext)
+            : Source.StartActivity("Centra.Binding.Trigger", ActivityKind.Consumer);
+
+        if (activity is not null && activity.IsAllDataRequested)
+        {
+            activity.DisplayName = $"Binding Trigger {bindingName}";
+            activity.SetTag("centra.component", "binding");
+            activity.SetTag("centra.binding.name", bindingName);
+        }
+
+        return activity;
+    }
 }

@@ -2,7 +2,7 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-158%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-271%20Passed-brightgreen.svg)]()
 
 > A modern, cloud-native distributed application framework for .NET 10 inspired by Dapr, engineered natively in C# to eliminate sidecar latency, unify component governance with **Centralized Component Management**, ensure **Observability is a core tenant**, standardize messaging on **CNCF CloudEvents v1.0**, integrate enterprise **Distributed Resilience & Fault Tolerance** powered by Polly Core v8, and allow developers to write pure business logic where **"code is focused on code"**.
 
@@ -259,6 +259,47 @@ dotnet run --project samples/Centra.Sample.MultiInstance -- --demo
 
 # Run interactive resilience & fault tolerance chaos simulation (retries, circuit breaker trip/recover, timeouts, dynamic hot-reloading)
 dotnet run --project samples/Centra.Sample.Resilience -- --demo
+
+# Run interactive distributed bindings & schedulers demo (cron triggers, inbound webhooks, resilient output bindings)
+dotnet run --project samples/Centra.Sample.Bindings -- --demo
+```
+
+---
+
+## ⏰ Distributed Schedulers & Bindings Engine
+
+Centra provides enterprise distributed cron scheduling and bi-directional I/O bindings with zero sidecars and zero-allocation performance:
+
+### 1. High-Precision Zero-Allocation Cron Parser
+- Bitmask-based jumping algorithm using 64-bit integer masks (`ulong`).
+- Supports standard 5-part (`* * * * *`) and 6-part second-precision (`*/5 * * * * *`) cron expressions.
+- Supports shorthand macros (`@every 5s`, `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`).
+- Fully testable with .NET 10 `TimeProvider` abstractions.
+
+### 2. Cluster-Aware Distributed Cron Coordination
+- Guarantees exactly-once job execution across multi-replica service instances using distributed locks:
+  `cron:{jobName}:{scheduledUnixTimestamp}`
+- Active leader executes the tick; secondary nodes cleanly yield without throwing exceptions.
+
+### 3. Bi-Directional Input & Output Bindings
+- **Input Triggers**: Automatically exposes `/centra/bindings/{bindingName}` endpoints in ASP.NET Core, mapping inbound HTTP/webhooks directly to `IBindingTriggerHandler` with automatic W3C tracecontext extraction and latency metrics.
+- **Output Bindings**: Invokes external services (`IOutputBinding`, `CentraOutputBinding`) through registered SPI drivers (`HttpWebhookBindingDriver`, `InMemoryBindingDriver`), seamlessly wrapped in Polly v8 resilience pipelines (`binding:{bindingName}`) and OpenTelemetry activities.
+
+```csharp
+// Register Cron Job & Inbound Webhook Trigger in Program.cs
+builder.Services.AddCentraBindings();
+builder.Services.AddCentraCronJob<InventorySnapshotJob>("inventory-sync", "0 * * * *");
+builder.Services.AddCentraInputBindingHandler<OrdersWebhookTriggerHandler>("orders-webhook");
+builder.Services.AddCentraHttpWebhookBinding("notifications-out");
+
+// Pure Domain Handlers: Code Focused on Code
+public sealed class InventorySnapshotJob : IJobHandler
+{
+    public async ValueTask ExecuteAsync(ScheduledJobContext context)
+    {
+        // Executes across the cluster exactly once per scheduled tick
+    }
+}
 ```
 
 ---
@@ -302,7 +343,7 @@ builder.Services.AddCentraResilience(options =>
 });
 ```
 
-All RPC invocations (`CentraServiceInvoker`), state store mutations (`CentraStateStore`), and message publications (`CentraPubSubClient`) automatically resolve their corresponding pipeline from `IResiliencePipelineProvider` unless explicitly bypassed with `DisableResilience = true`.
+All RPC invocations (`CentraServiceInvoker`), state store mutations (`CentraStateStore`), message publications (`CentraPubSubClient`), and output bindings (`CentraOutputBinding`) automatically resolve their corresponding pipeline from `IResiliencePipelineProvider` unless explicitly bypassed.
 
 ---
 
@@ -317,11 +358,11 @@ Centra.slnx
 │   ├── Centra.State.Abstractions/     # IStateStore, StateEntry, transactions, optimistic concurrency
 │   ├── Centra.Locks.Abstractions/     # IDistributedLockProvider & IDistributedLock contracts
 │   ├── Centra.Invocation.Abstractions/# IServiceInvoker, IServiceEndpointResolver & typed RPC client attributes
-│   ├── Centra.Bindings.Abstractions/  # IOutputBinding & Cron trigger contracts
+│   ├── Centra.Bindings.Abstractions/  # IInputBinding, IOutputBinding, IScheduler, IJobHandler & Cron contracts
 │   ├── Centra.Components.Abstractions/# ComponentDefinition, ComponentType, IComponentRegistry
 │   ├── Centra.Sync.Abstractions/      # IControlPlaneClient & live streaming sync event DTOs
 │   ├── Centra.Resilience.Abstractions/# Resilience pipelines, retry, circuit breaker, timeout & bulkhead contracts
-│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, diagnostics, RPC proxies, Polly v8 engine
+│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, cron parser, RPC proxies, Polly v8 engine
 │   ├── Centra.Providers.InMemory/     # Zero-dependency in-memory driver implementations
 │   ├── Centra.Providers.Redis/        # Redis State (Lua CAS/Tx), Pub/Sub (CloudEvents v1.0 binary), Locks (Lease/Renewal)
 │   ├── Centra.Providers.PostgreSql/   # PostgreSQL State (ACID table, ETags, Tx, TTL) & Locks (Lease table heartbeat)
@@ -329,24 +370,25 @@ Centra.slnx
 │   ├── Centra.Providers.SqlServer/    # SQL Server State (MERGE, ETags, Tx, TTL) & Locks (Lease table renewal)
 │   ├── Centra.Providers.AzureServiceBus/# Azure Service Bus Pub/Sub (Topics, Subscriptions, CloudEvents headers, Dead-lettering)
 │   ├── Centra.Providers.CosmosDb/     # Azure Cosmos DB State (Point reads, TransactionalBatch, ETags, TTL) & Locks
-│   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, hosted services, composable DI extensions
+│   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, bindings hosted service, composable DI extensions
 │   ├── Centra.ControlPlane/           # Central component catalog, resilience catalog, topology tracker, SSE sync dispatcher
 │   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
 ├── samples/
 │   ├── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
 │   ├── Centra.Sample.MultiInstance/   # Multi-instance cluster: native service discovery, locks, shared state, pub/sub
 │   ├── Centra.Sample.Resilience/      # Resilience & Chaos simulation: retries, circuit breaker trip/recover, timeouts, hot-reload
+│   ├── Centra.Sample.Bindings/        # Bindings simulation: distributed cron, HTTP webhooks, and state persistence
 │   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator (multi-replica orchestration)
 └── tests/
-    ├── Centra.Tests.Unit/             # Core, runtime, invocation, state, pubsub & Polly v8 resilience tests (89 tests)
-    ├── Centra.ControlPlane.Tests.Unit/# Control Plane component & resilience catalog/endpoints tests (17 tests)
+    ├── Centra.Tests.Unit/             # Core, runtime, invocation, state, pubsub, bindings & Polly v8 resilience tests (198 tests)
+    ├── Centra.ControlPlane.Tests.Unit/# Control Plane component, bindings & resilience catalog/endpoints tests (19 tests)
     ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (17 tests)
-    ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
-    ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (2 tests)
+    ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (7 tests)
     ├── Centra.Providers.SqlServer.Tests.Unit/   # SQL Server State and Locks unit tests (5 tests)
     ├── Centra.Providers.AzureServiceBus.Tests.Unit/ # Azure Service Bus Pub/Sub unit tests (4 tests)
-    ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (7 tests)
-    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster, resilience & Testcontainers (15 tests)
+    ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (2 tests)
+    ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
+    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster, bindings & Testcontainers (17 tests)
 ```
 
 ---

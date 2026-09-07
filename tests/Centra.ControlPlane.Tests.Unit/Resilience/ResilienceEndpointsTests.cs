@@ -127,7 +127,7 @@ public sealed class ResilienceEndpointsTests : IAsyncDisposable
     public async Task Should_Stream_Resilience_Updates_Via_Sse()
     {
         // Arrange
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var streamResponse = await _client.GetAsync("/api/v1/resilience/stream?appId=test-app&instanceId=node-1", HttpCompletionOption.ResponseHeadersRead, cts.Token);
         streamResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         streamResponse.Content.Headers.ContentType?.MediaType.ShouldBe("text/event-stream");

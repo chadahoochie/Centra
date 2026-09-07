@@ -4,4 +4,5 @@ namespace Centra.Bindings;
 public sealed class CronBindingAttribute(string cronExpression) : Attribute
 {
     public string CronExpression { get; } = cronExpression;
+    public CronMissedRunBehavior MissedRunBehavior { get; init; } = CronMissedRunBehavior.Skip;
 }

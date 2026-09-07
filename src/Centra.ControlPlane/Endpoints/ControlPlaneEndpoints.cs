@@ -47,6 +47,19 @@ public static class ControlPlaneEndpoints
             return Results.Ok(resolved);
         });
 
+        group.MapGet("/bindings", async (IComponentCatalog catalog, IControlPlaneSecretResolver secretResolver, CancellationToken ct) =>
+        {
+            var entries = await catalog.GetAllComponentsAsync(ct);
+            var bindingEntries = entries.Where(e => e.Definition.Type == ComponentType.Binding).ToList();
+            var resolved = new List<ComponentDefinition>(bindingEntries.Count);
+            foreach (var entry in bindingEntries)
+            {
+                var def = await secretResolver.ResolveSecretsAsync(entry.Definition, ct);
+                resolved.Add(def);
+            }
+            return Results.Ok(resolved);
+        });
+
         group.MapPost("/components", async (
             ComponentDefinition definition,
             IComponentCatalog catalog,
