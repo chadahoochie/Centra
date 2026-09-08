@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>Docker Compose multi-node cluster sample showcasing service invocation, Redis state, RabbitMQ pub/sub, Redis distributed locks, single-execution cron bindings, cluster-aware actor placement, and sagas with Centra.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Actors.Abstractions\Centra.Actors.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Workflows.Abstractions\Centra.Workflows.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Core\Centra.Core.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Redis\Centra.Providers.Redis.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
+  </ItemGroup>
+</Project>
