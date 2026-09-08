@@ -17,6 +17,7 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
     private readonly ILogger<AzureServiceBusPubSubDriver> _logger;
     private readonly ConcurrentDictionary<string, ServiceBusSender> _senders = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ServiceBusProcessor> _processors = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ServiceBusSessionProcessor> _sessionProcessors = new(StringComparer.OrdinalIgnoreCase);
     private readonly bool _ownsClient;
     private int _disposed;
 
@@ -95,7 +96,8 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
         string topic,
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         string? deadLetterTopic = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PubSubSubscribeOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
@@ -103,6 +105,45 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
 
         var targetTopic = $"{_options.TopicPrefix}{topic}";
         var subKey = $"{pubSubName}:{targetTopic}";
+
+        if (options?.ConsumerMode == ConsumerMode.SingleActiveConsumer)
+        {
+            // Requires the subscription to be provisioned with RequiresSession=true - an
+            // infrastructure/provisioning concern, not something this driver can set at runtime.
+            var sessionProcessorOptions = new ServiceBusSessionProcessorOptions
+            {
+                AutoCompleteMessages = _options.AutoCompleteMessages,
+                MaxConcurrentSessions = 1,
+                SessionIds = { _options.SingleActiveSessionId }
+            };
+
+            var sessionProcessor = _client.CreateSessionProcessor(targetTopic, _options.SubscriptionName, sessionProcessorOptions);
+
+            sessionProcessor.ProcessMessageAsync += async args =>
+            {
+                try
+                {
+                    var headers = ExtractHeaders(args.Message);
+                    var result = await handler(args.Message.Body.ToMemory(), headers, args.CancellationToken).ConfigureAwait(false);
+                    await SettleSessionMessageAsync(args, result).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing Azure Service Bus session message {MessageId} on topic {Topic}", args.Message.MessageId, targetTopic);
+                    await args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken).ConfigureAwait(false);
+                }
+            };
+
+            sessionProcessor.ProcessErrorAsync += args =>
+            {
+                _logger.LogError(args.Exception, "Service Bus session processor error on entity {EntityPath}: {ErrorSource}", args.EntityPath, args.ErrorSource);
+                return Task.CompletedTask;
+            };
+
+            await sessionProcessor.StartProcessingAsync(cancellationToken).ConfigureAwait(false);
+            _sessionProcessors[subKey] = sessionProcessor;
+            return;
+        }
 
         var processorOptions = new ServiceBusProcessorOptions
         {
@@ -153,6 +194,12 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
             await processor.StopProcessingAsync(cancellationToken).ConfigureAwait(false);
             await processor.DisposeAsync().ConfigureAwait(false);
         }
+
+        if (_sessionProcessors.TryRemove(subKey, out var sessionProcessor))
+        {
+            await sessionProcessor.StopProcessingAsync(cancellationToken).ConfigureAwait(false);
+            await sessionProcessor.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -175,6 +222,20 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
             }
         }
         _processors.Clear();
+
+        foreach (var (_, sessionProcessor) in _sessionProcessors)
+        {
+            try
+            {
+                await sessionProcessor.StopProcessingAsync().ConfigureAwait(false);
+                await sessionProcessor.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error stopping Service Bus session processor during disposal.");
+            }
+        }
+        _sessionProcessors.Clear();
 
         foreach (var (_, sender) in _senders)
         {
@@ -229,6 +290,20 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
     }
 
     private static Task SettleMessageAsync(ProcessMessageEventArgs args, EventHandlingResult result)
+    {
+        return result switch
+        {
+            EventHandlingResult.Success or EventHandlingResult.Drop =>
+                args.CompleteMessageAsync(args.Message, args.CancellationToken),
+
+            EventHandlingResult.DeadLetter =>
+                args.DeadLetterMessageAsync(args.Message, "DeadLetter", "Handler requested dead-lettering", args.CancellationToken),
+
+            _ => args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken)
+        };
+    }
+
+    private static Task SettleSessionMessageAsync(ProcessSessionMessageEventArgs args, EventHandlingResult result)
     {
         return result switch
         {

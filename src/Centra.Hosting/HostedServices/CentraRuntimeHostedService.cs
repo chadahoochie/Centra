@@ -58,7 +58,8 @@ public sealed class CentraRuntimeHostedService : IHostedService
                     return await DispatchEventAsync(localReg, payload, headers, ct).ConfigureAwait(false);
                 },
                 localReg.DeadLetterTopic,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                new PubSubSubscribeOptions { ConsumerMode = localReg.ConsumerMode }).ConfigureAwait(false);
         }
     }
 

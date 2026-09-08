@@ -7,4 +7,5 @@ public sealed class TopicAttribute(string pubSubName, string topic, string? dead
     public string Topic { get; } = topic;
     public string? DeadLetterTopic { get; } = deadLetterTopic;
     public string? RuleFilter { get; init; }
+    public ConsumerMode ConsumerMode { get; init; } = ConsumerMode.CompetingConsumer;
 }

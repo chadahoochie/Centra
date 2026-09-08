@@ -116,7 +116,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         string topic,
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         string? deadLetterTopic = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PubSubSubscribeOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
@@ -138,11 +139,20 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         Dictionary<string, object?>? queueArgs = null;
         if (!string.IsNullOrWhiteSpace(deadLetterTopic))
         {
-            queueArgs = new Dictionary<string, object?>
-            {
-                ["x-dead-letter-exchange"] = _options.ExchangeName,
-                ["x-dead-letter-routing-key"] = deadLetterTopic
-            };
+            queueArgs ??= new Dictionary<string, object?>();
+            queueArgs["x-dead-letter-exchange"] = _options.ExchangeName;
+            queueArgs["x-dead-letter-routing-key"] = deadLetterTopic;
+        }
+
+        if (options?.ConsumerMode == ConsumerMode.SingleActiveConsumer)
+        {
+            // RabbitMQ enforces exclusivity server-side once this flag is set on the queue -
+            // any number of consumers can attach, but only one is ever active at a time. Note:
+            // queue arguments are fixed at declare time, so switching an existing topic's mode
+            // requires deleting/recreating the queue (RabbitMQ throws PRECONDITION_FAILED
+            // otherwise).
+            queueArgs ??= new Dictionary<string, object?>();
+            queueArgs["x-single-active-consumer"] = true;
         }
 
         await channel.QueueDeclareAsync(
