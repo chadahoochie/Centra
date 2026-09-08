@@ -40,6 +40,8 @@
     <Project Path="samples/Centra.Sample.Bindings/Centra.Sample.Bindings.csproj" />
     <Project Path="samples/Centra.Sample.Actors/Centra.Sample.Actors.csproj" />
     <Project Path="samples/Centra.Sample.Workflows/Centra.Sample.Workflows.csproj" />
+    <Project Path="samples/Centra.Sample.DockerStack/Centra.Sample.DockerStack.csproj" />
+    <Project Path="samples/Centra.Sample.DockerStack.Simulator/Centra.Sample.DockerStack.Simulator.csproj" />
     <Project Path="samples/Centra.AppHost/Centra.AppHost.csproj" />
   </Folder>
   <Folder Name="/tests/">

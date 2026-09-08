@@ -1,0 +1,131 @@
+{
+  "title": "Centra DockerStack: Baked-in Telemetry",
+  "uid": "centra-dockerstack-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "tags": ["centra", "dockerstack"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service invocation request rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(centra_invocation_requests_total[1m])) by (centra_target_app_id, status)",
+          "legendFormat": "{{centra_target_app_id}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Service invocation duration (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(centra_invocation_duration_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Pub/Sub message throughput (RabbitMQ)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(centra_pubsub_messages_published_total[1m])) by (centra_topic)",
+          "legendFormat": "published / {{centra_topic}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(centra_pubsub_messages_consumed_total[1m])) by (centra_topic)",
+          "legendFormat": "consumed / {{centra_topic}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Redis state store operations",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(centra_state_operations_total[1m])) by (centra_operation, status)",
+          "legendFormat": "{{centra_operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Redis distributed lock acquisitions",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(centra_lock_acquisitions_total[1m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Control plane heartbeats received",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(centra_controlplane_heartbeats_received_total[1m])) by (app_id, status)",
+          "legendFormat": "{{app_id}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Traces: Centra service invocations",
+      "type": "traces",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceqlSearch",
+          "filters": [
+            { "id": "service-name", "operator": "=", "scope": "resource", "tag": "service.name", "value": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Logs: dockerstack-node / control-plane",
+      "type": "logs",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service_name=~\".+\"}"
+        }
+      ]
+    }
+  ]
+}
