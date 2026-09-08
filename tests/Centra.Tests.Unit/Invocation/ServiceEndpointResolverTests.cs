@@ -1,7 +1,6 @@
 using Centra.Invocation;
 using Centra.Sync;
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Xunit;
 
@@ -9,7 +8,7 @@ namespace Centra.Tests.Unit.Invocation;
 
 public sealed class ServiceEndpointResolverTests
 {
-    private readonly IControlPlaneClient _controlPlaneClient = Substitute.For<IControlPlaneClient>();
+    private readonly IClusterTopologyProvider _topologyProvider = Substitute.For<IClusterTopologyProvider>();
 
     [Fact]
     public async Task PassThroughResolver_Should_Return_Http_Uri()
@@ -46,7 +45,7 @@ public sealed class ServiceEndpointResolverTests
     [InlineData("   ")]
     public async Task ControlPlaneResolver_Should_Throw_On_Invalid_AppId(string? appId)
     {
-        var resolver = new ControlPlaneServiceEndpointResolver(_controlPlaneClient);
+        var resolver = new ControlPlaneServiceEndpointResolver(_topologyProvider);
 
         await Should.ThrowAsync<ArgumentException>(async () =>
             await resolver.ResolveEndpointAsync(appId!));
@@ -55,10 +54,9 @@ public sealed class ServiceEndpointResolverTests
     [Fact]
     public async Task ControlPlaneResolver_Should_Fallback_When_No_Matching_Nodes()
     {
-        _controlPlaneClient.GetTopologyAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<ServiceNodeDto>());
+        _topologyProvider.GetSnapshot().Returns(new List<ServiceNodeDto>());
 
-        var resolver = new ControlPlaneServiceEndpointResolver(_controlPlaneClient);
+        var resolver = new ControlPlaneServiceEndpointResolver(_topologyProvider);
         var uri = await resolver.ResolveEndpointAsync("order-service");
 
         uri.ShouldNotBeNull();
@@ -73,10 +71,9 @@ public sealed class ServiceEndpointResolverTests
             new("order-service", "node-1", "Unhealthy", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string> { ["address"] = "http://10.0.0.1:5000" })
         };
 
-        _controlPlaneClient.GetTopologyAsync(Arg.Any<CancellationToken>())
-            .Returns(nodes);
+        _topologyProvider.GetSnapshot().Returns(nodes);
 
-        var resolver = new ControlPlaneServiceEndpointResolver(_controlPlaneClient);
+        var resolver = new ControlPlaneServiceEndpointResolver(_topologyProvider);
         var uri = await resolver.ResolveEndpointAsync("order-service");
 
         uri.ShouldNotBeNull();
@@ -91,10 +88,9 @@ public sealed class ServiceEndpointResolverTests
             new("order-service", "node-1", "Healthy", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string> { ["address"] = "http://10.0.0.1:5000" })
         };
 
-        _controlPlaneClient.GetTopologyAsync(Arg.Any<CancellationToken>())
-            .Returns(nodes);
+        _topologyProvider.GetSnapshot().Returns(nodes);
 
-        var resolver = new ControlPlaneServiceEndpointResolver(_controlPlaneClient);
+        var resolver = new ControlPlaneServiceEndpointResolver(_topologyProvider);
         var uri = await resolver.ResolveEndpointAsync("order-service");
 
         uri.ShouldNotBeNull();
@@ -110,10 +106,9 @@ public sealed class ServiceEndpointResolverTests
             new("payment-service", "node-2", "Healthy", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string> { ["url"] = "http://10.0.0.3:5002" })
         };
 
-        _controlPlaneClient.GetTopologyAsync(Arg.Any<CancellationToken>())
-            .Returns(nodes);
+        _topologyProvider.GetSnapshot().Returns(nodes);
 
-        var resolver = new ControlPlaneServiceEndpointResolver(_controlPlaneClient);
+        var resolver = new ControlPlaneServiceEndpointResolver(_topologyProvider);
 
         var uri1 = await resolver.ResolveEndpointAsync("inventory-service");
         var uri2 = await resolver.ResolveEndpointAsync("payment-service");
@@ -134,10 +129,9 @@ public sealed class ServiceEndpointResolverTests
             new("worker-service", "node-2", "Healthy", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string> { ["address"] = "http://10.0.0.2:5000" })
         };
 
-        _controlPlaneClient.GetTopologyAsync(Arg.Any<CancellationToken>())
-            .Returns(nodes);
+        _topologyProvider.GetSnapshot().Returns(nodes);
 
-        var resolver = new ControlPlaneServiceEndpointResolver(_controlPlaneClient);
+        var resolver = new ControlPlaneServiceEndpointResolver(_topologyProvider);
 
         var uri1 = await resolver.ResolveEndpointAsync("worker-service");
         var uri2 = await resolver.ResolveEndpointAsync("worker-service");
@@ -154,53 +148,14 @@ public sealed class ServiceEndpointResolverTests
     }
 
     [Fact]
-    public async Task ControlPlaneResolver_Should_Fallback_When_ControlPlane_Throws()
+    public async Task ControlPlaneResolver_Should_Fallback_When_Snapshot_Throws()
     {
-        _controlPlaneClient.GetTopologyAsync(Arg.Any<CancellationToken>())
-            .ThrowsAsync(new HttpRequestException("Control Plane connection refused"));
+        _topologyProvider.GetSnapshot().Returns(_ => throw new InvalidOperationException("Topology unavailable"));
 
-        var resolver = new ControlPlaneServiceEndpointResolver(_controlPlaneClient);
+        var resolver = new ControlPlaneServiceEndpointResolver(_topologyProvider);
         var uri = await resolver.ResolveEndpointAsync("order-service");
 
         uri.ShouldNotBeNull();
         uri.ToString().ShouldBe("http://order-service/");
-    }
-
-    [Fact]
-    public async Task ControlPlaneResolver_Should_Cache_Topology_Within_Ttl_Window()
-    {
-        var fakeTime = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
-        var nodes = new List<ServiceNodeDto>
-        {
-            new("order-service", "node-1", "Healthy", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string> { ["address"] = "http://10.0.0.1:5000" })
-        };
-
-        _controlPlaneClient.GetTopologyAsync(Arg.Any<CancellationToken>())
-            .Returns(nodes);
-
-        var resolver = new ControlPlaneServiceEndpointResolver(
-            _controlPlaneClient,
-            timeProvider: fakeTime,
-            cacheTtl: TimeSpan.FromSeconds(5));
-
-        // Act 1: Initial call populates cache
-        var uri1 = await resolver.ResolveEndpointAsync("order-service");
-        uri1.ShouldNotBeNull();
-
-        // Act 2: Advance by 2 seconds (still cached)
-        fakeTime.Advance(TimeSpan.FromSeconds(2));
-        var uri2 = await resolver.ResolveEndpointAsync("order-service");
-        uri2.ShouldNotBeNull();
-
-        // Assert: Only 1 network call was made
-        await _controlPlaneClient.Received(1).GetTopologyAsync(Arg.Any<CancellationToken>());
-
-        // Act 3: Advance past 5s TTL
-        fakeTime.Advance(TimeSpan.FromSeconds(4)); // total 6 seconds
-        var uri3 = await resolver.ResolveEndpointAsync("order-service");
-        uri3.ShouldNotBeNull();
-
-        // Assert: 2nd network call made
-        await _controlPlaneClient.Received(2).GetTopologyAsync(Arg.Any<CancellationToken>());
     }
 }

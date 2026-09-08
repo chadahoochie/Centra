@@ -5,6 +5,7 @@ using Centra.Hosting.Options;
 using Centra.Invocation;
 using Centra.Locks;
 using Centra.State;
+using Centra.Sync;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -25,13 +26,49 @@ public static class CentraActorServiceCollectionExtensions
 
         services.TryAddSingleton(sp => sp.GetRequiredService<IOptions<ActorOptions>>().Value);
 
-        services.TryAddSingleton<ConsistentHashRing>(sp => new ConsistentHashRing());
         services.TryAddSingleton<IActorPlacementDirector>(sp =>
         {
-            var ring = sp.GetRequiredService<ConsistentHashRing>();
             var centraOptions = sp.GetService<CentraOptions>();
-            var localNodeId = centraOptions?.AppId ?? Environment.MachineName;
+            var localAppId = centraOptions?.AppId ?? Environment.MachineName;
+            var localNodeId = centraOptions?.ControlPlane.InstanceId ?? Environment.MachineName;
+
+            var ring = new ConsistentHashRing();
             ring.AddNode(localNodeId);
+
+            var topologyProvider = sp.GetService<IClusterTopologyProvider>();
+            if (topologyProvider is not null)
+            {
+                // Actor placement only cares about replicas of this same logical service (AppId) -
+                // invocation routing separately load-balances across AppId, but the ring must pick
+                // exactly one physical InstanceId to own a given actor among *our* replicas.
+                foreach (var node in topologyProvider.GetSnapshot())
+                {
+                    if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ring.AddNode(node.InstanceId);
+                    }
+                }
+
+                topologyProvider.TopologyChanged += (_, e) =>
+                {
+                    foreach (var node in e.AddedNodes)
+                    {
+                        if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ring.AddNode(node.InstanceId);
+                        }
+                    }
+
+                    foreach (var node in e.RemovedNodes)
+                    {
+                        if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ring.RemoveNode(node.InstanceId);
+                        }
+                    }
+                };
+            }
+
             return new ActorPlacementDirector(localNodeId, ring);
         });
 

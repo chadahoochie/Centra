@@ -27,6 +27,10 @@ public static class CentraControlPlaneSyncServiceCollectionExtensions
         });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, CentraControlPlaneSyncHostedService>());
 
+        services.TryAddSingleton<ClusterTopologyProviderHostedService>();
+        services.TryAddSingleton<IClusterTopologyProvider>(sp => sp.GetRequiredService<ClusterTopologyProviderHostedService>());
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<ClusterTopologyProviderHostedService>());
+
         return services;
     }
 }
