@@ -12,7 +12,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Centra.Abstractions\Centra.Abstractions.csproj" />
-    <ProjectReference Include="..\Centra.Core\Centra.Core.csproj" />
+    <ProjectReference Include="..\Centra.Components.Abstractions\Centra.Components.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Actors.Abstractions\Centra.Actors.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Actors\Centra.Actors.csproj" />
+    <ProjectReference Include="..\Centra.Workflows.Abstractions\Centra.Workflows.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Workflows\Centra.Workflows.csproj" />
+    <ProjectReference Include="..\Centra.Sync.Abstractions\Centra.Sync.Abstractions.csproj" />
   </ItemGroup>
 </Project>

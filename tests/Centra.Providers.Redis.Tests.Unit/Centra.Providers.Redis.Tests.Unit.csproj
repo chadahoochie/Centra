@@ -5,8 +5,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
-    <ProjectReference Include="..\..\src\Centra.Core\Centra.Core.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.Redis\Centra.Providers.Redis.csproj" />
   </ItemGroup>
 

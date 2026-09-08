@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Pub/Sub client implementation for Centra.</Description>
+    <RootNamespace>Centra.PubSub</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.PubSub.Abstractions\Centra.PubSub.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Runtime\Centra.Runtime.csproj" />
+    <ProjectReference Include="..\Centra.Events\Centra.Events.csproj" />
+    <ProjectReference Include="..\Centra.Resilience\Centra.Resilience.csproj" />
+  </ItemGroup>
+</Project>

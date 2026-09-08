@@ -10,7 +10,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Centra.Workflows.Abstractions\Centra.Workflows.Abstractions.csproj" />
-    <ProjectReference Include="..\..\src\Centra.Core\Centra.Core.csproj" />
     <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.InMemory\Centra.Providers.InMemory.csproj" />

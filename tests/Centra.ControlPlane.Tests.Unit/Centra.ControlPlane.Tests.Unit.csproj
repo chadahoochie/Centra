@@ -9,9 +9,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
-    <ProjectReference Include="..\..\src\Centra.Core\Centra.Core.csproj" />
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Workflows\Centra.Workflows.csproj" />
   </ItemGroup>
 
   <ItemGroup>
