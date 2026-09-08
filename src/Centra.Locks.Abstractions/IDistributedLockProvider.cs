@@ -13,5 +13,8 @@ public interface IDistributedLockProvider
         string resourceId,
         TimeSpan expiryTime,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default)
+    {
+        return DistributedLockHelper.AcquireLockAsync(this, lockStoreName, resourceId, expiryTime, timeout, cancellationToken);
+    }
 }

@@ -20,7 +20,11 @@ public static class ControlPlaneServiceCollectionExtensions
         services.AddSingleton<IControlPlaneSecretResolver>(sp => sp.GetRequiredService<InMemorySecretStore>());
 
         services.AddSingleton<IResiliencePolicyCatalog, InMemoryResiliencePolicyCatalog>();
-        services.AddSingleton<ITopologyTracker, InMemoryTopologyTracker>();
+        services.AddSingleton<ITopologyTracker>(sp =>
+        {
+            var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+            return new InMemoryTopologyTracker(timeProvider, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(10));
+        });
         services.AddSingleton<IComponentSyncDispatcher, ComponentSyncDispatcher>();
 
         return services;

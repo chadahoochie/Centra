@@ -33,7 +33,8 @@ public sealed class TimeoutPolicyTests
     public async Task Should_Throw_TimeoutRejectedException_When_Action_Exceeds_Timeout()
     {
         // Arrange
-        var registry = new PollyResiliencePipelineRegistry();
+        var fakeTime = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var registry = new PollyResiliencePipelineRegistry(timeProvider: fakeTime);
         registry.RegisterPolicy(new CentraResiliencePolicyDefinition(
             PolicyName: "test-timeout-exceeded",
             Timeout: new TimeoutPolicyOptions(TimeSpan.FromMilliseconds(50))));
@@ -45,8 +46,9 @@ public sealed class TimeoutPolicyTests
         {
             await pipeline.ExecuteAsync(async ct =>
             {
-                // Delay longer than timeout; passing ct ensures cooperative cancellation
-                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                var delayTask = Task.Delay(TimeSpan.FromSeconds(10), fakeTime, ct);
+                fakeTime.Advance(TimeSpan.FromMilliseconds(100));
+                await delayTask;
                 return "never";
             });
         });
@@ -56,7 +58,8 @@ public sealed class TimeoutPolicyTests
     public async Task Should_Signal_Cancellation_Token_When_Timeout_Occurs()
     {
         // Arrange
-        var registry = new PollyResiliencePipelineRegistry();
+        var fakeTime = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var registry = new PollyResiliencePipelineRegistry(timeProvider: fakeTime);
         registry.RegisterPolicy(new CentraResiliencePolicyDefinition(
             PolicyName: "test-timeout-token",
             Timeout: new TimeoutPolicyOptions(TimeSpan.FromMilliseconds(50))));
@@ -71,7 +74,9 @@ public sealed class TimeoutPolicyTests
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                    var delayTask = Task.Delay(TimeSpan.FromSeconds(10), fakeTime, ct);
+                    fakeTime.Advance(TimeSpan.FromMilliseconds(100));
+                    await delayTask;
                 }
                 catch (OperationCanceledException)
                 {

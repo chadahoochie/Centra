@@ -109,20 +109,6 @@ public sealed class CentraRuntimeHostedService : IHostedService
                 return EventHandlingResult.Drop;
             }
 
-            // Unpack generic event
-            var unpackMethod = typeof(CloudEventUnpacker)
-                .GetMethod(nameof(CloudEventUnpacker.Unpack))!
-                .MakeGenericMethod(reg.EventType);
-
-            var unpacked = unpackMethod.Invoke(null, [payload, headers]);
-            var dataProp = unpacked!.GetType().GetProperty(nameof(UnpackedCloudEvent<object>.Data))!;
-            var contextProp = unpacked.GetType().GetProperty(nameof(UnpackedCloudEvent<object>.Context))!;
-
-            var eventData = dataProp.GetValue(unpacked);
-            var eventContext = (EventContext)contextProp.GetValue(unpacked)!;
-
-            var handleMethod = reg.HandlerType.GetMethod(nameof(IEventHandler<object>.HandleAsync))!;
-
             var resilienceProvider = _serviceProvider.GetService<IResiliencePipelineProvider>();
             EventHandlingResult result;
             if (resilienceProvider is not null)
@@ -130,14 +116,12 @@ public sealed class CentraRuntimeHostedService : IHostedService
                 var pipeline = resilienceProvider.GetPubSubPipeline(reg.PubSubName);
                 result = await pipeline.ExecuteAsync(async ct =>
                 {
-                    var task = (Task<EventHandlingResult>)handleMethod.Invoke(handler, [eventData, eventContext, ct])!;
-                    return await task.ConfigureAwait(false);
+                    return await reg.Invoker(handler, payload, headers, ct).ConfigureAwait(false);
                 }, cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                var resultTask = (Task<EventHandlingResult>)handleMethod.Invoke(handler, [eventData, eventContext, cancellationToken])!;
-                result = await resultTask.ConfigureAwait(false);
+                result = await reg.Invoker(handler, payload, headers, cancellationToken).ConfigureAwait(false);
             }
 
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;

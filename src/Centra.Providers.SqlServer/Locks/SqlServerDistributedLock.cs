@@ -77,9 +77,10 @@ public sealed class SqlServerDistributedLock : IDistributedLock
 
             await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
-            // Lock release swallows to ensure idempotent async disposal
+            // Lock release swallows to ensure idempotent async disposal (e.g. if the lock already expired)
+            System.Diagnostics.Debug.WriteLine($"Failed to release SQL Server distributed lock: {ex.Message}");
         }
     }
 }

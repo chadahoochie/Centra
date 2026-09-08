@@ -16,7 +16,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
     private readonly IConnectionFactory _connectionFactory;
     private readonly RabbitMQProviderOptions _options;
     private readonly ILogger<RabbitMQPubSubDriver> _logger;
-    private readonly ConcurrentDictionary<string, string> _consumerTags = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (IChannel Channel, string ConsumerTag)> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private IConnection? _connection;
     private IChannel? _publishChannel;
@@ -216,7 +216,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _consumerTags[subKey] = tag;
+        _subscriptions[subKey] = (channel, tag);
     }
 
     public async ValueTask UnsubscribeAsync(
@@ -228,9 +228,26 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
 
         var subKey = $"{pubSubName}:{topic}";
-        if (_consumerTags.TryRemove(subKey, out var tag) && _publishChannel is not null)
+        if (_subscriptions.TryRemove(subKey, out var sub))
         {
-            await _publishChannel.BasicCancelAsync(tag, cancellationToken: cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await sub.Channel.BasicCancelAsync(sub.ConsumerTag, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error canceling consumer tag {Tag} on unsubscribe", sub.ConsumerTag);
+            }
+
+            try
+            {
+                await sub.Channel.CloseAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+                sub.Channel.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error closing subscription channel on unsubscribe");
+            }
         }
     }
 
@@ -240,6 +257,20 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         {
             return;
         }
+
+        foreach (var (_, sub) in _subscriptions)
+        {
+            try
+            {
+                await sub.Channel.CloseAsync().ConfigureAwait(false);
+                sub.Channel.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error closing subscription channel during disposal");
+            }
+        }
+        _subscriptions.Clear();
 
         if (_publishChannel is not null)
         {

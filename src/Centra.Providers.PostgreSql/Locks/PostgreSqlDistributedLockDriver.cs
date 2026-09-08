@@ -65,7 +65,8 @@ public sealed class PostgreSqlDistributedLockDriver : IDistributedLockDriver
                 lock_id = EXCLUDED.lock_id,
                 acquired_at_utc = EXCLUDED.acquired_at_utc,
                 expires_at_utc = EXCLUDED.expires_at_utc
-            WHERE {_fullTableName}.expires_at_utc < $4;
+            WHERE {_fullTableName}.expires_at_utc < $4
+            RETURNING lock_id;
             """;
 
         await using (var cmd = _dataSource.CreateCommand(upsertSql))
@@ -76,17 +77,8 @@ public sealed class PostgreSqlDistributedLockDriver : IDistributedLockDriver
             cmd.Parameters.AddWithValue(now);
             cmd.Parameters.AddWithValue(expiresAt);
 
-            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        var checkSql = $"SELECT lock_id FROM {_fullTableName} WHERE lock_store = $1 AND resource_id = $2;";
-        await using (var checkCmd = _dataSource.CreateCommand(checkSql))
-        {
-            checkCmd.Parameters.AddWithValue(lockStoreName);
-            checkCmd.Parameters.AddWithValue(resourceId);
-
-            var currentLockId = await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            if (currentLockId is string currentStr && string.Equals(currentStr, lockId, StringComparison.Ordinal))
+            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (result is string currentStr && string.Equals(currentStr, lockId, StringComparison.Ordinal))
             {
                 return new PostgreSqlDistributedLock(_dataSource, _fullTableName, lockStoreName, resourceId, lockId);
             }
@@ -95,35 +87,11 @@ public sealed class PostgreSqlDistributedLockDriver : IDistributedLockDriver
         return null;
     }
 
-    public async ValueTask<IDistributedLock> AcquireLockAsync(
+    public ValueTask<IDistributedLock> AcquireLockAsync(
         string lockStoreName,
         string resourceId,
         TimeSpan expiryTime,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(lockStoreName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(resourceId);
-
-        var startTimestamp = Stopwatch.GetTimestamp();
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var @lock = await TryAcquireLockAsync(lockStoreName, resourceId, expiryTime, cancellationToken).ConfigureAwait(false);
-            if (@lock is not null)
-            {
-                return @lock;
-            }
-
-            if (Stopwatch.GetElapsedTime(startTimestamp) >= timeout)
-            {
-                throw new TimeoutException($"Failed to acquire lock for resource '{resourceId}' in store '{lockStoreName}' within {timeout.TotalSeconds}s.");
-            }
-
-            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        throw new OperationCanceledException(cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        DistributedLockHelper.AcquireLockAsync(this, lockStoreName, resourceId, expiryTime, timeout, cancellationToken);
 }

@@ -1,10 +1,12 @@
+using System.Collections.Concurrent;
 using System.Reflection;
-using Centra.Invocation;
 
 namespace Centra.Invocation;
 
 public class CentraDispatchProxy : DispatchProxy
 {
+    private static readonly ConcurrentDictionary<MethodInfo, CentraDispatchMethodMetadata> MetadataCache = new();
+
     private IServiceInvoker _invoker = null!;
     private string _appId = null!;
 
@@ -18,70 +20,16 @@ public class CentraDispatchProxy : DispatchProxy
     {
         ArgumentNullException.ThrowIfNull(targetMethod);
 
-        var methodAttr = targetMethod.GetCustomAttribute<ServiceMethodAttribute>();
-        var methodName = methodAttr?.Method ?? targetMethod.Name;
-        var verb = methodAttr?.HttpVerb ?? "POST";
+        var metadata = MetadataCache.GetOrAdd(targetMethod, static m => CentraDispatchMethodMetadata.Create(m));
 
-        var parameters = targetMethod.GetParameters();
-        object? requestBody = null;
-        var ct = CancellationToken.None;
+        var ct = metadata.CancellationTokenIndex >= 0 && args is not null
+            ? (CancellationToken)(args[metadata.CancellationTokenIndex] ?? CancellationToken.None)
+            : CancellationToken.None;
 
-        if (args is not null)
-        {
-            for (var i = 0; i < parameters.Length; i++)
-            {
-                if (parameters[i].ParameterType == typeof(CancellationToken))
-                {
-                    ct = (CancellationToken)(args[i] ?? CancellationToken.None);
-                }
-                else if (requestBody is null)
-                {
-                    requestBody = args[i];
-                }
-            }
-        }
+        var requestBody = metadata.BodyParameterIndex >= 0 && args is not null
+            ? args[metadata.BodyParameterIndex]
+            : null;
 
-        var returnType = targetMethod.ReturnType;
-
-        // Task<T> or ValueTask<T>
-        if (returnType.IsGenericType && (returnType.GetGenericTypeDefinition() == typeof(Task<>) || returnType.GetGenericTypeDefinition() == typeof(ValueTask<>)))
-        {
-            var responseType = returnType.GetGenericArguments()[0];
-            var requestType = requestBody?.GetType() ?? typeof(object);
-
-            var invokeMethod = typeof(IServiceInvoker).GetMethod(nameof(IServiceInvoker.InvokeMethodAsync))!
-                .MakeGenericMethod(requestType, responseType);
-
-            var valueTaskResult = invokeMethod.Invoke(_invoker, [_appId, methodName, requestBody, verb, null, ct]);
-
-            if (returnType.GetGenericTypeDefinition() == typeof(Task<>))
-            {
-                // Convert ValueTask<T> to Task<T> via AsTask()
-                var asTaskMethod = valueTaskResult!.GetType().GetMethod(nameof(ValueTask<object>.AsTask))!;
-                return asTaskMethod.Invoke(valueTaskResult, null);
-            }
-
-            return valueTaskResult;
-        }
-
-        if (returnType == typeof(Task))
-        {
-            var invokeMethod = typeof(IServiceInvoker).GetMethod(nameof(IServiceInvoker.InvokeMethodAsync))!
-                .MakeGenericMethod(requestBody?.GetType() ?? typeof(object), typeof(object));
-
-            var vt = (ValueTask<object?>)invokeMethod.Invoke(_invoker, [_appId, methodName, requestBody, verb, null, ct])!;
-            return vt.AsTask();
-        }
-
-        if (returnType == typeof(ValueTask))
-        {
-            var invokeMethod = typeof(IServiceInvoker).GetMethod(nameof(IServiceInvoker.InvokeMethodAsync))!
-                .MakeGenericMethod(requestBody?.GetType() ?? typeof(object), typeof(object));
-
-            var vt = (ValueTask<object?>)invokeMethod.Invoke(_invoker, [_appId, methodName, requestBody, verb, null, ct])!;
-            return new ValueTask(vt.AsTask());
-        }
-
-        throw new NotSupportedException($"Return type '{returnType.Name}' is not supported on Centra service client interface.");
+        return metadata.Invoker(_invoker, _appId, metadata.MethodName, metadata.HttpVerb, requestBody, ct);
     }
 }

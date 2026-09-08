@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Centra.ControlPlane.Endpoints;
 using Centra.ControlPlane.Extensions;
+using Centra.ControlPlane.Sync;
 using Centra.Sync;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
@@ -131,6 +132,13 @@ public sealed class ResilienceEndpointsTests : IAsyncDisposable
         var streamResponse = await _client.GetAsync("/api/v1/resilience/stream?appId=test-app&instanceId=node-1", HttpCompletionOption.ResponseHeadersRead, cts.Token);
         streamResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         streamResponse.Content.Headers.ContentType?.MediaType.ShouldBe("text/event-stream");
+
+        // Wait until subscriber is registered in dispatcher
+        var dispatcher = _app.Services.GetRequiredService<IComponentSyncDispatcher>() as ComponentSyncDispatcher;
+        while (dispatcher?.ResilienceSubscriberCount == 0 && !cts.IsCancellationRequested)
+        {
+            await Task.Delay(10, cts.Token);
+        }
 
         // Act: Upsert a policy while stream is open
         var policy = new ResiliencePolicyDto

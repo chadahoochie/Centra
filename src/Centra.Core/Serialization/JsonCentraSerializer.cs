@@ -33,6 +33,16 @@ public sealed class JsonCentraSerializer : ICentraSerializer
         return writer.ToArray();
     }
 
+    public byte[] Serialize(object? value, Type inputType)
+    {
+        if (value is null)
+        {
+            return [];
+        }
+
+        return JsonSerializer.SerializeToUtf8Bytes(value, inputType, _options);
+    }
+
     public T? Deserialize<T>(ReadOnlyMemory<byte> buffer)
     {
         if (buffer.IsEmpty)

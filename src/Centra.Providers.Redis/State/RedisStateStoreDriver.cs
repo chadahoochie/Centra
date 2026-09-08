@@ -84,7 +84,7 @@ public sealed class RedisStateStoreDriver : IStateStoreDriver
 
         await db.HashSetAsync(
             redisKey,
-            [new HashEntry(DataField, value.ToArray()), new HashEntry(ETagField, newEtag)]).ConfigureAwait(false);
+            [new HashEntry(DataField, value), new HashEntry(ETagField, newEtag)]).ConfigureAwait(false);
 
         if (options?.TimeToLive is not null && options.TimeToLive > TimeSpan.Zero)
         {
@@ -114,7 +114,7 @@ public sealed class RedisStateStoreDriver : IStateStoreDriver
         var result = await db.ScriptEvaluateAsync(
             TrySetScript,
             [new RedisKey(redisKey)],
-            [expectedETag, value.ToArray(), newEtag, ttlMs]).ConfigureAwait(false);
+            [expectedETag, value, newEtag, ttlMs]).ConfigureAwait(false);
 
         return (long)result == 1;
     }

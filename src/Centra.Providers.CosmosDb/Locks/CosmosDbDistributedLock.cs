@@ -93,9 +93,10 @@ public sealed class CosmosDbDistributedLock : IDistributedLock
                 new PartitionKey(LockStoreName),
                 requestOptions).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
-            // Suppress exception during disposal
+            // Suppress exception during disposal (e.g. if the lock document already expired or was deleted)
+            System.Diagnostics.Debug.WriteLine($"Failed to release Cosmos DB distributed lock: {ex.Message}");
         }
     }
 }

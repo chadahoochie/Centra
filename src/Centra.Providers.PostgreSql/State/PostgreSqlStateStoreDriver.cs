@@ -111,7 +111,7 @@ public sealed class PostgreSqlStateStoreDriver : IStateStoreDriver
         await using var cmd = _dataSource.CreateCommand(sql);
         cmd.Parameters.AddWithValue(storeName);
         cmd.Parameters.AddWithValue(key);
-        cmd.Parameters.AddWithValue(NpgsqlDbType.Bytea, value.ToArray());
+        cmd.Parameters.AddWithValue(NpgsqlDbType.Bytea, value);
         cmd.Parameters.AddWithValue(newEtag);
         cmd.Parameters.AddWithValue(DBNull.Value);
         cmd.Parameters.AddWithValue(expiresAt.HasValue ? (object)expiresAt.Value : DBNull.Value);
@@ -150,7 +150,7 @@ public sealed class PostgreSqlStateStoreDriver : IStateStoreDriver
             """;
 
         await using var cmd = _dataSource.CreateCommand(sql);
-        cmd.Parameters.AddWithValue(NpgsqlDbType.Bytea, value.ToArray());
+        cmd.Parameters.AddWithValue(NpgsqlDbType.Bytea, value);
         cmd.Parameters.AddWithValue(newEtag);
         cmd.Parameters.AddWithValue(expiresAt.HasValue ? (object)expiresAt.Value : DBNull.Value);
         cmd.Parameters.AddWithValue(now);

@@ -2,14 +2,33 @@ using System.Collections.Concurrent;
 
 namespace Centra.ControlPlane.Topology;
 
-public sealed class InMemoryTopologyTracker : ITopologyTracker
+public sealed class InMemoryTopologyTracker : ITopologyTracker, IDisposable
 {
     private readonly ConcurrentDictionary<string, ClientNodeInfo> _nodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan _staleTimeout;
+    private readonly ITimer? _evictionTimer;
 
-    public InMemoryTopologyTracker(TimeProvider? timeProvider = null)
+    public InMemoryTopologyTracker(
+        TimeProvider? timeProvider = null,
+        TimeSpan? staleTimeout = null,
+        TimeSpan? evictionInterval = null)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _staleTimeout = staleTimeout ?? TimeSpan.FromSeconds(30);
+
+        if (evictionInterval.HasValue && evictionInterval.Value > TimeSpan.Zero)
+        {
+            _evictionTimer = _timeProvider.CreateTimer(
+                static state =>
+                {
+                    var self = (InMemoryTopologyTracker)state!;
+                    _ = self.EvictStaleNodesAsync(self._staleTimeout);
+                },
+                this,
+                evictionInterval.Value,
+                evictionInterval.Value);
+        }
     }
 
     public ValueTask<HeartbeatResponse> RecordHeartbeatAsync(HeartbeatRequest request, CancellationToken cancellationToken = default)
@@ -57,5 +76,10 @@ public sealed class InMemoryTopologyTracker : ITopologyTracker
             }
         }
         return ValueTask.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        _evictionTimer?.Dispose();
     }
 }

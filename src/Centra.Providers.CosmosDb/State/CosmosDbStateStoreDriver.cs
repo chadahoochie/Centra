@@ -174,6 +174,7 @@ public sealed class CosmosDbStateStoreDriver : IStateStoreDriver
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
             // Idempotent delete
+            System.Diagnostics.Debug.WriteLine($"[CosmosDbStateStore] Key '{key}' not found during delete (idempotent): {ex.Message}");
         }
     }
 

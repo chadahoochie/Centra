@@ -31,10 +31,11 @@ public sealed class ComponentSyncDispatcher : IComponentSyncDispatcher
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var subscriberKey = $"{appId}:{instanceId}:{Guid.NewGuid():N}";
-        var channel = Channel.CreateUnbounded<ComponentSyncEvent>(new UnboundedChannelOptions
+        var channel = Channel.CreateBounded<ComponentSyncEvent>(new BoundedChannelOptions(1000)
         {
             SingleWriter = false,
-            SingleReader = true
+            SingleReader = true,
+            FullMode = BoundedChannelFullMode.DropOldest
         });
 
         _subscribers[subscriberKey] = channel;
@@ -81,10 +82,11 @@ public sealed class ComponentSyncDispatcher : IComponentSyncDispatcher
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var subscriberKey = $"{appId}:{instanceId}:{Guid.NewGuid():N}";
-        var channel = Channel.CreateUnbounded<ResilienceSyncEventDto>(new UnboundedChannelOptions
+        var channel = Channel.CreateBounded<ResilienceSyncEventDto>(new BoundedChannelOptions(1000)
         {
             SingleWriter = false,
-            SingleReader = true
+            SingleReader = true,
+            FullMode = BoundedChannelFullMode.DropOldest
         });
 
         _resilienceSubscribers[subscriberKey] = channel;

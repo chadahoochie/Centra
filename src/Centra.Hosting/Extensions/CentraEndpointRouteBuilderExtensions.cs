@@ -49,20 +49,7 @@ public static class CentraEndpointRouteBuilderExtensions
                         return Results.NotFound();
                     }
 
-                    var unpackMethod = typeof(CloudEventUnpacker)
-                        .GetMethod(nameof(CloudEventUnpacker.Unpack))!
-                        .MakeGenericMethod(reg.EventType);
-
-                    var unpacked = unpackMethod.Invoke(null, [new ReadOnlyMemory<byte>(payload), headers]);
-                    var dataProp = unpacked!.GetType().GetProperty(nameof(UnpackedCloudEvent<object>.Data))!;
-                    var contextProp = unpacked.GetType().GetProperty(nameof(UnpackedCloudEvent<object>.Context))!;
-
-                    var eventData = dataProp.GetValue(unpacked);
-                    var eventContext = (EventContext)contextProp.GetValue(unpacked)!;
-
-                    var handleMethod = reg.HandlerType.GetMethod(nameof(IEventHandler<object>.HandleAsync))!;
-                    var resultTask = (Task<EventHandlingResult>)handleMethod.Invoke(handler, [eventData, eventContext, context.RequestAborted])!;
-                    var result = await resultTask.ConfigureAwait(false);
+                    var result = await reg.Invoker(handler, new ReadOnlyMemory<byte>(payload), headers, context.RequestAborted).ConfigureAwait(false);
 
                     var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
                     CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, result.ToString(), durationMs);

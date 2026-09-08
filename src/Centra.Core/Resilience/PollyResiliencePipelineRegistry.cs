@@ -32,8 +32,7 @@ public sealed class PollyResiliencePipelineRegistry : IResiliencePipelineProvide
     {
         ArgumentNullException.ThrowIfNull(definition);
         _policies[definition.PolicyName] = definition;
-        // Invalidate compiled pipeline cache to trigger recompile on next request
-        _pipelineCache.TryRemove(definition.PolicyName, out _);
+        InvalidateCache(definition.PolicyName);
     }
 
     /// <inheritdoc />
@@ -41,8 +40,25 @@ public sealed class PollyResiliencePipelineRegistry : IResiliencePipelineProvide
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(policyName);
         var removed = _policies.TryRemove(policyName, out _);
-        _pipelineCache.TryRemove(policyName, out _);
+        InvalidateCache(policyName);
         return removed;
+    }
+
+    private void InvalidateCache(string policyName)
+    {
+        _pipelineCache.TryRemove(policyName, out _);
+
+        if (policyName.StartsWith("default-", StringComparison.OrdinalIgnoreCase))
+        {
+            var prefix = policyName["default-".Length..] + ":";
+            foreach (var key in _pipelineCache.Keys)
+            {
+                if (key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    _pipelineCache.TryRemove(key, out _);
+                }
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -204,7 +220,14 @@ public sealed class PollyResiliencePipelineRegistry : IResiliencePipelineProvide
                 ? definition.RateLimiter.Window
                 : TimeSpan.FromSeconds(1);
 
-            builder.AddConcurrencyLimiter(definition.RateLimiter.PermitLimit, definition.RateLimiter.QueueLimit);
+            builder.AddRateLimiter(new System.Threading.RateLimiting.SlidingWindowRateLimiter(
+                new System.Threading.RateLimiting.SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit = definition.RateLimiter.PermitLimit,
+                    QueueLimit = definition.RateLimiter.QueueLimit,
+                    Window = window,
+                    SegmentsPerWindow = 4
+                }));
         }
 
         // 4. Circuit Breaker

@@ -48,7 +48,8 @@ public static class CentraPubSubServiceCollectionExtensions
             resolvedTopic,
             typeof(TEvent),
             typeof(THandler),
-            resolvedDlTopic));
+            resolvedDlTopic,
+            CentraTopicRegistration.CreateTypedInvoker<TEvent>()));
 
         return services;
     }

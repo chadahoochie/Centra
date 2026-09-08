@@ -182,4 +182,54 @@ public sealed class PollyResiliencePipelineRegistryTests
         var registry = new PollyResiliencePipelineRegistry();
         Should.Throw<ArgumentNullException>(() => registry.RegisterPolicy(null!));
     }
+
+    [Fact]
+    public void Should_Invalidate_Derived_Invocation_Pipelines_When_Default_Invocation_Policy_Changes()
+    {
+        // Arrange
+        var registry = new PollyResiliencePipelineRegistry();
+        registry.RegisterPolicy(new CentraResiliencePolicyDefinition(
+            PolicyName: "default-invocation",
+            Retry: new RetryPolicyOptions(MaxRetries: 2)));
+
+        var p1 = registry.GetServiceInvocationPipeline("orders-service");
+
+        // Act - Update global default
+        registry.RegisterPolicy(new CentraResiliencePolicyDefinition(
+            PolicyName: "default-invocation",
+            Retry: new RetryPolicyOptions(MaxRetries: 7)));
+
+        var p2 = registry.GetServiceInvocationPipeline("orders-service");
+
+        // Assert - Derived pipeline must be recompiled with new settings
+        p2.ShouldNotBeSameAs(p1);
+    }
+
+    [Fact]
+    public async Task Should_Enforce_RateLimiter_Window_And_Reject_Excessive_Requests()
+    {
+        // Arrange
+        var registry = new PollyResiliencePipelineRegistry();
+        registry.RegisterPolicy(new CentraResiliencePolicyDefinition(
+            PolicyName: "rate-limited-policy",
+            RateLimiter: new RateLimiterPolicyOptions(
+                PermitLimit: 2,
+                QueueLimit: 0,
+                Window: TimeSpan.FromSeconds(10))));
+
+        var pipeline = registry.GetPipeline("rate-limited-policy");
+
+        // Act & Assert
+        // First 2 executions within window succeed
+        var r1 = await pipeline.ExecuteAsync(ct => ValueTask.FromResult(1));
+        var r2 = await pipeline.ExecuteAsync(ct => ValueTask.FromResult(2));
+        r1.ShouldBe(1);
+        r2.ShouldBe(2);
+
+        // 3rd sequential execution exceeds window permit limit even with zero active concurrency
+        await Should.ThrowAsync<Polly.RateLimiting.RateLimiterRejectedException>(async () =>
+        {
+            await pipeline.ExecuteAsync(ct => ValueTask.FromResult(3));
+        });
+    }
 }

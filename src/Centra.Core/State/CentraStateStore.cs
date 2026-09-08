@@ -229,14 +229,15 @@ public sealed class CentraStateStore : IStateStore
 
         try
         {
+            var normalizedOps = NormalizeOperations(operations);
             if (_resilienceProvider is not null)
             {
                 var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
-                await pipeline.ExecuteAsync(async ct => await driver.ExecuteTransactionAsync(storeName, operations, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+                await pipeline.ExecuteAsync(async ct => await driver.ExecuteTransactionAsync(storeName, normalizedOps, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                await driver.ExecuteTransactionAsync(storeName, operations, cancellationToken).ConfigureAwait(false);
+                await driver.ExecuteTransactionAsync(storeName, normalizedOps, cancellationToken).ConfigureAwait(false);
             }
 
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
@@ -249,6 +250,62 @@ public sealed class CentraStateStore : IStateStore
             CentraMeters.RecordStateOperation(storeName, "ExecuteTransaction", "error", durationMs);
             throw;
         }
+    }
+
+    private IReadOnlyList<StateTransactionOperation> NormalizeOperations(IReadOnlyList<StateTransactionOperation> operations)
+    {
+        if (operations.Count == 0)
+        {
+            return operations;
+        }
+
+        List<StateTransactionOperation>? converted = null;
+        for (var i = 0; i < operations.Count; i++)
+        {
+            var op = operations[i];
+            if (op is SetTransactionOperation<byte[]> || op is DeleteTransactionOperation)
+            {
+                converted?.Add(op);
+                continue;
+            }
+
+            var opType = op.GetType();
+            if (opType.IsGenericType && opType.GetGenericTypeDefinition() == typeof(SetTransactionOperation<>))
+            {
+                converted ??= new List<StateTransactionOperation>(operations.Take(i));
+
+                var genericArg = opType.GetGenericArguments()[0];
+                var valueProp = opType.GetProperty(nameof(SetTransactionOperation<object>.Value))!;
+                var expectedETagProp = opType.GetProperty(nameof(SetTransactionOperation<object>.ExpectedETag))!;
+                var optionsProp = opType.GetProperty(nameof(SetTransactionOperation<object>.Options))!;
+
+                var rawValue = valueProp.GetValue(op);
+                var expectedETag = (string?)expectedETagProp.GetValue(op);
+                var options = (StateOptions?)optionsProp.GetValue(op);
+
+                byte[] bytes;
+                if (rawValue is null)
+                {
+                    bytes = [];
+                }
+                else if (rawValue is ReadOnlyMemory<byte> rom)
+                {
+                    bytes = rom.ToArray();
+                }
+                else
+                {
+                    bytes = _serializer.Serialize(rawValue, genericArg);
+                }
+
+                converted.Add(new SetTransactionOperation<byte[]>(op.Key, bytes, expectedETag, options));
+            }
+            else
+            {
+                converted?.Add(op);
+            }
+        }
+
+        return converted ?? operations;
     }
 
     private IStateStoreDriver GetDriver(string storeName)

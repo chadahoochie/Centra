@@ -137,4 +137,42 @@ public sealed class StateStoreTests
         result.ShouldNotBeNull();
         result.Value.Value.OrderId.ShouldBe(orderId);
     }
+
+    [Theory, AutoNSubstituteData]
+    public async Task Should_Normalize_Typed_SetTransactionOperation_To_Bytes_When_Executing_Transaction(
+        string key1,
+        string key2,
+        string orderId,
+        string productId,
+        int quantity)
+    {
+        // Arrange
+        var order = new TestStateOrder(orderId, productId, quantity);
+        var expectedBytes = _serializer.Serialize(order);
+
+        IReadOnlyList<StateTransactionOperation>? capturedOps = null;
+        _driver.ExecuteTransactionAsync("orders-state", Arg.Do<IReadOnlyList<StateTransactionOperation>>(ops => capturedOps = ops), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.CompletedTask);
+
+        var stateStore = new CentraStateStore(_registry, _serializer);
+        var operations = new StateTransactionOperation[]
+        {
+            new SetTransactionOperation<TestStateOrder>(key1, order),
+            new DeleteTransactionOperation(key2)
+        };
+
+        // Act
+        await stateStore.ExecuteTransactionAsync("orders-state", operations);
+
+        // Assert
+        capturedOps.ShouldNotBeNull();
+        capturedOps.Count.ShouldBe(2);
+
+        var setOp = capturedOps[0].ShouldBeOfType<SetTransactionOperation<byte[]>>();
+        setOp.Key.ShouldBe(key1);
+        setOp.Value.ShouldBe(expectedBytes);
+
+        var deleteOp = capturedOps[1].ShouldBeOfType<DeleteTransactionOperation>();
+        deleteOp.Key.ShouldBe(key2);
+    }
 }

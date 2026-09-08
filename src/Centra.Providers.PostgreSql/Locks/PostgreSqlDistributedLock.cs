@@ -67,9 +67,10 @@ public sealed class PostgreSqlDistributedLock : IDistributedLock
 
             await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
-            // Suppress errors on dispose
+            // Suppress errors on lock release during disposal (e.g. if the lock already expired or connection closed)
+            System.Diagnostics.Debug.WriteLine($"Failed to release PostgreSQL distributed lock: {ex.Message}");
         }
     }
 }

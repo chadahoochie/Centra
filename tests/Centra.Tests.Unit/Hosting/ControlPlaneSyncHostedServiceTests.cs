@@ -34,7 +34,17 @@ public sealed class ControlPlaneSyncHostedServiceTests
         client.StreamUpdatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(callInfo => ToAsyncEnumerable(new List<ComponentSyncEventDto>(), callInfo.Arg<CancellationToken>()));
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registeredCount = 0;
+        registry.When(r => r.RegisterComponent(Arg.Any<ComponentDefinition>())).Do(_ =>
+        {
+            if (Interlocked.Increment(ref registeredCount) >= 2)
+            {
+                tcs.TrySetResult();
+            }
+        });
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         var service = new CentraControlPlaneSyncHostedService(
             client,
             registry,
@@ -43,7 +53,7 @@ public sealed class ControlPlaneSyncHostedServiceTests
 
         // Act
         await service.StartAsync(cts.Token);
-        await Task.Delay(50);
+        await Task.WhenAny(tcs.Task, Task.Delay(2000, cts.Token));
         await service.StopAsync(CancellationToken.None);
 
         // Assert
@@ -106,9 +116,10 @@ public sealed class ControlPlaneSyncHostedServiceTests
         {
             await Task.Delay(Timeout.Infinite, ct);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             // Expected on cancellation
+            System.Diagnostics.Debug.WriteLine($"[Test] Stream enumeration cancelled as expected: {ex.Message}");
         }
     }
 }

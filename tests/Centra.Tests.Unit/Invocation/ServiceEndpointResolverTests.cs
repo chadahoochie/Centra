@@ -165,4 +165,42 @@ public sealed class ServiceEndpointResolverTests
         uri.ShouldNotBeNull();
         uri.ToString().ShouldBe("http://order-service/");
     }
+
+    [Fact]
+    public async Task ControlPlaneResolver_Should_Cache_Topology_Within_Ttl_Window()
+    {
+        var fakeTime = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var nodes = new List<ServiceNodeDto>
+        {
+            new("order-service", "node-1", "Healthy", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string> { ["address"] = "http://10.0.0.1:5000" })
+        };
+
+        _controlPlaneClient.GetTopologyAsync(Arg.Any<CancellationToken>())
+            .Returns(nodes);
+
+        var resolver = new ControlPlaneServiceEndpointResolver(
+            _controlPlaneClient,
+            timeProvider: fakeTime,
+            cacheTtl: TimeSpan.FromSeconds(5));
+
+        // Act 1: Initial call populates cache
+        var uri1 = await resolver.ResolveEndpointAsync("order-service");
+        uri1.ShouldNotBeNull();
+
+        // Act 2: Advance by 2 seconds (still cached)
+        fakeTime.Advance(TimeSpan.FromSeconds(2));
+        var uri2 = await resolver.ResolveEndpointAsync("order-service");
+        uri2.ShouldNotBeNull();
+
+        // Assert: Only 1 network call was made
+        await _controlPlaneClient.Received(1).GetTopologyAsync(Arg.Any<CancellationToken>());
+
+        // Act 3: Advance past 5s TTL
+        fakeTime.Advance(TimeSpan.FromSeconds(4)); // total 6 seconds
+        var uri3 = await resolver.ResolveEndpointAsync("order-service");
+        uri3.ShouldNotBeNull();
+
+        // Assert: 2nd network call made
+        await _controlPlaneClient.Received(2).GetTopologyAsync(Arg.Any<CancellationToken>());
+    }
 }

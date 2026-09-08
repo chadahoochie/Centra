@@ -55,7 +55,8 @@ public sealed class CircuitBreakerPolicyTests
     public async Task Should_Recover_To_Closed_State_After_Break_Duration_And_Successful_Probe()
     {
         // Arrange
-        var registry = new PollyResiliencePipelineRegistry();
+        var fakeTime = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var registry = new PollyResiliencePipelineRegistry(timeProvider: fakeTime);
         registry.RegisterPolicy(new CentraResiliencePolicyDefinition(
             PolicyName: "test-circuit-recovery",
             CircuitBreaker: new CircuitBreakerPolicyOptions(
@@ -89,8 +90,8 @@ public sealed class CircuitBreakerPolicyTests
             });
         });
 
-        // 2. Wait for break duration to expire so circuit transitions to HalfOpen
-        await Task.Delay(600);
+        // 2. Advance time for break duration to expire so circuit transitions to HalfOpen
+        fakeTime.Advance(TimeSpan.FromMilliseconds(600));
 
         // 3. Next execution is the probe request - succeed
         var probeResult = await pipeline.ExecuteAsync(async ct =>

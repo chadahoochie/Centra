@@ -250,13 +250,13 @@ public static class ControlPlaneEndpoints
             foreach (var entry in entries)
             {
                 var resolvedDef = await secretResolver.ResolveSecretsAsync(entry.Definition, ct);
-                var fullSyncPayload = new
+                var fullSyncPayload = new ComponentSyncEventDto
                 {
-                    action = 0, // FullSync
-                    definition = resolvedDef,
-                    componentName = entry.Definition.Name,
-                    revision = entry.Revision,
-                    timestampUtc = entry.UpdatedAtUtc
+                    Action = ComponentSyncAction.FullSync,
+                    Definition = resolvedDef,
+                    ComponentName = entry.Definition.Name,
+                    Revision = entry.Revision,
+                    TimestampUtc = entry.UpdatedAtUtc
                 };
                 var json = JsonSerializer.Serialize(fullSyncPayload, JsonOptions);
                 await httpContext.Response.WriteAsync($"data: {json}\n\n", ct);
@@ -272,13 +272,13 @@ public static class ControlPlaneEndpoints
                     resolvedDef = await secretResolver.ResolveSecretsAsync(evt.Definition, ct);
                 }
 
-                var syncDto = new
+                var syncDto = new ComponentSyncEventDto
                 {
-                    action = (int)evt.Type,
-                    definition = resolvedDef,
-                    componentName = evt.ComponentName,
-                    revision = evt.Revision,
-                    timestampUtc = evt.TimestampUtc
+                    Action = (ComponentSyncAction)(int)evt.Type,
+                    Definition = resolvedDef,
+                    ComponentName = evt.ComponentName,
+                    Revision = evt.Revision,
+                    TimestampUtc = evt.TimestampUtc
                 };
 
                 var json = JsonSerializer.Serialize(syncDto, JsonOptions);

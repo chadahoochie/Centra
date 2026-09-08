@@ -213,9 +213,9 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
                 await processor.StopProcessingAsync().ConfigureAwait(false);
                 await processor.DisposeAsync().ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore errors during processor shutdown
+                _logger.LogDebug(ex, "Error stopping Service Bus processor during disposal.");
             }
         }
         _processors.Clear();
@@ -226,9 +226,9 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
             {
                 await sender.DisposeAsync().ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore errors during sender disposal
+                _logger.LogDebug(ex, "Error disposing Service Bus sender during disposal.");
             }
         }
         _senders.Clear();

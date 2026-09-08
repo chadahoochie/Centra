@@ -51,33 +51,13 @@ public sealed class InMemoryDistributedLockDriver : IDistributedLockDriver
         }
     }
 
-    public async ValueTask<IDistributedLock> AcquireLockAsync(
+    public ValueTask<IDistributedLock> AcquireLockAsync(
         string lockStoreName,
         string resourceId,
         TimeSpan expiryTime,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default)
-    {
-        var startTime = _timeProvider.GetUtcNow();
-
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var @lock = await TryAcquireLockAsync(lockStoreName, resourceId, expiryTime, cancellationToken).ConfigureAwait(false);
-            if (@lock is not null)
-            {
-                return @lock;
-            }
-
-            if (_timeProvider.GetUtcNow() - startTime >= timeout)
-            {
-                throw new TimeoutException($"Failed to acquire lock on resource '{resourceId}' in store '{lockStoreName}' within {timeout.TotalMilliseconds}ms.");
-            }
-
-            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
-        }
-    }
+        CancellationToken cancellationToken = default) =>
+        DistributedLockHelper.AcquireLockAsync(this, lockStoreName, resourceId, expiryTime, timeout, cancellationToken);
 
     internal ValueTask<bool> RenewLockAsync(string storeName, string resourceId, string lockId, TimeSpan additionalTime)
     {
