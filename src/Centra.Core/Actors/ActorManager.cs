@@ -118,16 +118,20 @@ public sealed class ActorManager : IAsyncDisposable
 
         foreach (var (identity, task) in _activations)
         {
-            if (task.IsCompletedSuccessfully)
+            if (!task.IsCompletedSuccessfully)
             {
-                var activation = task.Result;
-                if (now - activation.LastAccessedUtc >= timeout)
-                {
-                    if (await PassivateActorAsync(identity, cancellationToken).ConfigureAwait(false))
-                    {
-                        passivatedCount++;
-                    }
-                }
+                continue;
+            }
+
+            var activation = task.Result;
+            if (now - activation.LastAccessedUtc < timeout)
+            {
+                continue;
+            }
+
+            if (await PassivateActorAsync(identity, cancellationToken).ConfigureAwait(false))
+            {
+                passivatedCount++;
             }
         }
 

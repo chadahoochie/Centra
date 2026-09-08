@@ -93,24 +93,11 @@ public static class CentraEndpointRouteBuilderExtensions
                 var bindingData = new BindingData(payload, metadata, context.Request.ContentType);
                 var response = await dispatcher.DispatchAsync(bindingName, bindingData, context.RequestAborted).ConfigureAwait(false);
 
-                if (response.Metadata is not null)
-                {
-                    foreach (var kvp in response.Metadata)
-                    {
-                        if (kvp.Key.StartsWith("header:", StringComparison.OrdinalIgnoreCase))
-                        {
-                            context.Response.Headers.TryAdd(kvp.Key["header:".Length..], kvp.Value);
-                        }
-                    }
-                }
+                ApplyResponseHeaders(context.Response, response.Metadata);
 
                 if (!response.Data.IsEmpty)
                 {
-                    var contentType = "application/octet-stream";
-                    if (response.Metadata is not null && response.Metadata.TryGetValue("content-type", out var ct))
-                    {
-                        contentType = ct;
-                    }
+                    var contentType = ResolveResponseContentType(response.Metadata);
                     return Results.Bytes(response.Data.ToArray(), contentType);
                 }
 
@@ -282,9 +269,8 @@ public static class CentraEndpointRouteBuilderExtensions
             var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
             if (workflowClient is null) return Results.NotFound();
 
-            using var reader = new StreamReader(context.Request.Body);
-            var reason = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(reason)) reason = "Terminated via API";
+            var bytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var reason = bytes.Length > 0 ? System.Text.Encoding.UTF8.GetString(bytes) : "Terminated via API";
 
             await workflowClient.TerminateWorkflowAsync(
                 new WorkflowInstanceId(instanceId),
@@ -306,6 +292,28 @@ public static class CentraEndpointRouteBuilderExtensions
         });
 
         return endpoints;
+    }
+
+    private static void ApplyResponseHeaders(HttpResponse response, IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (metadata is null) return;
+        foreach (var (k, v) in metadata)
+        {
+            if (k.StartsWith("header:", StringComparison.OrdinalIgnoreCase))
+            {
+                response.Headers.TryAdd(k["header:".Length..], v);
+            }
+        }
+    }
+
+    private static string ResolveResponseContentType(IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (metadata is not null && metadata.TryGetValue("content-type", out var ct))
+        {
+            return ct;
+        }
+
+        return "application/octet-stream";
     }
 
     private static async ValueTask<byte[]> ReadRequestBodyBytesAsync(HttpRequest request, CancellationToken cancellationToken)

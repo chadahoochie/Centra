@@ -141,24 +141,23 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
             var state = await _historyStore.GetStateAsync(instanceId, cancellationToken).ConfigureAwait(false);
             if (state is not null)
             {
-                var status = (WorkflowStatus)state.Status;
-                if (status == WorkflowStatus.Completed)
+                switch ((WorkflowStatus)state.Status)
                 {
-                    if (state.Output is not null && state.Output.Length > 0)
-                    {
-                        return _serializer.Deserialize<TOutput>(state.Output)!;
-                    }
-                    return default!;
-                }
+                    case WorkflowStatus.Completed:
+                        return state.Output is { Length: > 0 }
+                            ? _serializer.Deserialize<TOutput>(state.Output)!
+                            : default!;
 
-                if (status == WorkflowStatus.Failed)
-                {
-                    throw new InvalidOperationException($"Workflow '{instanceId.Value}' failed: {state.FailureDetails}");
-                }
+                    case WorkflowStatus.Failed:
+                        throw new InvalidOperationException($"Workflow '{instanceId.Value}' failed: {state.FailureDetails}");
 
-                if (status == WorkflowStatus.Terminated)
-                {
-                    throw new InvalidOperationException($"Workflow '{instanceId.Value}' was terminated: {state.FailureDetails}");
+                    case WorkflowStatus.Terminated:
+                        throw new InvalidOperationException($"Workflow '{instanceId.Value}' was terminated: {state.FailureDetails}");
+
+                    case WorkflowStatus.Running:
+                    case WorkflowStatus.Suspended:
+                    default:
+                        break;
                 }
             }
 
@@ -345,105 +344,141 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         try
         {
             var output = await InvokeWorkflowRunAsync(workflowInstance, context, typedInput).ConfigureAwait(false);
-
-            // Turn completed successfully
-            stateRecord.Status = (int)WorkflowStatus.Completed;
-            stateRecord.CustomStatus = context.CustomStatus;
-            stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
-
-            byte[]? outputBytes = null;
-            if (output is not null)
-            {
-                outputBytes = _serializer.Serialize(output);
-                stateRecord.Output = outputBytes;
-            }
-
-            long nextId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
-            var completedEvent = new WorkflowHistoryEventRecord
-            {
-                EventId = nextId,
-                EventType = (int)WorkflowHistoryEventType.WorkflowCompleted,
-                Name = def.Name,
-                Timestamp = _timeProvider.GetUtcNow(),
-                Data = outputBytes
-            };
-            context.NewEvents.Add(completedEvent);
-
-            await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
-            await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
+            await HandleWorkflowCompletedAsync(instanceId, def, stateRecord, context, pastHistory, output, cancellationToken).ConfigureAwait(false);
         }
         catch (WorkflowSuspendedException ex)
         {
-            _logger?.LogDebug("Workflow '{InstanceId}' suspended: {Reason}", instanceId.Value, ex.Reason);
-
-            stateRecord.Status = (int)WorkflowStatus.Suspended;
-            stateRecord.CustomStatus = context.CustomStatus;
-            stateRecord.WaitingEventName = context.WaitingEventName;
-            stateRecord.TimerDueTime = context.TimerDueTime;
-            stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
-
-            await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
-            await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
-
-            if (context.TimerDueTime.HasValue)
-            {
-                var delay = context.TimerDueTime.Value - _timeProvider.GetUtcNow();
-                if (delay < TimeSpan.Zero) delay = TimeSpan.Zero;
-                ScheduleTimer(instanceId, delay);
-            }
+            await HandleWorkflowSuspendedAsync(instanceId, stateRecord, context, ex, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            var actualEx = ex is TargetInvocationException tie && tie.InnerException is not null ? tie.InnerException : ex;
-            _logger?.LogError(actualEx, "Workflow '{InstanceId}' failed. Triggering saga compensations if registered.", instanceId.Value);
+            await HandleWorkflowFailedAsync(instanceId, def, stateRecord, context, pastHistory, ex, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
-            // Trigger Saga compensations if registered
-            if (context.Saga.Compensations.Count > 0)
-            {
-                long startId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
-                context.NewEvents.Add(new WorkflowHistoryEventRecord
-                {
-                    EventId = startId,
-                    EventType = (int)WorkflowHistoryEventType.SagaCompensationStarted,
-                    Name = def.Name,
-                    Timestamp = _timeProvider.GetUtcNow()
-                });
+    private async ValueTask HandleWorkflowCompletedAsync(
+        WorkflowInstanceId instanceId,
+        WorkflowDefinition def,
+        WorkflowStateRecord stateRecord,
+        DeterministicWorkflowContext context,
+        IReadOnlyList<WorkflowHistoryEventRecord> pastHistory,
+        object? output,
+        CancellationToken cancellationToken)
+    {
+        stateRecord.Status = (int)WorkflowStatus.Completed;
+        stateRecord.CustomStatus = context.CustomStatus;
+        stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
 
-                try
-                {
-                    await context.Saga.CompensateAsync(cancellationToken).ConfigureAwait(false);
+        byte[]? outputBytes = output is not null ? _serializer.Serialize(output) : null;
+        stateRecord.Output = outputBytes;
 
-                    long compId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
-                    context.NewEvents.Add(new WorkflowHistoryEventRecord
-                    {
-                        EventId = compId,
-                        EventType = (int)WorkflowHistoryEventType.SagaCompensationCompleted,
-                        Name = def.Name,
-                        Timestamp = _timeProvider.GetUtcNow()
-                    });
-                }
-                catch (Exception compEx)
-                {
-                    _logger?.LogError(compEx, "Saga compensation failed for workflow '{InstanceId}'", instanceId.Value);
-                }
-            }
+        long nextId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
+        var completedEvent = new WorkflowHistoryEventRecord
+        {
+            EventId = nextId,
+            EventType = (int)WorkflowHistoryEventType.WorkflowCompleted,
+            Name = def.Name,
+            Timestamp = _timeProvider.GetUtcNow(),
+            Data = outputBytes
+        };
+        context.NewEvents.Add(completedEvent);
 
-            stateRecord.Status = (int)WorkflowStatus.Failed;
-            stateRecord.FailureDetails = actualEx.Message;
-            stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
+        await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
+        await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
+    }
 
-            long failedId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
+    private async ValueTask HandleWorkflowSuspendedAsync(
+        WorkflowInstanceId instanceId,
+        WorkflowStateRecord stateRecord,
+        DeterministicWorkflowContext context,
+        WorkflowSuspendedException ex,
+        CancellationToken cancellationToken)
+    {
+        _logger?.LogDebug("Workflow '{InstanceId}' suspended: {Reason}", instanceId.Value, ex.Reason);
+
+        stateRecord.Status = (int)WorkflowStatus.Suspended;
+        stateRecord.CustomStatus = context.CustomStatus;
+        stateRecord.WaitingEventName = context.WaitingEventName;
+        stateRecord.TimerDueTime = context.TimerDueTime;
+        stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
+
+        await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
+        await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
+
+        if (context.TimerDueTime.HasValue)
+        {
+            var delay = context.TimerDueTime.Value - _timeProvider.GetUtcNow();
+            ScheduleTimer(instanceId, delay < TimeSpan.Zero ? TimeSpan.Zero : delay);
+        }
+    }
+
+    private async ValueTask HandleWorkflowFailedAsync(
+        WorkflowInstanceId instanceId,
+        WorkflowDefinition def,
+        WorkflowStateRecord stateRecord,
+        DeterministicWorkflowContext context,
+        IReadOnlyList<WorkflowHistoryEventRecord> pastHistory,
+        Exception ex,
+        CancellationToken cancellationToken)
+    {
+        var actualEx = ex is TargetInvocationException tie && tie.InnerException is not null ? tie.InnerException : ex;
+        _logger?.LogError(actualEx, "Workflow '{InstanceId}' failed. Triggering saga compensations if registered.", instanceId.Value);
+
+        if (context.Saga.Compensations.Count > 0)
+        {
+            await ExecuteSagaCompensationsAsync(instanceId, def, context, pastHistory, cancellationToken).ConfigureAwait(false);
+        }
+
+        stateRecord.Status = (int)WorkflowStatus.Failed;
+        stateRecord.FailureDetails = actualEx.Message;
+        stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
+
+        long failedId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
+        context.NewEvents.Add(new WorkflowHistoryEventRecord
+        {
+            EventId = failedId,
+            EventType = (int)WorkflowHistoryEventType.WorkflowFailed,
+            Name = def.Name,
+            Timestamp = _timeProvider.GetUtcNow(),
+            Details = actualEx.Message
+        });
+
+        await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
+        await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask ExecuteSagaCompensationsAsync(
+        WorkflowInstanceId instanceId,
+        WorkflowDefinition def,
+        DeterministicWorkflowContext context,
+        IReadOnlyList<WorkflowHistoryEventRecord> pastHistory,
+        CancellationToken cancellationToken)
+    {
+        long startId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
+        context.NewEvents.Add(new WorkflowHistoryEventRecord
+        {
+            EventId = startId,
+            EventType = (int)WorkflowHistoryEventType.SagaCompensationStarted,
+            Name = def.Name,
+            Timestamp = _timeProvider.GetUtcNow()
+        });
+
+        try
+        {
+            await context.Saga.CompensateAsync(cancellationToken).ConfigureAwait(false);
+
+            long compId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
             context.NewEvents.Add(new WorkflowHistoryEventRecord
             {
-                EventId = failedId,
-                EventType = (int)WorkflowHistoryEventType.WorkflowFailed,
+                EventId = compId,
+                EventType = (int)WorkflowHistoryEventType.SagaCompensationCompleted,
                 Name = def.Name,
-                Timestamp = _timeProvider.GetUtcNow(),
-                Details = actualEx.Message
+                Timestamp = _timeProvider.GetUtcNow()
             });
-
-            await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
-            await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception compEx)
+        {
+            _logger?.LogError(compEx, "Saga compensation failed for workflow '{InstanceId}'", instanceId.Value);
         }
     }
 

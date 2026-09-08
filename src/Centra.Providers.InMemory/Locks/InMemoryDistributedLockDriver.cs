@@ -31,17 +31,18 @@ public sealed class InMemoryDistributedLockDriver : IDistributedLockDriver
         {
             if (store.TryGetValue(resourceId, out var existing))
             {
-                if (existing.ExpiresAt <= now)
+                if (existing.ExpiresAt > now)
                 {
-                    if (store.TryUpdate(resourceId, newLock, existing))
-                    {
-                        return new ValueTask<IDistributedLock?>(newLock);
-                    }
-                    continue;
+                    // Currently held and not expired
+                    return new ValueTask<IDistributedLock?>((IDistributedLock?)null);
                 }
 
-                // Currently held and not expired
-                return new ValueTask<IDistributedLock?>((IDistributedLock?)null);
+                if (store.TryUpdate(resourceId, newLock, existing))
+                {
+                    return new ValueTask<IDistributedLock?>(newLock);
+                }
+
+                continue;
             }
 
             if (store.TryAdd(resourceId, newLock))

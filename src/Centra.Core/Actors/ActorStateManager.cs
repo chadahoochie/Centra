@@ -147,79 +147,15 @@ public sealed class ActorStateManager : IActorStateManager
             switch (entry.Status)
             {
                 case ActorStateStatus.Added:
-                    await _stateStore.SetAsync(
-                        _storeName,
-                        key,
-                        entry.Value!,
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                    var storedAdded = await _stateStore.GetAsync<object>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    if (storedAdded.HasValue)
-                    {
-                        entry.ETag = storedAdded.Value.ETag;
-                    }
-
-                    entry.Status = ActorStateStatus.Unchanged;
+                    await PersistAddedStateAsync(key, entry, cancellationToken).ConfigureAwait(false);
                     break;
 
                 case ActorStateStatus.Modified:
-                    if (!string.IsNullOrEmpty(entry.ETag))
-                    {
-                        var success = await _stateStore.TrySetAsync(
-                            _storeName,
-                            key,
-                            entry.Value!,
-                            entry.ETag,
-                            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                        if (!success)
-                        {
-                            throw new ActorConcurrencyException(
-                                _identity,
-                                stateName,
-                                $"Optimistic concurrency conflict while updating actor state '{stateName}' for actor '{_identity}'.");
-                        }
-                    }
-                    else
-                    {
-                        await _stateStore.SetAsync(
-                            _storeName,
-                            key,
-                            entry.Value!,
-                            cancellationToken: cancellationToken).ConfigureAwait(false);
-                    }
-
-                    var storedModified = await _stateStore.GetAsync<object>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    if (storedModified.HasValue)
-                    {
-                        entry.ETag = storedModified.Value.ETag;
-                    }
-
-                    entry.Status = ActorStateStatus.Unchanged;
+                    await PersistModifiedStateAsync(key, stateName, entry, cancellationToken).ConfigureAwait(false);
                     break;
 
                 case ActorStateStatus.Deleted:
-                    if (!string.IsNullOrEmpty(entry.ETag))
-                    {
-                        var success = await _stateStore.TryDeleteAsync(
-                            _storeName,
-                            key,
-                            entry.ETag,
-                            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                        if (!success)
-                        {
-                            throw new ActorConcurrencyException(
-                                _identity,
-                                stateName,
-                                $"Optimistic concurrency conflict while deleting actor state '{stateName}' for actor '{_identity}'.");
-                        }
-                    }
-                    else
-                    {
-                        await _stateStore.DeleteAsync(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    }
-
+                    await PersistDeletedStateAsync(key, stateName, entry, cancellationToken).ConfigureAwait(false);
                     (keysToRemove ??= []).Add(stateName);
                     break;
 
@@ -236,6 +172,87 @@ public sealed class ActorStateManager : IActorStateManager
             {
                 _cache.Remove(key);
             }
+        }
+    }
+
+    private async ValueTask PersistAddedStateAsync(string key, ActorStateEntry entry, CancellationToken cancellationToken)
+    {
+        await _stateStore.SetAsync(
+            _storeName,
+            key,
+            entry.Value!,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        await RefreshEntryETagAsync(key, entry, cancellationToken).ConfigureAwait(false);
+        entry.Status = ActorStateStatus.Unchanged;
+    }
+
+    private async ValueTask PersistModifiedStateAsync(
+        string key,
+        string stateName,
+        ActorStateEntry entry,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(entry.ETag))
+        {
+            await _stateStore.SetAsync(_storeName, key, entry.Value!, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await RefreshEntryETagAsync(key, entry, cancellationToken).ConfigureAwait(false);
+            entry.Status = ActorStateStatus.Unchanged;
+            return;
+        }
+
+        var success = await _stateStore.TrySetAsync(
+            _storeName,
+            key,
+            entry.Value!,
+            entry.ETag,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (!success)
+        {
+            throw new ActorConcurrencyException(
+                _identity,
+                stateName,
+                $"Optimistic concurrency conflict while updating actor state '{stateName}' for actor '{_identity}'.");
+        }
+
+        await RefreshEntryETagAsync(key, entry, cancellationToken).ConfigureAwait(false);
+        entry.Status = ActorStateStatus.Unchanged;
+    }
+
+    private async ValueTask PersistDeletedStateAsync(
+        string key,
+        string stateName,
+        ActorStateEntry entry,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(entry.ETag))
+        {
+            await _stateStore.DeleteAsync(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var success = await _stateStore.TryDeleteAsync(
+            _storeName,
+            key,
+            entry.ETag,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (!success)
+        {
+            throw new ActorConcurrencyException(
+                _identity,
+                stateName,
+                $"Optimistic concurrency conflict while deleting actor state '{stateName}' for actor '{_identity}'.");
+        }
+    }
+
+    private async ValueTask RefreshEntryETagAsync(string key, ActorStateEntry entry, CancellationToken cancellationToken)
+    {
+        var stored = await _stateStore.GetAsync<object>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (stored.HasValue)
+        {
+            entry.ETag = stored.Value.ETag;
         }
     }
 

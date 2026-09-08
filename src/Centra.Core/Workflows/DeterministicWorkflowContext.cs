@@ -99,40 +99,145 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(activityName);
 
-        if (IsReplaying)
+        if (IsReplaying && TryReplayActivity<TResult>(activityName, out var replayedResult))
         {
-            // Scan for completed or failed activity in past history
-            while (_replayIndex < PastHistory.Count)
-            {
-                var past = PastHistory[_replayIndex++];
-                if (string.Equals(past.Name, activityName, StringComparison.OrdinalIgnoreCase))
-                {
-                    CurrentUtcDateTime = past.Timestamp;
-
-                    if (past.EventType == (int)WorkflowHistoryEventType.ActivityCompleted)
-                    {
-                        CheckReplayCompletion();
-                        if (past.Data is not null && past.Data.Length > 0)
-                        {
-                            return _serializer.Deserialize<TResult>(past.Data)!;
-                        }
-                        return default!;
-                    }
-
-                    if (past.EventType == (int)WorkflowHistoryEventType.ActivityFailed)
-                    {
-                        CheckReplayCompletion();
-                        throw new WorkflowActivityExecutionException(activityName, past.Details ?? "Activity previously failed.");
-                    }
-                }
-            }
-
-            // Exhausted past history
-            IsReplaying = false;
-            CurrentUtcDateTime = _timeProvider.GetUtcNow();
+            return replayedResult;
         }
 
-        // Live execution
+        return await ExecuteLiveActivityAsync<TResult>(activityName, input, options).ConfigureAwait(false);
+    }
+
+    public ValueTask CreateTimerAsync(TimeSpan duration, CancellationToken cancellationToken = default)
+    {
+        if (IsReplaying && TryReplayTimer(duration))
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        return ExecuteLiveTimer(duration);
+    }
+
+    public ValueTask<TEvent> WaitForExternalEventAsync<TEvent>(
+        string eventName,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventName);
+
+        if (IsReplaying && TryReplayExternalEvent<TEvent>(eventName, out var replayedEvent))
+        {
+            return replayedEvent;
+        }
+
+        return ExecuteLiveExternalEvent<TEvent>(eventName);
+    }
+
+    private bool TryReplayActivity<TResult>(string activityName, out TResult result)
+    {
+        while (_replayIndex < PastHistory.Count)
+        {
+            var past = PastHistory[_replayIndex++];
+            if (!string.Equals(past.Name, activityName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            CurrentUtcDateTime = past.Timestamp;
+
+            if (past.EventType == (int)WorkflowHistoryEventType.ActivityCompleted)
+            {
+                CheckReplayCompletion();
+                result = past.Data is { Length: > 0 }
+                    ? _serializer.Deserialize<TResult>(past.Data)!
+                    : default!;
+                return true;
+            }
+
+            if (past.EventType == (int)WorkflowHistoryEventType.ActivityFailed)
+            {
+                CheckReplayCompletion();
+                throw new WorkflowActivityExecutionException(activityName, past.Details ?? "Activity previously failed.");
+            }
+        }
+
+        CompleteReplay();
+        result = default!;
+        return false;
+    }
+
+    private bool TryReplayTimer(TimeSpan duration)
+    {
+        while (_replayIndex < PastHistory.Count)
+        {
+            var past = PastHistory[_replayIndex++];
+            if (past.EventType == (int)WorkflowHistoryEventType.TimerFired)
+            {
+                CurrentUtcDateTime = past.Timestamp;
+                CheckReplayCompletion();
+                return true;
+            }
+
+            if (past.EventType == (int)WorkflowHistoryEventType.TimerCreated)
+            {
+                if (HasFutureEvent(_replayIndex, WorkflowHistoryEventType.TimerFired))
+                {
+                    continue;
+                }
+
+                IsSuspended = true;
+                TimerDueTime = DateTimeOffset.TryParse(past.Details, out var due)
+                    ? due
+                    : past.Timestamp + duration;
+
+                throw new WorkflowSuspendedException($"Waiting for timer due at {TimerDueTime:O}");
+            }
+        }
+
+        CompleteReplay();
+        return false;
+    }
+
+    private bool TryReplayExternalEvent<TEvent>(string eventName, out ValueTask<TEvent> result)
+    {
+        while (_replayIndex < PastHistory.Count)
+        {
+            var past = PastHistory[_replayIndex++];
+            var matchesName = string.Equals(past.Name, eventName, StringComparison.OrdinalIgnoreCase);
+
+            if (matchesName && past.EventType == (int)WorkflowHistoryEventType.ExternalEventReceived)
+            {
+                CurrentUtcDateTime = past.Timestamp;
+                CheckReplayCompletion();
+                var data = past.Data is { Length: > 0 }
+                    ? _serializer.Deserialize<TEvent>(past.Data)!
+                    : default!;
+                result = new ValueTask<TEvent>(data);
+                return true;
+            }
+
+            if (matchesName && past.EventType == (int)WorkflowHistoryEventType.ExternalEventAwaited)
+            {
+                if (HasFutureEvent(_replayIndex, WorkflowHistoryEventType.ExternalEventReceived, eventName))
+                {
+                    continue;
+                }
+
+                IsSuspended = true;
+                WaitingEventName = eventName;
+                throw new WorkflowSuspendedException($"Waiting for external event '{eventName}'");
+            }
+        }
+
+        CompleteReplay();
+        result = default;
+        return false;
+    }
+
+    private async ValueTask<TResult> ExecuteLiveActivityAsync<TResult>(
+        string activityName,
+        object? input,
+        ActivityOptions? options)
+    {
         var scheduledEvent = new WorkflowHistoryEventRecord
         {
             EventId = NextEventId(),
@@ -151,11 +256,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
                 options,
                 _cancellationToken).ConfigureAwait(false);
 
-            byte[]? data = null;
-            if (result is not null)
-            {
-                data = _serializer.Serialize(result);
-            }
+            byte[]? data = result is not null ? _serializer.Serialize(result) : null;
 
             var completedEvent = new WorkflowHistoryEventRecord
             {
@@ -186,54 +287,8 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         }
     }
 
-    public ValueTask CreateTimerAsync(TimeSpan duration, CancellationToken cancellationToken = default)
+    private ValueTask ExecuteLiveTimer(TimeSpan duration)
     {
-        if (IsReplaying)
-        {
-            while (_replayIndex < PastHistory.Count)
-            {
-                var past = PastHistory[_replayIndex++];
-                if (past.EventType == (int)WorkflowHistoryEventType.TimerFired)
-                {
-                    CurrentUtcDateTime = past.Timestamp;
-                    CheckReplayCompletion();
-                    return ValueTask.CompletedTask;
-                }
-
-                if (past.EventType == (int)WorkflowHistoryEventType.TimerCreated)
-                {
-                    // Check if TimerFired follows later in past history
-                    bool firedFound = false;
-                    for (int j = _replayIndex; j < PastHistory.Count; j++)
-                    {
-                        if (PastHistory[j].EventType == (int)WorkflowHistoryEventType.TimerFired)
-                        {
-                            firedFound = true;
-                            break;
-                        }
-                    }
-
-                    if (!firedFound)
-                    {
-                        IsSuspended = true;
-                        if (DateTimeOffset.TryParse(past.Details, out var due))
-                        {
-                            TimerDueTime = due;
-                        }
-                        else
-                        {
-                            TimerDueTime = past.Timestamp + duration;
-                        }
-                        throw new WorkflowSuspendedException($"Waiting for timer due at {TimerDueTime:O}");
-                    }
-                }
-            }
-
-            IsReplaying = false;
-            CurrentUtcDateTime = _timeProvider.GetUtcNow();
-        }
-
-        // Live timer creation
         var dueTime = CurrentUtcDateTime.Add(duration);
         var createdEvent = new WorkflowHistoryEventRecord
         {
@@ -250,59 +305,8 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         throw new WorkflowSuspendedException($"Waiting for timer due at {dueTime:O}");
     }
 
-    public ValueTask<TEvent> WaitForExternalEventAsync<TEvent>(
-        string eventName,
-        TimeSpan? timeout = null,
-        CancellationToken cancellationToken = default)
+    private ValueTask<TEvent> ExecuteLiveExternalEvent<TEvent>(string eventName)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(eventName);
-
-        if (IsReplaying)
-        {
-            while (_replayIndex < PastHistory.Count)
-            {
-                var past = PastHistory[_replayIndex++];
-                if (past.EventType == (int)WorkflowHistoryEventType.ExternalEventReceived &&
-                    string.Equals(past.Name, eventName, StringComparison.OrdinalIgnoreCase))
-                {
-                    CurrentUtcDateTime = past.Timestamp;
-                    CheckReplayCompletion();
-                    if (past.Data is not null && past.Data.Length > 0)
-                    {
-                        return new ValueTask<TEvent>(_serializer.Deserialize<TEvent>(past.Data)!);
-                    }
-                    return new ValueTask<TEvent>(default(TEvent)!);
-                }
-
-                if (past.EventType == (int)WorkflowHistoryEventType.ExternalEventAwaited &&
-                    string.Equals(past.Name, eventName, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Check if event was received later in past history
-                    bool received = false;
-                    for (int j = _replayIndex; j < PastHistory.Count; j++)
-                    {
-                        if (PastHistory[j].EventType == (int)WorkflowHistoryEventType.ExternalEventReceived &&
-                            string.Equals(PastHistory[j].Name, eventName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            received = true;
-                            break;
-                        }
-                    }
-
-                    if (!received)
-                    {
-                        IsSuspended = true;
-                        WaitingEventName = eventName;
-                        throw new WorkflowSuspendedException($"Waiting for external event '{eventName}'");
-                    }
-                }
-            }
-
-            IsReplaying = false;
-            CurrentUtcDateTime = _timeProvider.GetUtcNow();
-        }
-
-        // Live await
         var awaitedEvent = new WorkflowHistoryEventRecord
         {
             EventId = NextEventId(),
@@ -315,6 +319,27 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         IsSuspended = true;
         WaitingEventName = eventName;
         throw new WorkflowSuspendedException($"Waiting for external event '{eventName}'");
+    }
+
+    private bool HasFutureEvent(int fromIndex, WorkflowHistoryEventType eventType, string? eventName = null)
+    {
+        for (var j = fromIndex; j < PastHistory.Count; j++)
+        {
+            var ev = PastHistory[j];
+            if (ev.EventType == (int)eventType &&
+                (eventName is null || string.Equals(ev.Name, eventName, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void CompleteReplay()
+    {
+        IsReplaying = false;
+        CurrentUtcDateTime = _timeProvider.GetUtcNow();
     }
 
     private void CheckReplayCompletion()

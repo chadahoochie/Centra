@@ -233,17 +233,15 @@ public sealed class PollyResiliencePipelineRegistry : IResiliencePipelineProvide
         // 4. Circuit Breaker
         if (definition.CircuitBreaker is not null)
         {
-            var sampling = definition.CircuitBreaker.SamplingDuration > TimeSpan.Zero
-                ? (definition.CircuitBreaker.SamplingDuration < TimeSpan.FromMilliseconds(500)
-                    ? TimeSpan.FromMilliseconds(500)
-                    : definition.CircuitBreaker.SamplingDuration)
-                : TimeSpan.FromSeconds(10);
+            var sampling = ClampDuration(
+                definition.CircuitBreaker.SamplingDuration,
+                min: TimeSpan.FromMilliseconds(500),
+                fallback: TimeSpan.FromSeconds(10));
 
-            var breakDur = definition.CircuitBreaker.BreakDuration > TimeSpan.Zero
-                ? (definition.CircuitBreaker.BreakDuration < TimeSpan.FromMilliseconds(500)
-                    ? TimeSpan.FromMilliseconds(500)
-                    : definition.CircuitBreaker.BreakDuration)
-                : TimeSpan.FromSeconds(5);
+            var breakDur = ClampDuration(
+                definition.CircuitBreaker.BreakDuration,
+                min: TimeSpan.FromMilliseconds(500),
+                fallback: TimeSpan.FromSeconds(5));
 
             builder.AddCircuitBreaker(new CircuitBreakerStrategyOptions
             {
@@ -300,5 +298,15 @@ public sealed class PollyResiliencePipelineRegistry : IResiliencePipelineProvide
                 BackoffType: CentraBackoffType.Exponential,
                 BaseDelay: TimeSpan.FromMilliseconds(100),
                 MaxDelay: TimeSpan.FromSeconds(2),
-                UseJitter: true));
+            UseJitter: true));
+
+    private static TimeSpan ClampDuration(TimeSpan configured, TimeSpan min, TimeSpan fallback)
+    {
+        if (configured <= TimeSpan.Zero)
+        {
+            return fallback;
+        }
+
+        return configured < min ? min : configured;
+    }
 }

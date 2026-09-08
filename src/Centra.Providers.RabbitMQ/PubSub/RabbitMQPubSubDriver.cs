@@ -161,46 +161,13 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var consumer = new AsyncEventingBasicConsumer(channel);
-        consumer.ReceivedAsync += async (sender, ea) =>
+        consumer.ReceivedAsync += async (_, ea) =>
         {
             try
             {
-                var headers = new Dictionary<string, string>();
-                if (ea.BasicProperties?.Headers is not null)
-                {
-                    foreach (var (k, v) in ea.BasicProperties.Headers)
-                    {
-                        if (v is byte[] bytes)
-                        {
-                            headers[k] = Encoding.UTF8.GetString(bytes);
-                        }
-                        else if (v is not null)
-                        {
-                            headers[k] = v.ToString()!;
-                        }
-                    }
-                }
-
+                var headers = ExtractHeaders(ea.BasicProperties);
                 var result = await handler(ea.Body, headers, CancellationToken.None).ConfigureAwait(false);
-
-                switch (result)
-                {
-                    case EventHandlingResult.Success:
-                        await channel.BasicAckAsync(ea.DeliveryTag, multiple: false).ConfigureAwait(false);
-                        break;
-
-                    case EventHandlingResult.Drop:
-                        await channel.BasicRejectAsync(ea.DeliveryTag, requeue: false).ConfigureAwait(false);
-                        break;
-
-                    case EventHandlingResult.DeadLetter:
-                        await channel.BasicRejectAsync(ea.DeliveryTag, requeue: false).ConfigureAwait(false);
-                        break;
-
-                    default:
-                        await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true).ConfigureAwait(false);
-                        break;
-                }
+                await AcknowledgeMessageAsync(channel, ea.DeliveryTag, result).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -285,5 +252,38 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         }
 
         _connectionLock.Dispose();
+    }
+
+    private static Dictionary<string, string> ExtractHeaders(IReadOnlyBasicProperties? properties)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (properties?.Headers is null)
+        {
+            return headers;
+        }
+
+        foreach (var (k, v) in properties.Headers)
+        {
+            if (v is byte[] bytes)
+            {
+                headers[k] = Encoding.UTF8.GetString(bytes);
+            }
+            else if (v is not null)
+            {
+                headers[k] = v.ToString()!;
+            }
+        }
+
+        return headers;
+    }
+
+    private static ValueTask AcknowledgeMessageAsync(IChannel channel, ulong deliveryTag, EventHandlingResult result)
+    {
+        return result switch
+        {
+            EventHandlingResult.Success => channel.BasicAckAsync(deliveryTag, multiple: false),
+            EventHandlingResult.Drop or EventHandlingResult.DeadLetter => channel.BasicRejectAsync(deliveryTag, requeue: false),
+            _ => channel.BasicNackAsync(deliveryTag, multiple: false, requeue: true)
+        };
     }
 }

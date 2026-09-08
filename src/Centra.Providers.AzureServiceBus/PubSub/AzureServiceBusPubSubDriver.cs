@@ -116,53 +116,9 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
         {
             try
             {
-                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var (k, v) in args.Message.ApplicationProperties)
-                {
-                    if (v is not null)
-                    {
-                        headers[k] = v.ToString()!;
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(args.Message.MessageId) && !headers.ContainsKey(CloudEventConstants.IdHeader))
-                {
-                    headers[CloudEventConstants.IdHeader] = args.Message.MessageId;
-                }
-
-                if (!string.IsNullOrEmpty(args.Message.Subject) && !headers.ContainsKey(CloudEventConstants.SubjectHeader))
-                {
-                    headers[CloudEventConstants.SubjectHeader] = args.Message.Subject;
-                }
-
-                if (!string.IsNullOrEmpty(args.Message.CorrelationId) && !headers.ContainsKey(CloudEventConstants.CorrelationIdHeader))
-                {
-                    headers[CloudEventConstants.CorrelationIdHeader] = args.Message.CorrelationId;
-                }
-
-                if (!string.IsNullOrEmpty(args.Message.ContentType) && !headers.ContainsKey(CloudEventConstants.DataContentTypeHeader))
-                {
-                    headers[CloudEventConstants.DataContentTypeHeader] = args.Message.ContentType;
-                }
-
+                var headers = ExtractHeaders(args.Message);
                 var result = await handler(args.Message.Body.ToMemory(), headers, args.CancellationToken).ConfigureAwait(false);
-
-                switch (result)
-                {
-                    case EventHandlingResult.Success:
-                    case EventHandlingResult.Drop:
-                        await args.CompleteMessageAsync(args.Message, args.CancellationToken).ConfigureAwait(false);
-                        break;
-
-                    case EventHandlingResult.DeadLetter:
-                        await args.DeadLetterMessageAsync(args.Message, "DeadLetter", "Handler requested dead-lettering", args.CancellationToken).ConfigureAwait(false);
-                        break;
-
-                    default:
-                        await args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken).ConfigureAwait(false);
-                        break;
-                }
+                await SettleMessageAsync(args, result).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -242,5 +198,47 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
     public void Dispose()
     {
         DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    private static Dictionary<string, string> ExtractHeaders(ServiceBusReceivedMessage message)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (k, v) in message.ApplicationProperties)
+        {
+            if (v is not null)
+            {
+                headers[k] = v.ToString()!;
+            }
+        }
+
+        CopyHeaderIfPresent(headers, CloudEventConstants.IdHeader, message.MessageId);
+        CopyHeaderIfPresent(headers, CloudEventConstants.SubjectHeader, message.Subject);
+        CopyHeaderIfPresent(headers, CloudEventConstants.CorrelationIdHeader, message.CorrelationId);
+        CopyHeaderIfPresent(headers, CloudEventConstants.DataContentTypeHeader, message.ContentType);
+
+        return headers;
+    }
+
+    private static void CopyHeaderIfPresent(Dictionary<string, string> headers, string headerName, string? value)
+    {
+        if (!string.IsNullOrEmpty(value) && !headers.ContainsKey(headerName))
+        {
+            headers[headerName] = value;
+        }
+    }
+
+    private static Task SettleMessageAsync(ProcessMessageEventArgs args, EventHandlingResult result)
+    {
+        return result switch
+        {
+            EventHandlingResult.Success or EventHandlingResult.Drop =>
+                args.CompleteMessageAsync(args.Message, args.CancellationToken),
+
+            EventHandlingResult.DeadLetter =>
+                args.DeadLetterMessageAsync(args.Message, "DeadLetter", "Handler requested dead-lettering", args.CancellationToken),
+
+            _ => args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken)
+        };
     }
 }

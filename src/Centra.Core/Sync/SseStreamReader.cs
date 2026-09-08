@@ -24,26 +24,17 @@ public static class SseStreamReader
 
             if (string.IsNullOrWhiteSpace(line))
             {
-                if (dataLines.Count > 0)
+                if (dataLines.Count == 0)
                 {
-                    var fullData = string.Join("\n", dataLines);
-                    dataLines.Clear();
-
-                    T? dto = default;
-                    try
-                    {
-                        dto = JsonSerializer.Deserialize<T>(fullData, JsonOptions);
-                    }
-                    catch (JsonException ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[SseStreamReader] Malformed SSE event data dropped: {ex.Message}");
-                    }
-
-                    if (dto is not null)
-                    {
-                        yield return dto;
-                    }
+                    continue;
                 }
+
+                if (TryDeserializeEvent<T>(dataLines, out var dto))
+                {
+                    yield return dto;
+                }
+
+                dataLines.Clear();
                 continue;
             }
 
@@ -64,4 +55,25 @@ public static class SseStreamReader
         Stream stream,
         CancellationToken cancellationToken = default) =>
         ReadEventsAsync<ResilienceSyncEventDto>(stream, cancellationToken);
+
+    private static bool TryDeserializeEvent<T>(List<string> dataLines, out T dto)
+    {
+        var fullData = string.Join("\n", dataLines);
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<T>(fullData, JsonOptions);
+            if (parsed is not null)
+            {
+                dto = parsed;
+                return true;
+            }
+        }
+        catch (JsonException ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[SseStreamReader] Malformed SSE event data dropped: {ex.Message}");
+        }
+
+        dto = default!;
+        return false;
+    }
 }
