@@ -447,54 +447,118 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         }
     }
 
+    private static readonly ConcurrentDictionary<Type, Func<object, IWorkflowContext, object?, ValueTask<object?>>> WorkflowRunners = new();
+
     private static async ValueTask<object?> InvokeWorkflowRunAsync(
         object workflowInstance,
         IWorkflowContext context,
         object? typedInput)
     {
-        var runMethod = workflowInstance.GetType().GetMethod("RunAsync", BindingFlags.Public | BindingFlags.Instance);
-        if (runMethod is null)
-        {
-            throw new InvalidOperationException($"Workflow '{workflowInstance.GetType().FullName}' does not have a public RunAsync method.");
-        }
+        var runner = WorkflowRunners.GetOrAdd(workflowInstance.GetType(), static type => CreateWorkflowRunner(type));
+        return await runner(workflowInstance, context, typedInput).ConfigureAwait(false);
+    }
 
-        object? taskObj;
-        try
-        {
-            taskObj = runMethod.Invoke(workflowInstance, [context, typedInput]);
-        }
-        catch (TargetInvocationException tie) when (tie.InnerException is not null)
-        {
-            throw tie.InnerException;
-        }
-        if (taskObj is null) return null;
+    private static Func<object, IWorkflowContext, object?, ValueTask<object?>> CreateWorkflowRunner(Type workflowType)
+    {
+        var runMethod = workflowType.GetMethod("RunAsync", BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException($"Workflow '{workflowType.FullName}' does not have a public RunAsync method.");
 
-        var type = taskObj.GetType();
+        var returnType = runMethod.ReturnType;
 
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ValueTask<>))
+        if (returnType == typeof(ValueTask))
         {
-            var asTask = type.GetMethod("AsTask")?.Invoke(taskObj, null) as Task;
-            if (asTask is not null)
+            return async (instance, ctx, input) =>
             {
-                await asTask.ConfigureAwait(false);
-                return asTask.GetType().GetProperty("Result")?.GetValue(asTask);
+                try
+                {
+                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
+                    if (taskObj is ValueTask vt)
+                    {
+                        await vt.ConfigureAwait(false);
+                    }
+                    return null;
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+            };
+        }
+
+        if (returnType == typeof(Task))
+        {
+            return async (instance, ctx, input) =>
+            {
+                try
+                {
+                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
+                    if (taskObj is Task t)
+                    {
+                        await t.ConfigureAwait(false);
+                    }
+                    return null;
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+            };
+        }
+
+        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(ValueTask<>))
+        {
+            var asTaskMethod = returnType.GetMethod("AsTask")!;
+
+            return async (instance, ctx, input) =>
+            {
+                try
+                {
+                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
+                    if (taskObj is null) return null;
+                    var task = (Task)asTaskMethod.Invoke(taskObj, null)!;
+                    await task.ConfigureAwait(false);
+                    return task.GetType().GetProperty("Result")?.GetValue(task);
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+            };
+        }
+
+        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Task<>))
+        {
+            return async (instance, ctx, input) =>
+            {
+                try
+                {
+                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
+                    if (taskObj is Task task)
+                    {
+                        await task.ConfigureAwait(false);
+                        return task.GetType().GetProperty("Result")?.GetValue(task);
+                    }
+                    return null;
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+            };
+        }
+
+        return (instance, ctx, input) =>
+        {
+            try
+            {
+                var raw = runMethod.Invoke(instance, [ctx, input]);
+                return ValueTask.FromResult(raw);
             }
-        }
-
-        if (taskObj is ValueTask voidVt)
-        {
-            await voidVt.ConfigureAwait(false);
-            return null;
-        }
-
-        if (taskObj is Task voidT)
-        {
-            await voidT.ConfigureAwait(false);
-            var resultProp = taskObj.GetType().GetProperty("Result");
-            return resultProp?.GetValue(taskObj);
-        }
-
-        return null;
+            catch (TargetInvocationException tie) when (tie.InnerException is not null)
+            {
+                throw tie.InnerException;
+            }
+        };
     }
 
     private void ScheduleTimer(WorkflowInstanceId instanceId, TimeSpan delay)

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!-- slopwatch-ignore: SW005 Aspire 13.5.3 AppHost SDK emits experimental warning ASPIRE010 on .NET 10 preview -->
     <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
   </PropertyGroup>
 

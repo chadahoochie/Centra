@@ -106,67 +106,120 @@ public sealed class WorkflowActivityDispatcher : IWorkflowActivityDispatcher
         }
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, Func<object, WorkflowActivityContext, object?, ValueTask<object?>>> ActivityInvokers = new();
+
     private async ValueTask<TOutput> InvokeActivityMethodAsync<TOutput>(
         object activityInstance,
         WorkflowActivityContext context,
         object? typedInput,
         CancellationToken cancellationToken)
     {
-        var runMethod = activityInstance.GetType().GetMethod("RunAsync", BindingFlags.Public | BindingFlags.Instance);
-        if (runMethod is null)
+        var invoker = ActivityInvokers.GetOrAdd(activityInstance.GetType(), static type => CreateActivityInvoker(type));
+        var result = await invoker(activityInstance, context, typedInput).ConfigureAwait(false);
+        return result is null ? default! : (TOutput)result;
+    }
+
+    private static Func<object, WorkflowActivityContext, object?, ValueTask<object?>> CreateActivityInvoker(Type activityType)
+    {
+        var runMethod = activityType.GetMethod("RunAsync", BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException($"Type '{activityType.FullName}' does not have a public RunAsync method.");
+
+        var returnType = runMethod.ReturnType;
+
+        if (returnType == typeof(ValueTask))
         {
-            throw new InvalidOperationException($"Type '{activityInstance.GetType().FullName}' does not have a public RunAsync method.");
+            return async (instance, ctx, input) =>
+            {
+                try
+                {
+                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
+                    if (taskObj is ValueTask vt)
+                    {
+                        await vt.ConfigureAwait(false);
+                    }
+                    return null;
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+            };
         }
 
-        object? taskObj;
-        try
+        if (returnType == typeof(Task))
         {
-            taskObj = runMethod.Invoke(activityInstance, [context, typedInput]);
-        }
-        catch (TargetInvocationException tie) when (tie.InnerException is not null)
-        {
-            throw tie.InnerException;
-        }
-
-        if (taskObj is null)
-        {
-            return default!;
-        }
-
-        if (taskObj is ValueTask<TOutput> typedValueTask)
-        {
-            return await typedValueTask.ConfigureAwait(false);
-        }
-
-        if (taskObj is Task<TOutput> typedTask)
-        {
-            return await typedTask.ConfigureAwait(false);
+            return async (instance, ctx, input) =>
+            {
+                try
+                {
+                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
+                    if (taskObj is Task t)
+                    {
+                        await t.ConfigureAwait(false);
+                    }
+                    return null;
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+            };
         }
 
-        if (taskObj is ValueTask voidValueTask)
+        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(ValueTask<>))
         {
-            await voidValueTask.ConfigureAwait(false);
-            return default!;
+            var asTaskMethod = returnType.GetMethod("AsTask")!;
+
+            return async (instance, ctx, input) =>
+            {
+                try
+                {
+                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
+                    if (taskObj is null) return null;
+                    var task = (Task)asTaskMethod.Invoke(taskObj, null)!;
+                    await task.ConfigureAwait(false);
+                    return task.GetType().GetProperty("Result")?.GetValue(task);
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+            };
         }
 
-        if (taskObj is Task voidTask)
+        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Task<>))
         {
-            await voidTask.ConfigureAwait(false);
-            return default!;
+            return async (instance, ctx, input) =>
+            {
+                try
+                {
+                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
+                    if (taskObj is Task task)
+                    {
+                        await task.ConfigureAwait(false);
+                        return task.GetType().GetProperty("Result")?.GetValue(task);
+                    }
+                    return null;
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+            };
         }
 
-        // Generic object ValueTask
-        var asTaskMethod = taskObj.GetType().GetMethod("AsTask");
-        if (asTaskMethod is not null)
+        return (instance, ctx, input) =>
         {
-            var task = (Task)asTaskMethod.Invoke(taskObj, null)!;
-            await task.ConfigureAwait(false);
-            var resultProp = task.GetType().GetProperty("Result");
-            var resultVal = resultProp?.GetValue(task);
-            return (TOutput)resultVal!;
-        }
-
-        return default!;
+            try
+            {
+                var raw = runMethod.Invoke(instance, [ctx, input]);
+                return ValueTask.FromResult(raw);
+            }
+            catch (TargetInvocationException tie) when (tie.InnerException is not null)
+            {
+                throw tie.InnerException;
+            }
+        };
     }
 
     private object? ConvertInput(object? input, Type targetType)

@@ -186,4 +186,74 @@ public sealed class ActorStateManagerTests
         var containsAfter = await stateManager.ContainsStateAsync("cached");
         containsAfter.ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task Should_Refresh_ETag_And_Succeed_On_Consecutive_State_Updates_Across_Turns()
+    {
+        // Arrange
+        var key = "actors:AccountActor:acc-101:balance";
+        _stateStore.GetAsync<decimal>(_storeName, key, Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(new StateEntry<decimal>("acc-101", 100m, "etag-1"));
+
+        _stateStore.TrySetAsync(_storeName, key, 150m, "etag-1", Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        _stateStore.GetAsync<object>(_storeName, key, Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(new StateEntry<object>("acc-101", 150m, "etag-2"), new StateEntry<object>("acc-101", 200m, "etag-3"));
+
+        _stateStore.TrySetAsync(_storeName, key, 200m, "etag-2", Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var stateManager = new ActorStateManager(_identity, _stateStore, _storeName);
+
+        // Turn 1
+        var val = await stateManager.GetStateAsync<decimal>("balance");
+        val.ShouldBe(100m);
+        await stateManager.SetStateAsync("balance", 150m);
+        await stateManager.SaveStateAsync();
+
+        // Turn 2: consecutive modification within same actor activation
+        await stateManager.SetStateAsync("balance", 200m);
+        await stateManager.SaveStateAsync();
+
+        // Assert: Turn 2 used etag-2 (the refreshed ETag), NOT the initial etag-1!
+        await _stateStore.Received(1).TrySetAsync(
+            _storeName,
+            key,
+            200m,
+            "etag-2",
+            Arg.Any<StateOptions?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_Acquire_ETag_On_Initial_Add_And_Use_Optimistic_Concurrency_On_Subsequent_Update()
+    {
+        // Arrange
+        var key = "actors:AccountActor:acc-101:balance";
+        _stateStore.GetAsync<object>(_storeName, key, Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(new StateEntry<object>("acc-101", 100m, "etag-created"));
+
+        _stateStore.TrySetAsync(_storeName, key, 150m, "etag-created", Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var stateManager = new ActorStateManager(_identity, _stateStore, _storeName);
+
+        // Turn 1: Add new state
+        await stateManager.SetStateAsync("balance", 100m);
+        await stateManager.SaveStateAsync();
+
+        // Turn 2: Modify existing state
+        await stateManager.SetStateAsync("balance", 150m);
+        await stateManager.SaveStateAsync();
+
+        // Assert: Turn 2 used TrySetAsync with etag-created!
+        await _stateStore.Received(1).TrySetAsync(
+            _storeName,
+            key,
+            150m,
+            "etag-created",
+            Arg.Any<StateOptions?>(),
+            Arg.Any<CancellationToken>());
+    }
 }

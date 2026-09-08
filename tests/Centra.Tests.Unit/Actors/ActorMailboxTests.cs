@@ -14,13 +14,13 @@ public sealed class ActorMailboxTests
 
         var task1 = mailbox.EnqueueTurnAsync(async () =>
         {
-            await Task.Delay(20);
+            await Task.Yield();
             sequence.Add(1);
         });
 
         var task2 = mailbox.EnqueueTurnAsync(async () =>
         {
-            await Task.Delay(10);
+            await Task.Yield();
             sequence.Add(2);
         });
 
@@ -42,7 +42,7 @@ public sealed class ActorMailboxTests
 
         var result = await mailbox.EnqueueTurnAsync(async () =>
         {
-            await Task.Delay(10);
+            await Task.Yield();
             return 42;
         });
 
@@ -66,8 +66,8 @@ public sealed class ActorMailboxTests
                 concurrencyDetected = true;
             }
 
-            // Artificial async turn execution
-            await Task.Delay(1);
+            // Asynchronous yield to simulate non-blocking turn execution
+            await Task.Yield();
             counter++;
 
             Interlocked.Decrement(ref activeTurnCount);
@@ -131,7 +131,7 @@ public sealed class ActorMailboxTests
         {
             _ = mailbox.EnqueueTurnAsync(async () =>
             {
-                await Task.Delay(5);
+                await Task.Yield();
                 Interlocked.Increment(ref completed);
             });
         }

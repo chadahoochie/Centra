@@ -138,7 +138,7 @@ public sealed class ActorStateManager : IActorStateManager
 
     public async ValueTask SaveStateAsync(CancellationToken cancellationToken = default)
     {
-        var keysToRemove = new List<string>();
+        List<string>? keysToRemove = null;
 
         foreach (var (stateName, entry) in _cache)
         {
@@ -152,6 +152,12 @@ public sealed class ActorStateManager : IActorStateManager
                         key,
                         entry.Value!,
                         cancellationToken: cancellationToken).ConfigureAwait(false);
+
+                    var storedAdded = await _stateStore.GetAsync<object>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    if (storedAdded.HasValue)
+                    {
+                        entry.ETag = storedAdded.Value.ETag;
+                    }
 
                     entry.Status = ActorStateStatus.Unchanged;
                     break;
@@ -183,6 +189,12 @@ public sealed class ActorStateManager : IActorStateManager
                             cancellationToken: cancellationToken).ConfigureAwait(false);
                     }
 
+                    var storedModified = await _stateStore.GetAsync<object>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    if (storedModified.HasValue)
+                    {
+                        entry.ETag = storedModified.Value.ETag;
+                    }
+
                     entry.Status = ActorStateStatus.Unchanged;
                     break;
 
@@ -208,7 +220,7 @@ public sealed class ActorStateManager : IActorStateManager
                         await _stateStore.DeleteAsync(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
                     }
 
-                    keysToRemove.Add(stateName);
+                    (keysToRemove ??= []).Add(stateName);
                     break;
 
                 case ActorStateStatus.Unchanged:
@@ -218,9 +230,12 @@ public sealed class ActorStateManager : IActorStateManager
             }
         }
 
-        foreach (var key in keysToRemove)
+        if (keysToRemove is not null)
         {
-            _cache.Remove(key);
+            foreach (var key in keysToRemove)
+            {
+                _cache.Remove(key);
+            }
         }
     }
 

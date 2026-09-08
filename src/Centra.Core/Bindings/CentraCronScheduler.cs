@@ -32,7 +32,7 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
         ThrowIfDisposed();
 
         var parser = CronExpressionParser.Parse(cronExpression);
-        var entry = new ScheduledJobEntry(jobName, handler, parser, null, options ?? new CronScheduleOptions());
+        var entry = new ScheduledJobEntry(this, jobName, handler, parser, null, options ?? new CronScheduleOptions());
 
         AddOrUpdateJob(entry);
     }
@@ -52,7 +52,7 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
 
         ThrowIfDisposed();
 
-        var entry = new ScheduledJobEntry(jobName, handler, null, interval, new CronScheduleOptions());
+        var entry = new ScheduledJobEntry(this, jobName, handler, null, interval, new CronScheduleOptions());
 
         AddOrUpdateJob(entry);
     }
@@ -120,10 +120,10 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
             entry.Timer = _timeProvider.CreateTimer(
                 callback: static state =>
                 {
-                    var (scheduler, jobEntry) = ((CentraCronScheduler, ScheduledJobEntry))state!;
-                    _ = scheduler.ExecuteJobTickAsync(jobEntry);
+                    var jobEntry = (ScheduledJobEntry)state!;
+                    _ = jobEntry.Scheduler.ExecuteJobTickAsync(jobEntry);
                 },
-                state: (this, entry),
+                state: entry,
                 dueTime: dueTime,
                 period: Timeout.InfiniteTimeSpan);
         }
@@ -181,12 +181,14 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
     }
 
     private sealed class ScheduledJobEntry(
+        CentraCronScheduler scheduler,
         string jobName,
         IJobHandler handler,
         CronExpressionParser? parser,
         TimeSpan? interval,
         CronScheduleOptions options) : IDisposable
     {
+        public CentraCronScheduler Scheduler { get; } = scheduler;
         public string JobName { get; } = jobName;
         public IJobHandler Handler { get; } = handler;
         public CronExpressionParser? Parser { get; } = parser;
@@ -204,7 +206,6 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
             IsDisposed = true;
             Cts.Cancel();
             Timer?.Dispose();
-            Cts.Dispose();
         }
     }
 }

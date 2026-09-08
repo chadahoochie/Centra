@@ -26,9 +26,7 @@ public static class CentraEndpointRouteBuilderExtensions
             endpoints.MapPost(routePattern, async (HttpContext context) =>
             {
                 // Read payload bytes
-                using var ms = new MemoryStream();
-                await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
-                var payload = ms.ToArray();
+                var payload = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
 
                 // Build header dictionary
                 var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -82,9 +80,7 @@ public static class CentraEndpointRouteBuilderExtensions
                 return Results.NotFound();
             }
 
-            using var ms = new MemoryStream();
-            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
-            var payload = ms.ToArray();
+            var payload = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
 
             var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var header in context.Request.Headers)
@@ -149,85 +145,20 @@ public static class CentraEndpointRouteBuilderExtensions
 
             var identity = new Centra.Actors.ActorIdentity(actorType, actorId);
 
-            using var ms = new MemoryStream();
-            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
-            var bodyBytes = ms.ToArray();
+            var bodyBytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
 
             try
             {
                 var response = await actorManager.DispatchAsync(identity, async actor =>
                 {
-                    var actorClassType = actor.GetType();
-                    var method = actorClassType.GetMethods()
-                        .FirstOrDefault(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase));
-
-                    if (method == null)
+                    var invoker = ActorEndpointMethodInvoker.GetOrCreate(actor.GetType(), methodName);
+                    if (invoker is null)
                     {
-                        throw new MissingMethodException(actorClassType.Name, methodName);
+                        throw new MissingMethodException(actor.GetType().Name, methodName);
                     }
 
-                    var parameters = method.GetParameters();
-                    object?[] args;
-
-                    if (parameters.Length == 0)
-                    {
-                        args = Array.Empty<object?>();
-                    }
-                    else if (parameters.Length == 1 && parameters[0].ParameterType == typeof(CancellationToken))
-                    {
-                        args = [context.RequestAborted];
-                    }
-                    else
-                    {
-                        var paramType = parameters[0].ParameterType;
-                        var paramValue = bodyBytes.Length > 0
-                            ? System.Text.Json.JsonSerializer.Deserialize(bodyBytes, paramType)
-                            : null;
-
-                        if (parameters.Length == 2 && parameters[1].ParameterType == typeof(CancellationToken))
-                        {
-                            args = [paramValue, context.RequestAborted];
-                        }
-                        else
-                        {
-                            args = [paramValue];
-                        }
-                    }
-
-                    var rawResult = method.Invoke(actor, args);
-                    if (rawResult is Task task)
-                    {
-                        await task.ConfigureAwait(false);
-                        var taskType = task.GetType();
-                        if (taskType.IsGenericType)
-                        {
-                            var prop = taskType.GetProperty("Result");
-                            return prop?.GetValue(task);
-                        }
-                        return null;
-                    }
-
-                    if (rawResult != null)
-                    {
-                        var rawType = rawResult.GetType();
-                        if (rawType.IsGenericType && rawType.GetGenericTypeDefinition() == typeof(ValueTask<>))
-                        {
-                            var asTaskMethod = rawType.GetMethod("AsTask")!;
-                            var asTask = (Task)asTaskMethod.Invoke(rawResult, null)!;
-                            await asTask.ConfigureAwait(false);
-                            var prop = asTask.GetType().GetProperty("Result");
-                            return prop?.GetValue(asTask);
-                        }
-
-                        if (rawResult is ValueTask vt)
-                        {
-                            await vt.ConfigureAwait(false);
-                            return null;
-                        }
-                    }
-
-                    return rawResult;
-                }, context.RequestAborted);
+                    return await invoker.InvokeAsync(actor, new ReadOnlyMemory<byte>(bodyBytes), context.RequestAborted).ConfigureAwait(false);
+                }, context.RequestAborted).ConfigureAwait(false);
 
                 if (response is null)
                 {
@@ -259,9 +190,8 @@ public static class CentraEndpointRouteBuilderExtensions
             var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
             if (workflowClient is null) return Results.NotFound();
 
-            using var ms = new MemoryStream();
-            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
-            var payload = ms.Length > 0 ? ms.ToArray() : null;
+            var bytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var payload = bytes.Length > 0 ? bytes : null;
 
             var instanceId = await workflowClient.StartWorkflowAsync(
                 workflowName,
@@ -280,9 +210,8 @@ public static class CentraEndpointRouteBuilderExtensions
             var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
             if (workflowClient is null) return Results.NotFound();
 
-            using var ms = new MemoryStream();
-            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
-            var payload = ms.Length > 0 ? ms.ToArray() : null;
+            var bytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var payload = bytes.Length > 0 ? bytes : null;
 
             var actualId = await workflowClient.StartWorkflowAsync(
                 workflowName,
@@ -334,9 +263,8 @@ public static class CentraEndpointRouteBuilderExtensions
             var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
             if (workflowClient is null) return Results.NotFound();
 
-            using var ms = new MemoryStream();
-            await context.Request.Body.CopyToAsync(ms).ConfigureAwait(false);
-            var payload = ms.Length > 0 ? ms.ToArray() : null;
+            var bytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var payload = bytes.Length > 0 ? bytes : null;
 
             await workflowClient.RaiseEventAsync(
                 new WorkflowInstanceId(instanceId),
@@ -378,5 +306,25 @@ public static class CentraEndpointRouteBuilderExtensions
         });
 
         return endpoints;
+    }
+
+    private static async ValueTask<byte[]> ReadRequestBodyBytesAsync(HttpRequest request, CancellationToken cancellationToken)
+    {
+        if (request.ContentLength.HasValue)
+        {
+            var length = (int)request.ContentLength.Value;
+            if (length <= 0)
+            {
+                return [];
+            }
+
+            var buffer = GC.AllocateUninitializedArray<byte>(length);
+            await request.Body.ReadExactlyAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+            return buffer;
+        }
+
+        using var ms = new MemoryStream();
+        await request.Body.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+        return ms.ToArray();
     }
 }

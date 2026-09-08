@@ -95,6 +95,10 @@ public sealed class ActorReminderCoordinator
                         {
                             schedule.NextDueUtc = _timeProvider.GetUtcNow() + schedule.Period;
                         }
+                        else
+                        {
+                            _schedules.TryRemove(key, out _);
+                        }
                         continue;
                     }
 

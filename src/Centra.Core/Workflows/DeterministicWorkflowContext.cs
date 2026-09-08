@@ -68,9 +68,17 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
     public Guid NewGuid()
     {
         _sequenceNumber++;
+        Span<byte> buffer = stackalloc byte[128];
+        if (System.Text.Unicode.Utf8.TryWrite(buffer, $"{InstanceId.Value}:{_sequenceNumber}", out var bytesWritten))
+        {
+            Span<byte> hash = stackalloc byte[32];
+            SHA256.HashData(buffer[..bytesWritten], hash);
+            return new Guid(hash[..16]);
+        }
+
         var payload = Encoding.UTF8.GetBytes($"{InstanceId.Value}:{_sequenceNumber}");
-        var hash = SHA256.HashData(payload);
-        return new Guid(hash.AsSpan(0, 16));
+        var heapHash = SHA256.HashData(payload);
+        return new Guid(heapHash.AsSpan(0, 16));
     }
 
     public void SetCustomStatus(string? status)

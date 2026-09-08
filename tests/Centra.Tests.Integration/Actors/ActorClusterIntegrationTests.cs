@@ -146,13 +146,10 @@ public sealed class ActorClusterIntegrationTests
             // Deposit initial $1000
             await proxy1.DepositAsync(1000m);
 
-            // Register reminder on Node 1 & Node 2
+            // Register reminder on Node 1 & Node 2 due immediately
             var identity = new ActorIdentity(ActorType.FromType<AccountActor>(), accountId);
-            coordinator1.RegisterReminder(identity, AccountActor.InterestReminderName, TimeSpan.FromMilliseconds(5), TimeSpan.FromMinutes(1), null);
-            coordinator2.RegisterReminder(identity, AccountActor.InterestReminderName, TimeSpan.FromMilliseconds(5), TimeSpan.FromMinutes(1), null);
-
-            // Wait for due time
-            await Task.Delay(25);
+            coordinator1.RegisterReminder(identity, AccountActor.InterestReminderName, TimeSpan.Zero, TimeSpan.FromMinutes(1), null);
+            coordinator2.RegisterReminder(identity, AccountActor.InterestReminderName, TimeSpan.Zero, TimeSpan.FromMinutes(1), null);
 
             // Act: Both nodes simultaneously execute coordinator.TickAsync()
             var tick1Task = coordinator1.TickAsync().AsTask();

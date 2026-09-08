@@ -100,9 +100,22 @@ public sealed class ConsistentHashRing
 
     private static uint Hash(string key)
     {
-        var bytes = Encoding.UTF8.GetBytes(key);
-        var md5 = MD5.HashData(bytes);
-        return BitConverter.ToUInt32(md5, 0);
+        var maxByteCount = Encoding.UTF8.GetMaxByteCount(key.Length);
+        if (maxByteCount <= 256)
+        {
+            Span<byte> utf8Bytes = stackalloc byte[256];
+            var bytesWritten = Encoding.UTF8.GetBytes(key, utf8Bytes);
+            Span<byte> hash = stackalloc byte[16];
+            MD5.HashData(utf8Bytes[..bytesWritten], hash);
+            return System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(hash);
+        }
+        else
+        {
+            var bytes = Encoding.UTF8.GetBytes(key);
+            Span<byte> hash = stackalloc byte[16];
+            MD5.HashData(bytes, hash);
+            return System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(hash);
+        }
     }
 
     private sealed record RingState(uint[] Hashes, string[] NodeIds);
