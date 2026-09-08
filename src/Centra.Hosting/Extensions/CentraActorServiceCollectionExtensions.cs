@@ -122,7 +122,10 @@ public static class CentraActorServiceCollectionExtensions
         where TActorInterface : class, IActor
     {
         services.TryAddTransient<TActor>();
-        services.AddSingleton(new ActorRegistration(typeof(TActor), typeof(TActorInterface)));
+
+        services.ReplaceRegistrationFor<ActorRegistration>(
+            r => r.ActorType == typeof(TActor),
+            new ActorRegistration(typeof(TActor), typeof(TActorInterface)));
 
         return services;
     }

@@ -21,6 +21,7 @@ public sealed class OrdersWebhookTriggerHandler : IBindingTriggerHandler
         _logger = logger;
     }
 
+    [Binding("orders-webhook")]
     public async ValueTask<BindingResponse> HandleTriggerAsync(
         BindingData data,
         CancellationToken cancellationToken = default)

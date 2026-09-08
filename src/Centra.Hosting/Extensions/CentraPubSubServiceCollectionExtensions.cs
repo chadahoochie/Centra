@@ -43,13 +43,15 @@ public static class CentraPubSubServiceCollectionExtensions
         var resolvedTopic = topic ?? topicAttr?.Topic ?? typeof(TEvent).Name;
         var resolvedDlTopic = deadLetterTopic ?? topicAttr?.DeadLetterTopic;
 
-        services.AddSingleton(new CentraTopicRegistration(
-            resolvedPubSub,
-            resolvedTopic,
-            typeof(TEvent),
-            typeof(THandler),
-            resolvedDlTopic,
-            CentraTopicRegistration.CreateTypedInvoker<TEvent>()));
+        services.ReplaceRegistrationFor<CentraTopicRegistration>(
+            r => r.HandlerType == typeof(THandler),
+            new CentraTopicRegistration(
+                resolvedPubSub,
+                resolvedTopic,
+                typeof(TEvent),
+                typeof(THandler),
+                resolvedDlTopic,
+                CentraTopicRegistration.CreateTypedInvoker<TEvent>()));
 
         return services;
     }
