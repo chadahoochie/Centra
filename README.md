@@ -56,12 +56,13 @@
 
 ### 1. Register Centra in ASP.NET Core (`Program.cs`)
 
-You can register the complete framework or only specific building blocks:
+You can register the complete framework with automatic attribute scanning, or wire individual building blocks modularly:
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// OPTION A: Full-Stack Registration (All Building Blocks)
+// OPTION A: Full-Stack Registration & Attribute Auto-Discovery
+// Automatically scans the entry assembly for [Topic], [ServiceClient], [Actor], [Workflow], etc.
 builder.Services.AddCentra(options =>
 {
     options.AppId = "orders-service";
@@ -70,7 +71,7 @@ builder.Services.AddCentra(options =>
     options.DefaultLockStore = "lockstore";
 });
 
-// OPTION B: Composable Modular Registration (Only what you need!)
+// OPTION B: Composable Modular Registration (Adhering strictly to ISP)
 // builder.Services.AddCentraPubSub();
 // builder.Services.AddCentraState();
 // builder.Services.AddCentraLocks();
@@ -84,13 +85,17 @@ builder.Services.AddCentraInMemory();
 // builder.Services.AddCentraPostgreSql(options => options.ConnectionString = "Host=localhost;Database=centra;...");
 // builder.Services.AddCentraRabbitMQ(options => options.HostName = "localhost");
 
-// Register typed RPC client interface
-builder.Services.AddCentraServiceClient<IInventoryClient>();
-
-// Register topic subscriber
-builder.Services.AddCentraEventHandler<PaymentNotificationHandler, OrderCreatedEvent>();
+// Programmatic Extensions (Optional Overrides & Explicit Wiring):
+// When using AddCentra(), components decorated with attributes are auto-registered.
+// Explicit calls allow overriding topics, brokers, or schedules at runtime:
+// builder.Services.AddCentraServiceClient<IInventoryClient>();
+// builder.Services.AddCentraEventHandler<PaymentNotificationHandler, OrderCreatedEvent>("pubsub", "orders.created");
 
 var app = builder.Build();
+```
+
+> [!NOTE]
+> **Attributes vs. Service Collection Extensions**: Centra supports declarative configuration via attributes (e.g. `[Topic]`, `[ServiceClient]`, `[Actor]`, `[Workflow]`) discovered automatically with `AddCentra()`, as well as explicit programmatic configuration via `IServiceCollection` extensions (`AddCentraEventHandler`, `AddCentraServiceClient`, etc.). Explicit registrations always take precedence and allow dynamic runtime overrides. See the [Configuration Reference](docs/operations/configuration-reference.md#configuration-paradigms-attributes-vs-service-collection-extensions) for details.
 
 // Map domain endpoints
 app.MapPost("/orders", async (
