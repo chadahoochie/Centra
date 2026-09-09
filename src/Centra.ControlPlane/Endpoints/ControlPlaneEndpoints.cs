@@ -31,7 +31,7 @@ public static class ControlPlaneEndpoints
         group.MapGet("/components", async (IComponentCatalog catalog, IControlPlaneSecretResolver secretResolver, CancellationToken ct) =>
         {
             var entries = await catalog.GetAllComponentsAsync(ct);
-            var resolved = await ResolveComponentDefinitionsAsync(entries, secretResolver, ct).ConfigureAwait(false);
+            var resolved = await secretResolver.ResolveComponentDefinitionsAsync(entries, ct).ConfigureAwait(false);
             return Results.Ok(resolved);
         });
 
@@ -51,7 +51,7 @@ public static class ControlPlaneEndpoints
         {
             var entries = await catalog.GetAllComponentsAsync(ct);
             var bindingEntries = entries.Where(e => e.Definition.Type == ComponentType.Binding);
-            var resolved = await ResolveComponentDefinitionsAsync(bindingEntries, secretResolver, ct).ConfigureAwait(false);
+            var resolved = await secretResolver.ResolveComponentDefinitionsAsync(bindingEntries, ct).ConfigureAwait(false);
             return Results.Ok(resolved);
         });
 
@@ -406,19 +406,5 @@ public static class ControlPlaneEndpoints
         });
 
         return endpoints;
-    }
-
-    private static async ValueTask<List<ComponentDefinition>> ResolveComponentDefinitionsAsync(
-        IEnumerable<ComponentCatalogEntry> entries,
-        IControlPlaneSecretResolver secretResolver,
-        CancellationToken ct)
-    {
-        var resolved = new List<ComponentDefinition>();
-        foreach (var entry in entries)
-        {
-            var def = await secretResolver.ResolveSecretsAsync(entry.Definition, ct).ConfigureAwait(false);
-            resolved.Add(def);
-        }
-        return resolved;
     }
 }

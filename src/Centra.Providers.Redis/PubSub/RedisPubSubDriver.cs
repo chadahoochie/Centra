@@ -13,12 +13,12 @@ namespace Centra.Providers.Redis.PubSub;
 
 public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
 {
-    private const string EnvelopeField = "envelope";
-
     private readonly IConnectionMultiplexer _connection;
     private readonly RedisProviderOptions _options;
     private readonly ILogger<RedisPubSubDriver> _logger;
     private readonly IDistributedLockProvider? _lockProvider;
+    private readonly IRedisPubSubKeyFormatter _keyFormatter;
+    private readonly IRedisStreamProcessor _streamProcessor;
     private readonly string _consumerName = $"{Environment.MachineName}:{Guid.NewGuid():N}";
     private readonly ConcurrentDictionary<string, Action<RedisChannel, RedisValue>> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _streamSubscriptions = new(StringComparer.OrdinalIgnoreCase);
@@ -27,12 +27,16 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
         IConnectionMultiplexer connection,
         IOptions<RedisProviderOptions> options,
         ILogger<RedisPubSubDriver>? logger = null,
-        IDistributedLockProvider? lockProvider = null)
+        IDistributedLockProvider? lockProvider = null,
+        IRedisPubSubKeyFormatter? keyFormatter = null,
+        IRedisStreamProcessor? streamProcessor = null)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         _options = options?.Value ?? new RedisProviderOptions();
         _logger = logger ?? NullLogger<RedisPubSubDriver>.Instance;
         _lockProvider = lockProvider;
+        _keyFormatter = keyFormatter ?? RedisPubSubKeyFormatter.Instance;
+        _streamProcessor = streamProcessor ?? RedisStreamProcessor.Instance;
     }
 
     public async ValueTask PublishAsync(
@@ -47,12 +51,14 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
 
         if (_options.EnableConsumerGroups)
         {
-            await PublishToStreamAsync(pubSubName, topic, payload, metadata, cancellationToken).ConfigureAwait(false);
+            var db = _connection.GetDatabase();
+            var streamKey = _keyFormatter.BuildStreamKey(_options.KeyPrefix, pubSubName, topic);
+            await _streamProcessor.PublishToStreamAsync(db, streamKey, payload, metadata, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         var sub = _connection.GetSubscriber();
-        var channel = BuildChannel(pubSubName, topic);
+        var channel = _keyFormatter.BuildChannel(_options.KeyPrefix, pubSubName, topic);
 
         var envelope = new RedisMessageEnvelope(metadata, payload.ToArray());
         var envelopeBytes = JsonSerializer.SerializeToUtf8Bytes(envelope);
@@ -74,7 +80,7 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
 
         if (_options.EnableConsumerGroups)
         {
-            await SubscribeViaStreamAsync(pubSubName, topic, handler, deadLetterTopic, options, cancellationToken).ConfigureAwait(false);
+            await SubscribeViaStreamAsync(pubSubName, topic, handler, deadLetterTopic, cancellationToken, options).ConfigureAwait(false);
             return;
         }
 
@@ -87,7 +93,7 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
         }
 
         var sub = _connection.GetSubscriber();
-        var channel = BuildChannel(pubSubName, topic);
+        var channel = _keyFormatter.BuildChannel(_options.KeyPrefix, pubSubName, topic);
         var subKey = $"{pubSubName}:{topic}";
 
         Action<RedisChannel, RedisValue> messageHandler = async (ch, val) =>
@@ -113,7 +119,7 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
 
                 if (result == EventHandlingResult.DeadLetter && !string.IsNullOrWhiteSpace(deadLetterTopic))
                 {
-                    var dlChannel = BuildChannel(pubSubName, deadLetterTopic);
+                    var dlChannel = _keyFormatter.BuildChannel(_options.KeyPrefix, pubSubName, deadLetterTopic);
                     await sub.PublishAsync(RedisChannel.Literal(dlChannel), val).ConfigureAwait(false);
                 }
             }
@@ -125,6 +131,47 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
 
         _subscriptions[subKey] = messageHandler;
         await sub.SubscribeAsync(RedisChannel.Literal(channel), messageHandler).ConfigureAwait(false);
+    }
+
+    public async ValueTask SubscribeViaStreamAsync(
+        string pubSubName,
+        string topic,
+        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
+        string? deadLetterTopic = null,
+        CancellationToken cancellationToken = default,
+        PubSubSubscribeOptions? options = null)
+    {
+        var db = _connection.GetDatabase();
+        var streamKey = _keyFormatter.BuildStreamKey(_options.KeyPrefix, pubSubName, topic);
+        var groupName = _keyFormatter.BuildConsumerGroup(pubSubName, topic);
+
+        try
+        {
+            await db.StreamCreateConsumerGroupAsync(streamKey, groupName, StreamPosition.NewMessages, createStream: true).ConfigureAwait(false);
+        }
+        catch (RedisException ex) when (ex.Message.Contains("BUSYGROUP", StringComparison.OrdinalIgnoreCase))
+        {
+            // Consumer group already exists - fine, another subscriber (or a prior run) created it.
+        }
+
+        var subKey = $"{pubSubName}:{topic}";
+        var cts = new CancellationTokenSource();
+        _streamSubscriptions[subKey] = cts;
+
+        var consumerMode = options?.ConsumerMode ?? ConsumerMode.CompetingConsumer;
+
+        _ = _streamProcessor.RunStreamLoopAsync(
+            db,
+            _lockProvider,
+            streamKey,
+            groupName,
+            _consumerName,
+            pubSubName,
+            deadLetterTopic,
+            handler,
+            consumerMode,
+            _logger,
+            cts.Token);
     }
 
     public async ValueTask UnsubscribeAsync(
@@ -144,7 +191,7 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
         }
 
         var sub = _connection.GetSubscriber();
-        var channel = BuildChannel(pubSubName, topic);
+        var channel = _keyFormatter.BuildChannel(_options.KeyPrefix, pubSubName, topic);
 
         if (_subscriptions.TryRemove(subKey, out var handler))
         {
@@ -166,160 +213,5 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
         _streamSubscriptions.Clear();
 
         return ValueTask.CompletedTask;
-    }
-
-    private string BuildChannel(string pubSubName, string topic) =>
-        $"{_options.KeyPrefix}pubsub:{pubSubName}:{topic}";
-
-    private string BuildStreamKey(string pubSubName, string topic) =>
-        $"{_options.KeyPrefix}pubsub-stream:{pubSubName}:{topic}";
-
-    private async ValueTask PublishToStreamAsync(
-        string pubSubName,
-        string topic,
-        ReadOnlyMemory<byte> payload,
-        IReadOnlyDictionary<string, string> metadata,
-        CancellationToken cancellationToken)
-    {
-        var db = _connection.GetDatabase();
-        var streamKey = BuildStreamKey(pubSubName, topic);
-
-        var envelope = new RedisMessageEnvelope(metadata, payload.ToArray());
-        var envelopeBytes = JsonSerializer.SerializeToUtf8Bytes(envelope);
-
-        await db.StreamAddAsync(streamKey, EnvelopeField, envelopeBytes).ConfigureAwait(false);
-    }
-
-    private async ValueTask SubscribeViaStreamAsync(
-        string pubSubName,
-        string topic,
-        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
-        string? deadLetterTopic,
-        PubSubSubscribeOptions? options,
-        CancellationToken cancellationToken)
-    {
-        var db = _connection.GetDatabase();
-        var streamKey = BuildStreamKey(pubSubName, topic);
-        var groupName = $"{pubSubName}.{topic}.group";
-
-        try
-        {
-            await db.StreamCreateConsumerGroupAsync(streamKey, groupName, StreamPosition.NewMessages, createStream: true).ConfigureAwait(false);
-        }
-        catch (RedisException ex) when (ex.Message.Contains("BUSYGROUP", StringComparison.OrdinalIgnoreCase))
-        {
-            // Consumer group already exists - fine, another subscriber (or a prior run) created it.
-        }
-
-        var subKey = $"{pubSubName}:{topic}";
-        var cts = new CancellationTokenSource();
-        _streamSubscriptions[subKey] = cts;
-
-        var consumerMode = options?.ConsumerMode ?? ConsumerMode.CompetingConsumer;
-
-        _ = RunStreamLoopAsync(db, streamKey, groupName, pubSubName, deadLetterTopic, handler, consumerMode, cts.Token);
-    }
-
-    private async Task RunStreamLoopAsync(
-        IDatabase db,
-        string streamKey,
-        string groupName,
-        string pubSubName,
-        string? deadLetterTopic,
-        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
-        ConsumerMode consumerMode,
-        CancellationToken cancellationToken)
-    {
-        IDistributedLock? heldLock = null;
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                if (consumerMode == ConsumerMode.SingleActiveConsumer && _lockProvider is not null && heldLock is null)
-                {
-                    heldLock = await _lockProvider.TryAcquireLockAsync(
-                        $"{pubSubName}-pubsub-lock",
-                        $"{streamKey}:single-active",
-                        TimeSpan.FromSeconds(30),
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (heldLock is null)
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-                        continue;
-                    }
-                }
-
-                StreamEntry[] entries;
-                try
-                {
-                    entries = await db.StreamReadGroupAsync(streamKey, groupName, _consumerName, StreamPosition.NewMessages, count: 10).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Error reading Redis stream {Stream}", streamKey);
-                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (entries.Length == 0)
-                {
-                    await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                foreach (var entry in entries)
-                {
-                    await ProcessStreamEntryAsync(db, streamKey, groupName, pubSubName, deadLetterTopic, handler, entry, cancellationToken).ConfigureAwait(false);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected on unsubscribe/shutdown.
-        }
-        finally
-        {
-            if (heldLock is not null)
-            {
-                await heldLock.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-    }
-
-    private async ValueTask ProcessStreamEntryAsync(
-        IDatabase db,
-        string streamKey,
-        string groupName,
-        string pubSubName,
-        string? deadLetterTopic,
-        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
-        StreamEntry entry,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var envelopeField = entry.Values.FirstOrDefault(v => v.Name == EnvelopeField);
-            byte[] raw = envelopeField.Value.IsNullOrEmpty ? Array.Empty<byte>() : (byte[])envelopeField.Value!;
-            var envelope = raw.Length > 0 ? JsonSerializer.Deserialize<RedisMessageEnvelope>(raw) : null;
-
-            var payload = (ReadOnlyMemory<byte>)(envelope?.Payload ?? Array.Empty<byte>());
-            var headers = envelope?.Headers ?? new Dictionary<string, string>();
-
-            var result = await handler(payload, headers, cancellationToken).ConfigureAwait(false);
-
-            if (result == EventHandlingResult.DeadLetter && !string.IsNullOrWhiteSpace(deadLetterTopic))
-            {
-                await PublishToStreamAsync(pubSubName, deadLetterTopic, payload, headers, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing Redis stream entry {EntryId} on {Stream}", entry.Id, streamKey);
-        }
-        finally
-        {
-            await db.StreamAcknowledgeAsync(streamKey, groupName, entry.Id).ConfigureAwait(false);
-        }
     }
 }

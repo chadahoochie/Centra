@@ -18,6 +18,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
     private readonly ILogger<RabbitMQPubSubDriver> _logger;
     private readonly ConcurrentDictionary<string, (IChannel Channel, string ConsumerTag)> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
+    private readonly IRabbitMQHeaderExtractor _headerExtractor;
+    private readonly IRabbitMQMessageAcknowledger _acknowledger;
     private IConnection? _connection;
     private IChannel? _publishChannel;
     private int _disposed;
@@ -25,14 +27,18 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
     public RabbitMQPubSubDriver(
         IConnectionFactory connectionFactory,
         IOptions<RabbitMQProviderOptions> options,
-        ILogger<RabbitMQPubSubDriver>? logger = null)
+        ILogger<RabbitMQPubSubDriver>? logger = null,
+        IRabbitMQHeaderExtractor? headerExtractor = null,
+        IRabbitMQMessageAcknowledger? acknowledger = null)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _options = options?.Value ?? new RabbitMQProviderOptions();
         _logger = logger ?? NullLogger<RabbitMQPubSubDriver>.Instance;
+        _headerExtractor = headerExtractor ?? RabbitMQHeaderExtractor.Instance;
+        _acknowledger = acknowledger ?? RabbitMQMessageAcknowledger.Instance;
     }
 
-    private async ValueTask<IConnection> GetConnectionAsync(CancellationToken cancellationToken)
+    public async ValueTask<IConnection> GetConnectionAsync(CancellationToken cancellationToken)
     {
         if (_connection is not null)
         {
@@ -54,7 +60,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         }
     }
 
-    private async ValueTask<IChannel> GetPublishChannelAsync(CancellationToken cancellationToken)
+    public async ValueTask<IChannel> GetPublishChannelAsync(CancellationToken cancellationToken)
     {
         if (_publishChannel is not null)
         {
@@ -175,9 +181,9 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         {
             try
             {
-                var headers = ExtractHeaders(ea.BasicProperties);
+                var headers = _headerExtractor.ExtractHeaders(ea.BasicProperties);
                 var result = await handler(ea.Body, headers, CancellationToken.None).ConfigureAwait(false);
-                await AcknowledgeMessageAsync(channel, ea.DeliveryTag, result).ConfigureAwait(false);
+                await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, result).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -262,38 +268,5 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         }
 
         _connectionLock.Dispose();
-    }
-
-    private static Dictionary<string, string> ExtractHeaders(IReadOnlyBasicProperties? properties)
-    {
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (properties?.Headers is null)
-        {
-            return headers;
-        }
-
-        foreach (var (k, v) in properties.Headers)
-        {
-            if (v is byte[] bytes)
-            {
-                headers[k] = Encoding.UTF8.GetString(bytes);
-            }
-            else if (v is not null)
-            {
-                headers[k] = v.ToString()!;
-            }
-        }
-
-        return headers;
-    }
-
-    private static ValueTask AcknowledgeMessageAsync(IChannel channel, ulong deliveryTag, EventHandlingResult result)
-    {
-        return result switch
-        {
-            EventHandlingResult.Success => channel.BasicAckAsync(deliveryTag, multiple: false),
-            EventHandlingResult.Drop or EventHandlingResult.DeadLetter => channel.BasicRejectAsync(deliveryTag, requeue: false),
-            _ => channel.BasicNackAsync(deliveryTag, multiple: false, requeue: true)
-        };
     }
 }

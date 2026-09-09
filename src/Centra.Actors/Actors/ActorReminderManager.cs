@@ -12,17 +12,20 @@ public sealed class ActorReminderManager : IActorReminderManager
     private readonly IStateStore _stateStore;
     private readonly string _storeName;
     private readonly ActorReminderCoordinator? _coordinator;
+    private readonly IActorReminderKeyFormatter _keyFormatter;
 
     public ActorReminderManager(
         ActorIdentity identity,
         IStateStore stateStore,
         string storeName,
-        ActorReminderCoordinator? coordinator = null)
+        ActorReminderCoordinator? coordinator = null,
+        IActorReminderKeyFormatter? keyFormatter = null)
     {
         _identity = identity;
         _stateStore = stateStore;
         _storeName = storeName;
         _coordinator = coordinator;
+        _keyFormatter = keyFormatter ?? ActorReminderKeyFormatter.Instance;
     }
 
     public async ValueTask<ActorReminder> RegisterReminderAsync(
@@ -34,7 +37,7 @@ public sealed class ActorReminderManager : IActorReminderManager
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reminderName);
 
-        var key = FormatReminderKey(reminderName);
+        var key = _keyFormatter.FormatStorageKey(_identity, reminderName);
         var record = new ActorReminderRecord(
             reminderName,
             dueTime,
@@ -51,7 +54,7 @@ public sealed class ActorReminderManager : IActorReminderManager
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reminderName);
 
-        var key = FormatReminderKey(reminderName);
+        var key = _keyFormatter.FormatStorageKey(_identity, reminderName);
         await _stateStore.DeleteAsync(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
         _coordinator?.UnregisterReminder(_identity, reminderName);
     }
@@ -60,7 +63,7 @@ public sealed class ActorReminderManager : IActorReminderManager
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reminderName);
 
-        var key = FormatReminderKey(reminderName);
+        var key = _keyFormatter.FormatStorageKey(_identity, reminderName);
         var stored = await _stateStore.GetAsync<ActorReminderRecord>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (stored.HasValue)
@@ -71,7 +74,4 @@ public sealed class ActorReminderManager : IActorReminderManager
 
         return null;
     }
-
-    private string FormatReminderKey(string reminderName) =>
-        $"actor-reminders:{_identity.Type.Value}:{_identity.Id.Value}:{reminderName}";
 }

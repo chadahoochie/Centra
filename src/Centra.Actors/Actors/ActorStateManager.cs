@@ -11,13 +11,31 @@ public sealed class ActorStateManager : IActorStateManager
     private readonly ActorIdentity _identity;
     private readonly IStateStore _stateStore;
     private readonly string _storeName;
+    private readonly IActorStateKeyFormatter _keyFormatter;
+    private readonly IActorStatePersister _persister;
     private readonly Dictionary<string, ActorStateEntry> _cache = new(StringComparer.Ordinal);
 
-    public ActorStateManager(ActorIdentity identity, IStateStore stateStore, string storeName)
+    public ActorStateManager(
+        ActorIdentity identity,
+        IStateStore stateStore,
+        string storeName,
+        IActorStateKeyFormatter? keyFormatter = null)
+        : this(identity, stateStore, storeName, keyFormatter, null)
+    {
+    }
+
+    internal ActorStateManager(
+        ActorIdentity identity,
+        IStateStore stateStore,
+        string storeName,
+        IActorStateKeyFormatter? keyFormatter,
+        IActorStatePersister? persister)
     {
         _identity = identity;
         _stateStore = stateStore;
         _storeName = storeName;
+        _keyFormatter = keyFormatter ?? ActorStateKeyFormatter.Instance;
+        _persister = persister ?? new ActorStatePersister(stateStore);
     }
 
     public async ValueTask<TState?> GetStateAsync<TState>(string stateName, CancellationToken cancellationToken = default)
@@ -34,7 +52,7 @@ public sealed class ActorStateManager : IActorStateManager
             return (TState?)entry.Value;
         }
 
-        var key = FormatStateKey(stateName);
+        var key = _keyFormatter.FormatStateKey(_identity, stateName);
         var stored = await _stateStore.GetAsync<TState>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (stored.HasValue)
@@ -105,7 +123,7 @@ public sealed class ActorStateManager : IActorStateManager
             return true;
         }
 
-        var key = FormatStateKey(stateName);
+        var key = _keyFormatter.FormatStateKey(_identity, stateName);
         var stored = await _stateStore.GetAsync<object>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (stored.HasValue)
@@ -131,7 +149,7 @@ public sealed class ActorStateManager : IActorStateManager
             return entry.Status != ActorStateStatus.Deleted;
         }
 
-        var key = FormatStateKey(stateName);
+        var key = _keyFormatter.FormatStateKey(_identity, stateName);
         var stored = await _stateStore.GetAsync<object>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
         return stored.HasValue;
     }
@@ -142,27 +160,19 @@ public sealed class ActorStateManager : IActorStateManager
 
         foreach (var (stateName, entry) in _cache)
         {
-            var key = FormatStateKey(stateName);
+            var key = _keyFormatter.FormatStateKey(_identity, stateName);
 
-            switch (entry.Status)
+            await _persister.PersistEntryAsync(
+                _identity,
+                _storeName,
+                key,
+                stateName,
+                entry,
+                cancellationToken).ConfigureAwait(false);
+
+            if (entry.Status == ActorStateStatus.Deleted)
             {
-                case ActorStateStatus.Added:
-                    await PersistAddedStateAsync(key, entry, cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case ActorStateStatus.Modified:
-                    await PersistModifiedStateAsync(key, stateName, entry, cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case ActorStateStatus.Deleted:
-                    await PersistDeletedStateAsync(key, stateName, entry, cancellationToken).ConfigureAwait(false);
-                    (keysToRemove ??= []).Add(stateName);
-                    break;
-
-                case ActorStateStatus.Unchanged:
-                default:
-                    // Zero redundant I/O for unmodified state
-                    break;
+                (keysToRemove ??= []).Add(stateName);
             }
         }
 
@@ -175,93 +185,9 @@ public sealed class ActorStateManager : IActorStateManager
         }
     }
 
-    private async ValueTask PersistAddedStateAsync(string key, ActorStateEntry entry, CancellationToken cancellationToken)
-    {
-        await _stateStore.SetAsync(
-            _storeName,
-            key,
-            entry.Value!,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        await RefreshEntryETagAsync(key, entry, cancellationToken).ConfigureAwait(false);
-        entry.Status = ActorStateStatus.Unchanged;
-    }
-
-    private async ValueTask PersistModifiedStateAsync(
-        string key,
-        string stateName,
-        ActorStateEntry entry,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrEmpty(entry.ETag))
-        {
-            await _stateStore.SetAsync(_storeName, key, entry.Value!, cancellationToken: cancellationToken).ConfigureAwait(false);
-            await RefreshEntryETagAsync(key, entry, cancellationToken).ConfigureAwait(false);
-            entry.Status = ActorStateStatus.Unchanged;
-            return;
-        }
-
-        var success = await _stateStore.TrySetAsync(
-            _storeName,
-            key,
-            entry.Value!,
-            entry.ETag,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        if (!success)
-        {
-            throw new ActorConcurrencyException(
-                _identity,
-                stateName,
-                $"Optimistic concurrency conflict while updating actor state '{stateName}' for actor '{_identity}'.");
-        }
-
-        await RefreshEntryETagAsync(key, entry, cancellationToken).ConfigureAwait(false);
-        entry.Status = ActorStateStatus.Unchanged;
-    }
-
-    private async ValueTask PersistDeletedStateAsync(
-        string key,
-        string stateName,
-        ActorStateEntry entry,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrEmpty(entry.ETag))
-        {
-            await _stateStore.DeleteAsync(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        var success = await _stateStore.TryDeleteAsync(
-            _storeName,
-            key,
-            entry.ETag,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        if (!success)
-        {
-            throw new ActorConcurrencyException(
-                _identity,
-                stateName,
-                $"Optimistic concurrency conflict while deleting actor state '{stateName}' for actor '{_identity}'.");
-        }
-    }
-
-    private async ValueTask RefreshEntryETagAsync(string key, ActorStateEntry entry, CancellationToken cancellationToken)
-    {
-        var stored = await _stateStore.GetAsync<object>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (stored.HasValue)
-        {
-            entry.ETag = stored.Value.ETag;
-        }
-    }
-
     public ValueTask ClearCacheAsync()
     {
         _cache.Clear();
         return ValueTask.CompletedTask;
     }
-
-    private string FormatStateKey(string stateName) =>
-        $"actors:{_identity.Type.Value}:{_identity.Id.Value}:{stateName}";
 }

@@ -19,6 +19,8 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
     private readonly ConcurrentDictionary<string, ServiceBusProcessor> _processors = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ServiceBusSessionProcessor> _sessionProcessors = new(StringComparer.OrdinalIgnoreCase);
     private readonly bool _ownsClient;
+    private readonly IServiceBusHeaderExtractor _headerExtractor;
+    private readonly IServiceBusMessageSettler _messageSettler;
     private int _disposed;
 
     public AzureServiceBusPubSubDriver(
@@ -32,15 +34,19 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
         ServiceBusClient client,
         IOptions<AzureServiceBusProviderOptions> options,
         bool ownsClient = false,
-        ILogger<AzureServiceBusPubSubDriver>? logger = null)
+        ILogger<AzureServiceBusPubSubDriver>? logger = null,
+        IServiceBusHeaderExtractor? headerExtractor = null,
+        IServiceBusMessageSettler? messageSettler = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _options = options?.Value ?? new AzureServiceBusProviderOptions();
         _logger = logger ?? NullLogger<AzureServiceBusPubSubDriver>.Instance;
         _ownsClient = ownsClient;
+        _headerExtractor = headerExtractor ?? ServiceBusHeaderExtractor.Instance;
+        _messageSettler = messageSettler ?? ServiceBusMessageSettler.Instance;
     }
 
-    private ServiceBusSender GetSender(string topic)
+    public ServiceBusSender GetSender(string topic)
     {
         var targetTopic = $"{_options.TopicPrefix}{topic}";
         return _senders.GetOrAdd(targetTopic, t => _client.CreateSender(t));
@@ -123,9 +129,9 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
             {
                 try
                 {
-                    var headers = ExtractHeaders(args.Message);
+                    var headers = _headerExtractor.ExtractHeaders(args.Message);
                     var result = await handler(args.Message.Body.ToMemory(), headers, args.CancellationToken).ConfigureAwait(false);
-                    await SettleSessionMessageAsync(args, result).ConfigureAwait(false);
+                    await _messageSettler.SettleSessionMessageAsync(args, result).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -157,9 +163,9 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
         {
             try
             {
-                var headers = ExtractHeaders(args.Message);
+                var headers = _headerExtractor.ExtractHeaders(args.Message);
                 var result = await handler(args.Message.Body.ToMemory(), headers, args.CancellationToken).ConfigureAwait(false);
-                await SettleMessageAsync(args, result).ConfigureAwait(false);
+                await _messageSettler.SettleMessageAsync(args, result).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -259,61 +265,5 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
     public void Dispose()
     {
         DisposeAsync().AsTask().GetAwaiter().GetResult();
-    }
-
-    private static Dictionary<string, string> ExtractHeaders(ServiceBusReceivedMessage message)
-    {
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var (k, v) in message.ApplicationProperties)
-        {
-            if (v is not null)
-            {
-                headers[k] = v.ToString()!;
-            }
-        }
-
-        CopyHeaderIfPresent(headers, CloudEventConstants.IdHeader, message.MessageId);
-        CopyHeaderIfPresent(headers, CloudEventConstants.SubjectHeader, message.Subject);
-        CopyHeaderIfPresent(headers, CloudEventConstants.CorrelationIdHeader, message.CorrelationId);
-        CopyHeaderIfPresent(headers, CloudEventConstants.DataContentTypeHeader, message.ContentType);
-
-        return headers;
-    }
-
-    private static void CopyHeaderIfPresent(Dictionary<string, string> headers, string headerName, string? value)
-    {
-        if (!string.IsNullOrEmpty(value) && !headers.ContainsKey(headerName))
-        {
-            headers[headerName] = value;
-        }
-    }
-
-    private static Task SettleMessageAsync(ProcessMessageEventArgs args, EventHandlingResult result)
-    {
-        return result switch
-        {
-            EventHandlingResult.Success or EventHandlingResult.Drop =>
-                args.CompleteMessageAsync(args.Message, args.CancellationToken),
-
-            EventHandlingResult.DeadLetter =>
-                args.DeadLetterMessageAsync(args.Message, "DeadLetter", "Handler requested dead-lettering", args.CancellationToken),
-
-            _ => args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken)
-        };
-    }
-
-    private static Task SettleSessionMessageAsync(ProcessSessionMessageEventArgs args, EventHandlingResult result)
-    {
-        return result switch
-        {
-            EventHandlingResult.Success or EventHandlingResult.Drop =>
-                args.CompleteMessageAsync(args.Message, args.CancellationToken),
-
-            EventHandlingResult.DeadLetter =>
-                args.DeadLetterMessageAsync(args.Message, "DeadLetter", "Handler requested dead-lettering", args.CancellationToken),
-
-            _ => args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken)
-        };
     }
 }
