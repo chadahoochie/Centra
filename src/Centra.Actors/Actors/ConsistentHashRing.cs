@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-
 namespace Centra.Core.Actors;
 
 /// <summary>
@@ -9,14 +6,21 @@ namespace Centra.Core.Actors;
 public sealed class ConsistentHashRing
 {
     private readonly int _virtualNodesPerNode;
+    private readonly IConsistentHashAlgorithm _hashAlgorithm;
+    private readonly IConsistentHashRingBuilder _ringBuilder;
     private readonly object _syncLock = new();
     private readonly HashSet<string> _nodes = new(StringComparer.Ordinal);
-    private RingState _state = new(Array.Empty<uint>(), Array.Empty<string>());
+    private ConsistentHashRingState _state = new(Array.Empty<uint>(), Array.Empty<string>());
 
-    public ConsistentHashRing(int virtualNodesPerNode = 100)
+    public ConsistentHashRing(
+        int virtualNodesPerNode = 100,
+        IConsistentHashAlgorithm? hashAlgorithm = null,
+        IConsistentHashRingBuilder? ringBuilder = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(virtualNodesPerNode);
         _virtualNodesPerNode = virtualNodesPerNode;
+        _hashAlgorithm = hashAlgorithm ?? Md5ConsistentHashAlgorithm.Instance;
+        _ringBuilder = ringBuilder ?? ConsistentHashRingBuilder.Instance;
     }
 
     public void AddNode(string nodeId)
@@ -55,7 +59,7 @@ public sealed class ConsistentHashRing
             throw new InvalidOperationException("No nodes registered in consistent hash ring.");
         }
 
-        var hash = Hash(key);
+        var hash = _hashAlgorithm.ComputeHash(key);
         var idx = Array.BinarySearch(state.Hashes, hash);
 
         if (idx < 0)
@@ -70,53 +74,11 @@ public sealed class ConsistentHashRing
         return state.NodeIds[idx];
     }
 
-    private void RebuildRing()
+    /// <summary>
+    /// Rebuilds the consistent hash ring partition state from active nodes.
+    /// </summary>
+    public void RebuildRing()
     {
-        var entries = new List<(uint Hash, string NodeId)>(_nodes.Count * _virtualNodesPerNode);
-
-        foreach (var node in _nodes)
-        {
-            for (var i = 0; i < _virtualNodesPerNode; i++)
-            {
-                var vNodeKey = $"{node}#vnode{i}";
-                var hash = Hash(vNodeKey);
-                entries.Add((hash, node));
-            }
-        }
-
-        entries.Sort((a, b) => a.Hash.CompareTo(b.Hash));
-
-        var hashes = new uint[entries.Count];
-        var nodeIds = new string[entries.Count];
-
-        for (var i = 0; i < entries.Count; i++)
-        {
-            hashes[i] = entries[i].Hash;
-            nodeIds[i] = entries[i].NodeId;
-        }
-
-        _state = new RingState(hashes, nodeIds);
+        _state = _ringBuilder.BuildRing(_nodes, _virtualNodesPerNode, _hashAlgorithm);
     }
-
-    private static uint Hash(string key)
-    {
-        var maxByteCount = Encoding.UTF8.GetMaxByteCount(key.Length);
-        if (maxByteCount <= 256)
-        {
-            Span<byte> utf8Bytes = stackalloc byte[256];
-            var bytesWritten = Encoding.UTF8.GetBytes(key, utf8Bytes);
-            Span<byte> hash = stackalloc byte[16];
-            MD5.HashData(utf8Bytes[..bytesWritten], hash);
-            return System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(hash);
-        }
-        else
-        {
-            var bytes = Encoding.UTF8.GetBytes(key);
-            Span<byte> hash = stackalloc byte[16];
-            MD5.HashData(bytes, hash);
-            return System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(hash);
-        }
-    }
-
-    private sealed record RingState(uint[] Hashes, string[] NodeIds);
 }

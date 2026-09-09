@@ -15,6 +15,10 @@ public sealed class ActorReminderCoordinator
     private readonly ActorOptions _options;
     private readonly IDistributedLockProvider? _lockProvider;
     private readonly TimeProvider _timeProvider;
+    private readonly IActorReminderKeyFormatter _keyFormatter;
+    private readonly IActorReminderScheduleCalculator _scheduleCalculator;
+    private readonly IActorReminderLockCoordinator _lockCoordinator;
+    private readonly IActorReminderDispatcher _dispatcher;
     private readonly ConcurrentDictionary<string, ActorReminderSchedule> _schedules = new(StringComparer.Ordinal);
 
     public ActorReminderCoordinator(
@@ -22,13 +26,41 @@ public sealed class ActorReminderCoordinator
         IStateStore stateStore,
         ActorOptions options,
         IDistributedLockProvider? lockProvider = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IActorReminderKeyFormatter? keyFormatter = null)
+        : this(
+            actorManager,
+            stateStore,
+            options,
+            lockProvider,
+            timeProvider,
+            keyFormatter,
+            null,
+            null,
+            null)
+    {
+    }
+
+    internal ActorReminderCoordinator(
+        ActorManager actorManager,
+        IStateStore stateStore,
+        ActorOptions options,
+        IDistributedLockProvider? lockProvider,
+        TimeProvider? timeProvider,
+        IActorReminderKeyFormatter? keyFormatter,
+        IActorReminderScheduleCalculator? scheduleCalculator,
+        IActorReminderLockCoordinator? lockCoordinator,
+        IActorReminderDispatcher? dispatcher)
     {
         _actorManager = actorManager;
         _stateStore = stateStore;
         _options = options;
         _lockProvider = lockProvider;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _keyFormatter = keyFormatter ?? ActorReminderKeyFormatter.Instance;
+        _scheduleCalculator = scheduleCalculator ?? ActorReminderScheduleCalculator.Instance;
+        _lockCoordinator = lockCoordinator ?? new ActorReminderLockCoordinator(lockProvider, options, _keyFormatter);
+        _dispatcher = dispatcher ?? new ActorReminderDispatcher(actorManager);
     }
 
     public void RegisterReminder(
@@ -40,7 +72,7 @@ public sealed class ActorReminderCoordinator
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reminderName);
 
-        var key = FormatKey(identity, reminderName);
+        var key = _keyFormatter.FormatScheduleKey(identity, reminderName);
         var nextDueUtc = _timeProvider.GetUtcNow() + dueTime;
 
         _schedules[key] = new ActorReminderSchedule(
@@ -56,7 +88,7 @@ public sealed class ActorReminderCoordinator
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reminderName);
 
-        var key = FormatKey(identity, reminderName);
+        var key = _keyFormatter.FormatScheduleKey(identity, reminderName);
         return _schedules.TryRemove(key, out _);
     }
 
@@ -72,7 +104,7 @@ public sealed class ActorReminderCoordinator
                 continue;
             }
 
-            if (await TryProcessReminderAsync(key, schedule, cancellationToken).ConfigureAwait(false))
+            if (await ProcessReminderTickAsync(key, schedule, cancellationToken).ConfigureAwait(false))
             {
                 dueCount++;
             }
@@ -81,29 +113,25 @@ public sealed class ActorReminderCoordinator
         return dueCount;
     }
 
-    private async ValueTask<bool> TryProcessReminderAsync(
+    /// <summary>
+    /// Evaluates and executes a reminder tick for the given schedule, coordinating distributed lock acquisition and next period advancement.
+    /// </summary>
+    internal async ValueTask<bool> ProcessReminderTickAsync(
         string key,
         ActorReminderSchedule schedule,
         CancellationToken cancellationToken)
     {
-        if (_lockProvider is null)
-        {
-            await ExecuteReminderAsync(schedule, cancellationToken).ConfigureAwait(false);
-            AdvanceOrEvictReminder(key, schedule);
-            return true;
-        }
-
-        var (acquired, @lock) = await TryAcquireReminderLockAsync(schedule, cancellationToken).ConfigureAwait(false);
+        var (acquired, @lock) = await _lockCoordinator.TryAcquireReminderLockAsync(schedule, cancellationToken).ConfigureAwait(false);
         if (!acquired)
         {
             // Another cluster replica is processing this tick
-            AdvanceOrEvictReminder(key, schedule);
+            AdvanceOrEvict(key, schedule);
             return false;
         }
 
         try
         {
-            await ExecuteReminderAsync(schedule, cancellationToken).ConfigureAwait(false);
+            await _dispatcher.DispatchReminderAsync(schedule, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -113,63 +141,18 @@ public sealed class ActorReminderCoordinator
             }
         }
 
-        AdvanceOrEvictReminder(key, schedule);
+        AdvanceOrEvict(key, schedule);
         return true;
     }
 
-    private async ValueTask<(bool Acquired, IDistributedLock? Lock)> TryAcquireReminderLockAsync(
-        ActorReminderSchedule schedule,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Advances the reminder to its next due time or evicts it from active schedules if it is non-periodic.
+    /// </summary>
+    internal void AdvanceOrEvict(string key, ActorReminderSchedule schedule)
     {
-        var lockKey = $"actor-reminder:{schedule.Identity}:{schedule.Name}:lock";
-        try
-        {
-            var @lock = await _lockProvider!.TryAcquireLockAsync(
-                _options.DefaultLockStore,
-                lockKey,
-                expiryTime: TimeSpan.FromSeconds(30),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            return (@lock is not null, @lock);
-        }
-        catch (InvalidOperationException)
-        {
-            // Lock store not configured; allow execution without distributed lock
-            return (true, null);
-        }
-    }
-
-    private void AdvanceOrEvictReminder(string key, ActorReminderSchedule schedule)
-    {
-        if (schedule.Period > TimeSpan.Zero)
-        {
-            schedule.NextDueUtc = _timeProvider.GetUtcNow() + schedule.Period;
-        }
-        else
+        if (!_scheduleCalculator.TryAdvanceSchedule(schedule, _timeProvider))
         {
             _schedules.TryRemove(key, out _);
         }
     }
-
-    private async ValueTask ExecuteReminderAsync(ActorReminderSchedule schedule, CancellationToken cancellationToken)
-    {
-        await _actorManager.DispatchAsync(
-            schedule.Identity,
-            async actor =>
-            {
-                if (actor is IRemindable remindable)
-                {
-                    await remindable.ReceiveReminderAsync(
-                        schedule.Name,
-                        schedule.State ?? Array.Empty<byte>(),
-                        schedule.DueTime,
-                        schedule.Period,
-                        cancellationToken).ConfigureAwait(false);
-                }
-            },
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private static string FormatKey(ActorIdentity identity, string reminderName) =>
-        $"{identity.Type.Value}:{identity.Id.Value}:{reminderName}";
 }

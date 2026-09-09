@@ -19,19 +19,25 @@ public sealed class WorkflowActivityDispatcher : IWorkflowActivityDispatcher
     private readonly ICentraSerializer _serializer;
     private readonly IResiliencePipelineProvider? _resilienceProvider;
     private readonly ILogger<WorkflowActivityDispatcher>? _logger;
+    private readonly IWorkflowInputConverter _inputConverter;
+    private readonly IWorkflowActivityMethodInvoker _invoker;
 
     public WorkflowActivityDispatcher(
         IServiceProvider serviceProvider,
         IWorkflowRegistry registry,
         ICentraSerializer serializer,
         IResiliencePipelineProvider? resilienceProvider = null,
-        ILogger<WorkflowActivityDispatcher>? logger = null)
+        ILogger<WorkflowActivityDispatcher>? logger = null,
+        IWorkflowInputConverter? inputConverter = null,
+        IWorkflowActivityMethodInvoker? invoker = null)
     {
         _serviceProvider = serviceProvider;
         _registry = registry;
         _serializer = serializer;
         _resilienceProvider = resilienceProvider;
         _logger = logger;
+        _inputConverter = inputConverter ?? WorkflowInputConverter.Instance;
+        _invoker = invoker ?? WorkflowActivityMethodInvoker.Instance;
     }
 
     public async ValueTask<TOutput> DispatchActivityAsync<TOutput>(
@@ -60,7 +66,7 @@ public sealed class WorkflowActivityDispatcher : IWorkflowActivityDispatcher
         }
 
         // Convert input if necessary
-        object? typedInput = ConvertInput(input, actDef.InputType);
+        object? typedInput = _inputConverter.ConvertInput(input, actDef.InputType, _serializer);
 
         using var cts = options?.Timeout.HasValue == true
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
@@ -92,11 +98,11 @@ public sealed class WorkflowActivityDispatcher : IWorkflowActivityDispatcher
             if (pipeline is not null)
             {
                 return await pipeline.ExecuteAsync(
-                    async (token) => await InvokeActivityMethodAsync<TOutput>(activityInstance, actContext, typedInput, token).ConfigureAwait(false),
+                    async (token) => await _invoker.InvokeActivityMethodAsync<TOutput>(activityInstance, actContext, typedInput, token).ConfigureAwait(false),
                     effectiveToken).ConfigureAwait(false);
             }
 
-            return await InvokeActivityMethodAsync<TOutput>(activityInstance, actContext, typedInput, effectiveToken).ConfigureAwait(false);
+            return await _invoker.InvokeActivityMethodAsync<TOutput>(activityInstance, actContext, typedInput, effectiveToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not WorkflowActivityExecutionException)
         {
@@ -104,148 +110,5 @@ public sealed class WorkflowActivityDispatcher : IWorkflowActivityDispatcher
             _logger?.LogError(inner, "Activity '{ActivityName}' failed for workflow instance '{InstanceId}'", activityName, instanceId.Value);
             throw new WorkflowActivityExecutionException(activityName, $"Execution of activity '{activityName}' threw an exception: {inner.Message}", inner);
         }
-    }
-
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, Func<object, WorkflowActivityContext, object?, ValueTask<object?>>> ActivityInvokers = new();
-
-    private async ValueTask<TOutput> InvokeActivityMethodAsync<TOutput>(
-        object activityInstance,
-        WorkflowActivityContext context,
-        object? typedInput,
-        CancellationToken cancellationToken)
-    {
-        var invoker = ActivityInvokers.GetOrAdd(activityInstance.GetType(), static type => CreateActivityInvoker(type));
-        var result = await invoker(activityInstance, context, typedInput).ConfigureAwait(false);
-        return result is null ? default! : (TOutput)result;
-    }
-
-    private static Func<object, WorkflowActivityContext, object?, ValueTask<object?>> CreateActivityInvoker(Type activityType)
-    {
-        var runMethod = activityType.GetMethod("RunAsync", BindingFlags.Public | BindingFlags.Instance)
-            ?? throw new InvalidOperationException($"Type '{activityType.FullName}' does not have a public RunAsync method.");
-
-        var returnType = runMethod.ReturnType;
-
-        if (returnType == typeof(ValueTask))
-        {
-            return async (instance, ctx, input) =>
-            {
-                try
-                {
-                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
-                    if (taskObj is ValueTask vt)
-                    {
-                        await vt.ConfigureAwait(false);
-                    }
-                    return null;
-                }
-                catch (TargetInvocationException tie) when (tie.InnerException is not null)
-                {
-                    throw tie.InnerException;
-                }
-            };
-        }
-
-        if (returnType == typeof(Task))
-        {
-            return async (instance, ctx, input) =>
-            {
-                try
-                {
-                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
-                    if (taskObj is Task t)
-                    {
-                        await t.ConfigureAwait(false);
-                    }
-                    return null;
-                }
-                catch (TargetInvocationException tie) when (tie.InnerException is not null)
-                {
-                    throw tie.InnerException;
-                }
-            };
-        }
-
-        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(ValueTask<>))
-        {
-            var asTaskMethod = returnType.GetMethod("AsTask")!;
-
-            return async (instance, ctx, input) =>
-            {
-                try
-                {
-                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
-                    if (taskObj is null) return null;
-                    var task = (Task)asTaskMethod.Invoke(taskObj, null)!;
-                    await task.ConfigureAwait(false);
-                    return task.GetType().GetProperty("Result")?.GetValue(task);
-                }
-                catch (TargetInvocationException tie) when (tie.InnerException is not null)
-                {
-                    throw tie.InnerException;
-                }
-            };
-        }
-
-        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Task<>))
-        {
-            return async (instance, ctx, input) =>
-            {
-                try
-                {
-                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
-                    if (taskObj is Task task)
-                    {
-                        await task.ConfigureAwait(false);
-                        return task.GetType().GetProperty("Result")?.GetValue(task);
-                    }
-                    return null;
-                }
-                catch (TargetInvocationException tie) when (tie.InnerException is not null)
-                {
-                    throw tie.InnerException;
-                }
-            };
-        }
-
-        return (instance, ctx, input) =>
-        {
-            try
-            {
-                var raw = runMethod.Invoke(instance, [ctx, input]);
-                return ValueTask.FromResult(raw);
-            }
-            catch (TargetInvocationException tie) when (tie.InnerException is not null)
-            {
-                throw tie.InnerException;
-            }
-        };
-    }
-
-    private object? ConvertInput(object? input, Type targetType)
-    {
-        if (input is null)
-        {
-            return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
-        }
-
-        if (targetType.IsInstanceOfType(input))
-        {
-            return input;
-        }
-
-        if (input is byte[] bytes)
-        {
-            return _serializer.Deserialize(bytes, targetType);
-        }
-
-        if (input is ReadOnlyMemory<byte> memory)
-        {
-            return _serializer.Deserialize(memory, targetType);
-        }
-
-        // Serialize and deserialize to convert objects
-        var serialized = _serializer.Serialize(input);
-        return _serializer.Deserialize(serialized, targetType);
     }
 }

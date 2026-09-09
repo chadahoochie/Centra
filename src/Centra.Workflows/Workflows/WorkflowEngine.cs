@@ -1,10 +1,7 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Reflection;
 using Centra.Diagnostics;
 using Centra.Serialization;
 using Centra.Workflows;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Centra.Core.Workflows;
@@ -14,14 +11,12 @@ namespace Centra.Core.Workflows;
 /// </summary>
 public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
 {
-    private readonly IServiceProvider _serviceProvider;
     private readonly IWorkflowRegistry _registry;
     private readonly IWorkflowHistoryStore _historyStore;
-    private readonly IWorkflowActivityDispatcher _dispatcher;
     private readonly ICentraSerializer _serializer;
     private readonly TimeProvider _timeProvider;
-    private readonly ILogger<WorkflowEngine>? _logger;
-    private readonly ConcurrentDictionary<WorkflowInstanceId, ITimer> _activeTimers = new();
+    private readonly IWorkflowTimerScheduler _timerScheduler;
+    private readonly IWorkflowTurnProcessor _turnProcessor;
 
     public WorkflowEngine(
         IServiceProvider serviceProvider,
@@ -30,15 +25,29 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         IWorkflowActivityDispatcher dispatcher,
         ICentraSerializer serializer,
         TimeProvider? timeProvider = null,
-        ILogger<WorkflowEngine>? logger = null)
+        ILogger<WorkflowEngine>? logger = null,
+        IWorkflowRunnerInvoker? runnerInvoker = null,
+        IWorkflowTimerScheduler? timerScheduler = null,
+        IWorkflowTurnProcessor? turnProcessor = null)
     {
-        _serviceProvider = serviceProvider;
-        _registry = registry;
-        _historyStore = historyStore;
-        _dispatcher = dispatcher;
-        _serializer = serializer;
+        ArgumentNullException.ThrowIfNull(serviceProvider);
+        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _historyStore = historyStore ?? throw new ArgumentNullException(nameof(historyStore));
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _logger = logger;
+
+        _timerScheduler = timerScheduler ?? new WorkflowTimerScheduler(_timeProvider, logger);
+        var invoker = runnerInvoker ?? WorkflowRunnerInvoker.Instance;
+        _turnProcessor = turnProcessor ?? new WorkflowTurnProcessor(
+            serviceProvider,
+            historyStore,
+            dispatcher,
+            serializer,
+            invoker,
+            _timerScheduler,
+            _timeProvider,
+            async id => await FireTimerAsync(id).ConfigureAwait(false),
+            logger);
     }
 
     public async ValueTask<WorkflowInstanceId> StartWorkflowAsync(
@@ -96,7 +105,7 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
             activity.SetTag("centra.workflow.name", workflowName);
         }
 
-        await RunWorkflowTurnAsync(actualId, def, stateRecord, cancellationToken).ConfigureAwait(false);
+        await _turnProcessor.ProcessTurnAsync(actualId, def, stateRecord, cancellationToken).ConfigureAwait(false);
         return actualId;
     }
 
@@ -214,7 +223,7 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
 
             if (_registry.TryGetWorkflow(state.WorkflowName, out var def))
             {
-                await RunWorkflowTurnAsync(instanceId, def, state, cancellationToken).ConfigureAwait(false);
+                await _turnProcessor.ProcessTurnAsync(instanceId, def, state, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -223,10 +232,7 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         WorkflowInstanceId instanceId,
         CancellationToken cancellationToken = default)
     {
-        if (_activeTimers.TryRemove(instanceId, out var timer))
-        {
-            timer.Dispose();
-        }
+        _timerScheduler.CancelTimer(instanceId);
 
         var state = await _historyStore.GetStateAsync(instanceId, cancellationToken).ConfigureAwait(false);
         if (state is null) return;
@@ -253,7 +259,7 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
 
             if (_registry.TryGetWorkflow(state.WorkflowName, out var def))
             {
-                await RunWorkflowTurnAsync(instanceId, def, state, cancellationToken).ConfigureAwait(false);
+                await _turnProcessor.ProcessTurnAsync(instanceId, def, state, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -263,10 +269,7 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         string reason,
         CancellationToken cancellationToken = default)
     {
-        if (_activeTimers.TryRemove(instanceId, out var timer))
-        {
-            timer.Dispose();
-        }
+        _timerScheduler.CancelTimer(instanceId);
 
         var state = await _historyStore.GetStateAsync(instanceId, cancellationToken).ConfigureAwait(false);
         if (state is null) return;
@@ -295,340 +298,12 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         WorkflowInstanceId instanceId,
         CancellationToken cancellationToken = default)
     {
-        if (_activeTimers.TryRemove(instanceId, out var timer))
-        {
-            timer.Dispose();
-        }
-
+        _timerScheduler.CancelTimer(instanceId);
         await _historyStore.PurgeAsync(instanceId, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask RunWorkflowTurnAsync(
-        WorkflowInstanceId instanceId,
-        WorkflowDefinition def,
-        WorkflowStateRecord stateRecord,
-        CancellationToken cancellationToken)
-    {
-        object? workflowInstance;
-        try
-        {
-            workflowInstance = _serviceProvider.GetService(def.WorkflowType)
-                ?? ActivatorUtilities.CreateInstance(_serviceProvider, def.WorkflowType);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Failed to instantiate workflow '{WorkflowName}'", def.Name);
-            stateRecord.Status = (int)WorkflowStatus.Failed;
-            stateRecord.FailureDetails = ex.Message;
-            stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
-            await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        var pastHistory = await _historyStore.GetHistoryAsync(instanceId, cancellationToken).ConfigureAwait(false);
-        var context = new DeterministicWorkflowContext(
-            instanceId,
-            def.Name,
-            pastHistory,
-            _dispatcher,
-            _serializer,
-            _timeProvider,
-            cancellationToken);
-
-        object? typedInput = null;
-        if (stateRecord.Input is not null && stateRecord.Input.Length > 0 && def.InputType != typeof(void))
-        {
-            typedInput = _serializer.Deserialize(stateRecord.Input, def.InputType);
-        }
-
-        try
-        {
-            var output = await InvokeWorkflowRunAsync(workflowInstance, context, typedInput).ConfigureAwait(false);
-            await HandleWorkflowCompletedAsync(instanceId, def, stateRecord, context, pastHistory, output, cancellationToken).ConfigureAwait(false);
-        }
-        catch (WorkflowSuspendedException ex)
-        {
-            await HandleWorkflowSuspendedAsync(instanceId, stateRecord, context, ex, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            await HandleWorkflowFailedAsync(instanceId, def, stateRecord, context, pastHistory, ex, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private async ValueTask HandleWorkflowCompletedAsync(
-        WorkflowInstanceId instanceId,
-        WorkflowDefinition def,
-        WorkflowStateRecord stateRecord,
-        DeterministicWorkflowContext context,
-        IReadOnlyList<WorkflowHistoryEventRecord> pastHistory,
-        object? output,
-        CancellationToken cancellationToken)
-    {
-        stateRecord.Status = (int)WorkflowStatus.Completed;
-        stateRecord.CustomStatus = context.CustomStatus;
-        stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
-
-        byte[]? outputBytes = output is not null ? _serializer.Serialize(output) : null;
-        stateRecord.Output = outputBytes;
-
-        long nextId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
-        var completedEvent = new WorkflowHistoryEventRecord
-        {
-            EventId = nextId,
-            EventType = (int)WorkflowHistoryEventType.WorkflowCompleted,
-            Name = def.Name,
-            Timestamp = _timeProvider.GetUtcNow(),
-            Data = outputBytes
-        };
-        context.NewEvents.Add(completedEvent);
-
-        await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
-        await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask HandleWorkflowSuspendedAsync(
-        WorkflowInstanceId instanceId,
-        WorkflowStateRecord stateRecord,
-        DeterministicWorkflowContext context,
-        WorkflowSuspendedException ex,
-        CancellationToken cancellationToken)
-    {
-        _logger?.LogDebug("Workflow '{InstanceId}' suspended: {Reason}", instanceId.Value, ex.Reason);
-
-        stateRecord.Status = (int)WorkflowStatus.Suspended;
-        stateRecord.CustomStatus = context.CustomStatus;
-        stateRecord.WaitingEventName = context.WaitingEventName;
-        stateRecord.TimerDueTime = context.TimerDueTime;
-        stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
-
-        await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
-        await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
-
-        if (context.TimerDueTime.HasValue)
-        {
-            var delay = context.TimerDueTime.Value - _timeProvider.GetUtcNow();
-            ScheduleTimer(instanceId, delay < TimeSpan.Zero ? TimeSpan.Zero : delay);
-        }
-    }
-
-    private async ValueTask HandleWorkflowFailedAsync(
-        WorkflowInstanceId instanceId,
-        WorkflowDefinition def,
-        WorkflowStateRecord stateRecord,
-        DeterministicWorkflowContext context,
-        IReadOnlyList<WorkflowHistoryEventRecord> pastHistory,
-        Exception ex,
-        CancellationToken cancellationToken)
-    {
-        var actualEx = ex is TargetInvocationException tie && tie.InnerException is not null ? tie.InnerException : ex;
-        _logger?.LogError(actualEx, "Workflow '{InstanceId}' failed. Triggering saga compensations if registered.", instanceId.Value);
-
-        if (context.Saga.Compensations.Count > 0)
-        {
-            await ExecuteSagaCompensationsAsync(instanceId, def, context, pastHistory, cancellationToken).ConfigureAwait(false);
-        }
-
-        stateRecord.Status = (int)WorkflowStatus.Failed;
-        stateRecord.FailureDetails = actualEx.Message;
-        stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
-
-        long failedId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
-        context.NewEvents.Add(new WorkflowHistoryEventRecord
-        {
-            EventId = failedId,
-            EventType = (int)WorkflowHistoryEventType.WorkflowFailed,
-            Name = def.Name,
-            Timestamp = _timeProvider.GetUtcNow(),
-            Details = actualEx.Message
-        });
-
-        await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
-        await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask ExecuteSagaCompensationsAsync(
-        WorkflowInstanceId instanceId,
-        WorkflowDefinition def,
-        DeterministicWorkflowContext context,
-        IReadOnlyList<WorkflowHistoryEventRecord> pastHistory,
-        CancellationToken cancellationToken)
-    {
-        long startId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
-        context.NewEvents.Add(new WorkflowHistoryEventRecord
-        {
-            EventId = startId,
-            EventType = (int)WorkflowHistoryEventType.SagaCompensationStarted,
-            Name = def.Name,
-            Timestamp = _timeProvider.GetUtcNow()
-        });
-
-        try
-        {
-            await context.Saga.CompensateAsync(cancellationToken).ConfigureAwait(false);
-
-            long compId = (pastHistory.Count > 0 ? pastHistory[^1].EventId : 0) + context.NewEvents.Count + 1;
-            context.NewEvents.Add(new WorkflowHistoryEventRecord
-            {
-                EventId = compId,
-                EventType = (int)WorkflowHistoryEventType.SagaCompensationCompleted,
-                Name = def.Name,
-                Timestamp = _timeProvider.GetUtcNow()
-            });
-        }
-        catch (Exception compEx)
-        {
-            _logger?.LogError(compEx, "Saga compensation failed for workflow '{InstanceId}'", instanceId.Value);
-        }
-    }
-
-    private static readonly ConcurrentDictionary<Type, Func<object, IWorkflowContext, object?, ValueTask<object?>>> WorkflowRunners = new();
-
-    private static async ValueTask<object?> InvokeWorkflowRunAsync(
-        object workflowInstance,
-        IWorkflowContext context,
-        object? typedInput)
-    {
-        var runner = WorkflowRunners.GetOrAdd(workflowInstance.GetType(), static type => CreateWorkflowRunner(type));
-        return await runner(workflowInstance, context, typedInput).ConfigureAwait(false);
-    }
-
-    private static Func<object, IWorkflowContext, object?, ValueTask<object?>> CreateWorkflowRunner(Type workflowType)
-    {
-        var runMethod = workflowType.GetMethod("RunAsync", BindingFlags.Public | BindingFlags.Instance)
-            ?? throw new InvalidOperationException($"Workflow '{workflowType.FullName}' does not have a public RunAsync method.");
-
-        var returnType = runMethod.ReturnType;
-
-        if (returnType == typeof(ValueTask))
-        {
-            return async (instance, ctx, input) =>
-            {
-                try
-                {
-                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
-                    if (taskObj is ValueTask vt)
-                    {
-                        await vt.ConfigureAwait(false);
-                    }
-                    return null;
-                }
-                catch (TargetInvocationException tie) when (tie.InnerException is not null)
-                {
-                    throw tie.InnerException;
-                }
-            };
-        }
-
-        if (returnType == typeof(Task))
-        {
-            return async (instance, ctx, input) =>
-            {
-                try
-                {
-                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
-                    if (taskObj is Task t)
-                    {
-                        await t.ConfigureAwait(false);
-                    }
-                    return null;
-                }
-                catch (TargetInvocationException tie) when (tie.InnerException is not null)
-                {
-                    throw tie.InnerException;
-                }
-            };
-        }
-
-        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(ValueTask<>))
-        {
-            var asTaskMethod = returnType.GetMethod("AsTask")!;
-
-            return async (instance, ctx, input) =>
-            {
-                try
-                {
-                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
-                    if (taskObj is null) return null;
-                    var task = (Task)asTaskMethod.Invoke(taskObj, null)!;
-                    await task.ConfigureAwait(false);
-                    return task.GetType().GetProperty("Result")?.GetValue(task);
-                }
-                catch (TargetInvocationException tie) when (tie.InnerException is not null)
-                {
-                    throw tie.InnerException;
-                }
-            };
-        }
-
-        if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Task<>))
-        {
-            return async (instance, ctx, input) =>
-            {
-                try
-                {
-                    var taskObj = runMethod.Invoke(instance, [ctx, input]);
-                    if (taskObj is Task task)
-                    {
-                        await task.ConfigureAwait(false);
-                        return task.GetType().GetProperty("Result")?.GetValue(task);
-                    }
-                    return null;
-                }
-                catch (TargetInvocationException tie) when (tie.InnerException is not null)
-                {
-                    throw tie.InnerException;
-                }
-            };
-        }
-
-        return (instance, ctx, input) =>
-        {
-            try
-            {
-                var raw = runMethod.Invoke(instance, [ctx, input]);
-                return ValueTask.FromResult(raw);
-            }
-            catch (TargetInvocationException tie) when (tie.InnerException is not null)
-            {
-                throw tie.InnerException;
-            }
-        };
-    }
-
-    private void ScheduleTimer(WorkflowInstanceId instanceId, TimeSpan delay)
-    {
-        if (_activeTimers.TryRemove(instanceId, out var existing))
-        {
-            existing.Dispose();
-        }
-
-        var timer = _timeProvider.CreateTimer(
-            async state =>
-            {
-                var id = (WorkflowInstanceId)state!;
-                try
-                {
-                    await FireTimerAsync(id).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogError(ex, "Failed to fire timer for workflow '{InstanceId}'", id.Value);
-                }
-            },
-            instanceId,
-            delay,
-            Timeout.InfiniteTimeSpan);
-
-        _activeTimers[instanceId] = timer;
     }
 
     public void Dispose()
     {
-        foreach (var timer in _activeTimers.Values)
-        {
-            timer.Dispose();
-        }
-        _activeTimers.Clear();
+        _timerScheduler.Dispose();
     }
 }
