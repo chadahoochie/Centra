@@ -75,7 +75,7 @@ public sealed class DiagnosticsTests
 
         // Assert
         var measurements = meterListener.Measurements;
-        measurements.ShouldContain(m => m.InstrumentName == "centra.state.operations.total" && (long)m.Value == 1);
+        measurements.ShouldContain(m => m.InstrumentName == "centra.state.operations" && (long)m.Value == 1);
         measurements.ShouldContain(m => m.InstrumentName == "centra.state.operation.duration" && Math.Abs((double)m.Value - 4.2) < 0.001);
     }
 

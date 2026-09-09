@@ -4,8 +4,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Centra.Abstractions\Centra.Abstractions.csproj" />
-    <ProjectReference Include="..\Centra.Core\Centra.Core.csproj" />
+    <ProjectReference Include="..\Centra.Runtime\Centra.Runtime.csproj" />
+    <ProjectReference Include="..\Centra.PubSub.Abstractions\Centra.PubSub.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.State.Abstractions\Centra.State.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Locks.Abstractions\Centra.Locks.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Bindings.Abstractions\Centra.Bindings.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

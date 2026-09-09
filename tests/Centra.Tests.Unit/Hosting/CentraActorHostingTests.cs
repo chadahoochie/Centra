@@ -32,7 +32,9 @@ public sealed class CentraActorHostingTests
         sp.GetRequiredService<ActorOptions>().ActorIdleTimeout.ShouldBe(TimeSpan.FromMinutes(5));
         sp.GetRequiredService<ActorOptions>().DefaultStateStore.ShouldBe("custom-store");
 
-        sp.GetService<ConsistentHashRing>().ShouldNotBeNull();
+        // ConsistentHashRing is intentionally not resolvable from DI - only IActorPlacementDirector
+        // is public API; the ring is an implementation detail constructed inside its factory.
+        sp.GetService<ConsistentHashRing>().ShouldBeNull();
         sp.GetService<IActorPlacementDirector>().ShouldNotBeNull();
         sp.GetService<ActorManager>().ShouldNotBeNull();
         sp.GetService<ActorReminderCoordinator>().ShouldNotBeNull();

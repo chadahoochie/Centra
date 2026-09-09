@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Durable workflow/saga engine implementation for Centra.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Workflows.Abstractions\Centra.Workflows.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Runtime\Centra.Runtime.csproj" />
+    <ProjectReference Include="..\Centra.Resilience\Centra.Resilience.csproj" />
+    <ProjectReference Include="..\Centra.Serialization\Centra.Serialization.csproj" />
+    <ProjectReference Include="..\Centra.State\Centra.State.csproj" />
+  </ItemGroup>
+</Project>

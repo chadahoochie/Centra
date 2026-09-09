@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>RPC/service invocation, dispatch proxy, and control-plane endpoint resolution implementation for Centra.</Description>
+    <RootNamespace>Centra.Invocation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Invocation.Abstractions\Centra.Invocation.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Sync.Abstractions\Centra.Sync.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Runtime\Centra.Runtime.csproj" />
+    <ProjectReference Include="..\Centra.Events\Centra.Events.csproj" />
+    <ProjectReference Include="..\Centra.Serialization\Centra.Serialization.csproj" />
+    <ProjectReference Include="..\Centra.Resilience\Centra.Resilience.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+</Project>

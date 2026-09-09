@@ -8,7 +8,6 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Centra.Abstractions/Centra.Abstractions.csproj" />
-    <Project Path="src/Centra.Core/Centra.Core.csproj" />
     <Project Path="src/Centra.Providers.InMemory/Centra.Providers.InMemory.csproj" />
     <Project Path="src/Centra.Providers.Redis/Centra.Providers.Redis.csproj" />
     <Project Path="src/Centra.Providers.PostgreSql/Centra.Providers.PostgreSql.csproj" />
@@ -19,6 +18,20 @@
     <Project Path="src/Centra.Hosting/Centra.Hosting.csproj" />
     <Project Path="src/Centra.ControlPlane/Centra.ControlPlane.csproj" />
     <Project Path="src/Centra.Aspire.Hosting/Centra.Aspire.Hosting.csproj" />
+  </Folder>
+  <Folder Name="/src/impl/">
+    <Project Path="src/Centra.Runtime/Centra.Runtime.csproj" />
+    <Project Path="src/Centra.Serialization/Centra.Serialization.csproj" />
+    <Project Path="src/Centra.Events/Centra.Events.csproj" />
+    <Project Path="src/Centra.Resilience/Centra.Resilience.csproj" />
+    <Project Path="src/Centra.Sync/Centra.Sync.csproj" />
+    <Project Path="src/Centra.Locks/Centra.Locks.csproj" />
+    <Project Path="src/Centra.State/Centra.State.csproj" />
+    <Project Path="src/Centra.PubSub/Centra.PubSub.csproj" />
+    <Project Path="src/Centra.Bindings/Centra.Bindings.csproj" />
+    <Project Path="src/Centra.Invocation/Centra.Invocation.csproj" />
+    <Project Path="src/Centra.Actors/Centra.Actors.csproj" />
+    <Project Path="src/Centra.Workflows/Centra.Workflows.csproj" />
   </Folder>
   <Folder Name="/src/abstractions/">
     <Project Path="src/Centra.Bindings.Abstractions/Centra.Bindings.Abstractions.csproj" />

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Control-plane sync client (topology, SSE streaming) implementation for Centra.</Description>
+    <RootNamespace>Centra.Sync</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Sync.Abstractions\Centra.Sync.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Components.Abstractions\Centra.Components.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Runtime\Centra.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+</Project>

@@ -116,7 +116,9 @@ public static class CentraWorkflowServiceCollectionExtensions
         }
 
         var definition = new WorkflowDefinition(name, workflowType, inputType, outputType);
-        services.AddSingleton(new CentraWorkflowRegistration(definition));
+        services.ReplaceRegistrationFor<CentraWorkflowRegistration>(
+            r => r.Definition.WorkflowType == workflowType,
+            new CentraWorkflowRegistration(definition));
 
         return services;
     }
@@ -145,7 +147,9 @@ public static class CentraWorkflowServiceCollectionExtensions
         }
 
         var definition = new WorkflowActivityDefinition(name, actType, inputType, outputType);
-        services.AddSingleton(new CentraWorkflowActivityRegistration(definition));
+        services.ReplaceRegistrationFor<CentraWorkflowActivityRegistration>(
+            r => r.Definition.ActivityType == actType,
+            new CentraWorkflowActivityRegistration(definition));
 
         return services;
     }

@@ -14,6 +14,7 @@ public sealed record CentraTopicRegistration
     public Type EventType { get; init; }
     public Type HandlerType { get; init; }
     public string? DeadLetterTopic { get; init; }
+    public ConsumerMode ConsumerMode { get; init; }
     public Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>> Invoker { get; init; }
 
     public CentraTopicRegistration(
@@ -22,13 +23,15 @@ public sealed record CentraTopicRegistration
         Type eventType,
         Type handlerType,
         string? deadLetterTopic = null,
-        Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>>? invoker = null)
+        Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>>? invoker = null,
+        ConsumerMode consumerMode = ConsumerMode.CompetingConsumer)
     {
         PubSubName = pubSubName;
         Topic = topic;
         EventType = eventType;
         HandlerType = handlerType;
         DeadLetterTopic = deadLetterTopic;
+        ConsumerMode = consumerMode;
         Invoker = invoker ?? CreateInvoker(eventType);
     }
 

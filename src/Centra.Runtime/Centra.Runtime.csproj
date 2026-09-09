@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Cross-cutting component registry, diagnostics, and pooled-memory infrastructure shared across all Centra concern modules.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Components.Abstractions\Centra.Components.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Events.Abstractions\Centra.Events.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.PubSub.Abstractions\Centra.PubSub.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.State.Abstractions\Centra.State.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Locks.Abstractions\Centra.Locks.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Bindings.Abstractions\Centra.Bindings.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+</Project>

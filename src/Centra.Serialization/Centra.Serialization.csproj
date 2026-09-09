@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Zero-allocation JSON serialization for Centra state and workflow persistence.</Description>
+    <RootNamespace>Centra.Serialization</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Runtime\Centra.Runtime.csproj" />
+  </ItemGroup>
+</Project>

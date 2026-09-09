@@ -11,7 +11,7 @@ public static class CentraMeters
 
     // State instruments
     private static readonly Counter<long> StateOperationsCounter =
-        Meter.CreateCounter<long>("centra.state.operations.total", "ea", "Total count of state operations");
+        Meter.CreateCounter<long>("centra.state.operations", "ea", "Total count of state operations");
     private static readonly Histogram<double> StateOperationDuration =
         Meter.CreateHistogram<double>("centra.state.operation.duration", "ms", "Duration of state operations");
 
@@ -27,13 +27,13 @@ public static class CentraMeters
 
     // Invocation instruments
     private static readonly Counter<long> InvocationRequestsCounter =
-        Meter.CreateCounter<long>("centra.invocation.requests.total", "ea", "Total service invocation requests");
+        Meter.CreateCounter<long>("centra.invocation.requests", "ea", "Total service invocation requests");
     private static readonly Histogram<double> InvocationDuration =
         Meter.CreateHistogram<double>("centra.invocation.duration", "ms", "Duration of service invocation calls");
 
     // Lock instruments
     private static readonly Counter<long> LockAcquisitionsCounter =
-        Meter.CreateCounter<long>("centra.lock.acquisitions.total", "ea", "Total distributed lock acquisitions");
+        Meter.CreateCounter<long>("centra.lock.acquisitions", "ea", "Total distributed lock acquisitions");
     private static readonly Histogram<double> LockHoldDuration =
         Meter.CreateHistogram<double>("centra.lock.hold.duration", "ms", "Duration a distributed lock was held");
 

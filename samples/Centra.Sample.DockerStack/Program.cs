@@ -79,20 +79,13 @@ builder.Services.AddCentraRabbitMQPubSub("pubsub", o =>
     o.Password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
 });
 
-// 3. Actors: register the demo actor, then re-point placement/proxying at this replica's unique
-// InstanceId instead of the shared AppId (see Cluster/PeerInstanceEndpointResolver.cs and
-// Cluster/PeerActorRingSync.cs for why - AddCentraActors alone would leave every replica thinking
-// it's the only node).
+// 3. Actors: register the demo actor. AddCentra (above) already wires actor placement's
+// consistent hash ring from the built-in IClusterTopologyProvider, so every replica learns about
+// its peers automatically. We still swap in a custom IActorProxyFactory here because actor-to-actor
+// proxy calls must route by this replica's unique InstanceId rather than the shared AppId that
+// normal service invocation round-robins across - see Cluster/PeerInstanceEndpointResolver.cs.
 builder.Services.AddActor<CounterActor, ICounterActor>();
 
-builder.Services.AddSingleton<ConsistentHashRing>(_ =>
-{
-    var ring = new ConsistentHashRing();
-    ring.AddNode(instanceId);
-    return ring;
-});
-builder.Services.AddSingleton<IActorPlacementDirector>(sp =>
-    new ActorPlacementDirector(instanceId, sp.GetRequiredService<ConsistentHashRing>()));
 builder.Services.AddSingleton<IActorProxyFactory>(sp =>
 {
     var manager = sp.GetRequiredService<ActorManager>();
@@ -102,7 +95,6 @@ builder.Services.AddSingleton<IActorProxyFactory>(sp =>
     var invoker = new CentraServiceInvoker(httpClientFactory.CreateClient("actor-peer"), endpointResolver: resolver);
     return new ActorProxyFactory(manager, placement, invoker);
 });
-builder.Services.AddHostedService<PeerActorRingSync>();
 
 // 4. Workflows / sagas.
 builder.Services.AddWorkflow<OrderProcessingWorkflow>();

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Virtual actor runtime implementation (activation, placement, reminders, timers) for Centra.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Centra.Actors.Abstractions\Centra.Actors.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Runtime\Centra.Runtime.csproj" />
+    <ProjectReference Include="..\Centra.Invocation\Centra.Invocation.csproj" />
+    <ProjectReference Include="..\Centra.Locks\Centra.Locks.csproj" />
+    <ProjectReference Include="..\Centra.State\Centra.State.csproj" />
+  </ItemGroup>
+</Project>

@@ -33,7 +33,8 @@ public static class CentraPubSubServiceCollectionExtensions
         this IServiceCollection services,
         string? pubSubName = null,
         string? topic = null,
-        string? deadLetterTopic = null)
+        string? deadLetterTopic = null,
+        ConsumerMode? consumerMode = null)
         where THandler : class, IEventHandler<TEvent>
     {
         services.TryAddTransient<THandler>();
@@ -42,14 +43,18 @@ public static class CentraPubSubServiceCollectionExtensions
         var resolvedPubSub = pubSubName ?? topicAttr?.PubSubName ?? "pubsub";
         var resolvedTopic = topic ?? topicAttr?.Topic ?? typeof(TEvent).Name;
         var resolvedDlTopic = deadLetterTopic ?? topicAttr?.DeadLetterTopic;
+        var resolvedConsumerMode = consumerMode ?? topicAttr?.ConsumerMode ?? ConsumerMode.CompetingConsumer;
 
-        services.AddSingleton(new CentraTopicRegistration(
-            resolvedPubSub,
-            resolvedTopic,
-            typeof(TEvent),
-            typeof(THandler),
-            resolvedDlTopic,
-            CentraTopicRegistration.CreateTypedInvoker<TEvent>()));
+        services.ReplaceRegistrationFor<CentraTopicRegistration>(
+            r => r.HandlerType == typeof(THandler),
+            new CentraTopicRegistration(
+                resolvedPubSub,
+                resolvedTopic,
+                typeof(TEvent),
+                typeof(THandler),
+                resolvedDlTopic,
+                CentraTopicRegistration.CreateTypedInvoker<TEvent>(),
+                resolvedConsumerMode));
 
         return services;
     }

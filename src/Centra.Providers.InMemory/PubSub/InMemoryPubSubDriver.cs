@@ -9,6 +9,7 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
     // pubSubName -> (topic -> list of subscriptions)
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>>> _topics =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int> _singleActiveRoundRobinIndex = new(StringComparer.OrdinalIgnoreCase);
 
     public async ValueTask PublishAsync(
         string pubSubName,
@@ -23,26 +24,48 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
             return;
         }
 
-        foreach (var sub in subscriptions)
+        // Competing-consumer subscribers all get every message (current/legacy behavior);
+        // single-active subscribers share one message per publish, round-robin.
+        var competing = subscriptions.Where(s => s.ConsumerMode == ConsumerMode.CompetingConsumer);
+        foreach (var sub in competing)
         {
-            try
+            await DispatchAsync(pubSubName, sub, payload, metadata, cancellationToken).ConfigureAwait(false);
+        }
+
+        var singleActive = subscriptions.Where(s => s.ConsumerMode == ConsumerMode.SingleActiveConsumer).ToList();
+        if (singleActive.Count > 0)
+        {
+            var subKey = $"{pubSubName}:{topic}";
+            var index = _singleActiveRoundRobinIndex.AddOrUpdate(subKey, 0, (_, current) => (current + 1) % singleActive.Count);
+            var chosen = singleActive[Math.Abs(index) % singleActive.Count];
+            await DispatchAsync(pubSubName, chosen, payload, metadata, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask DispatchAsync(
+        string pubSubName,
+        InMemorySubscription sub,
+        ReadOnlyMemory<byte> payload,
+        IReadOnlyDictionary<string, string> metadata,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await sub.Handler(payload, metadata, cancellationToken).ConfigureAwait(false);
+            if (result == EventHandlingResult.DeadLetter && !string.IsNullOrWhiteSpace(sub.DeadLetterTopic))
             {
-                var result = await sub.Handler(payload, metadata, cancellationToken).ConfigureAwait(false);
-                if (result == EventHandlingResult.DeadLetter && !string.IsNullOrWhiteSpace(sub.DeadLetterTopic))
-                {
-                    await PublishAsync(pubSubName, sub.DeadLetterTopic, payload, metadata, cancellationToken).ConfigureAwait(false);
-                }
+                await PublishAsync(pubSubName, sub.DeadLetterTopic, payload, metadata, cancellationToken).ConfigureAwait(false);
             }
-            catch
+        }
+        catch
+        {
+            if (!string.IsNullOrWhiteSpace(sub.DeadLetterTopic))
             {
-                if (!string.IsNullOrWhiteSpace(sub.DeadLetterTopic))
-                {
-                    await PublishAsync(pubSubName, sub.DeadLetterTopic, payload, metadata, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    throw;
-                }
+                await PublishAsync(pubSubName, sub.DeadLetterTopic, payload, metadata, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                throw;
             }
         }
     }
@@ -52,13 +75,14 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
         string topic,
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         string? deadLetterTopic = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PubSubSubscribeOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(handler);
         var pubSubTopics = GetOrCreatePubSub(pubSubName);
         var subs = pubSubTopics.GetOrAdd(topic, static _ => new ConcurrentBag<InMemorySubscription>());
 
-        subs.Add(new InMemorySubscription(handler, deadLetterTopic));
+        subs.Add(new InMemorySubscription(handler, deadLetterTopic, options?.ConsumerMode ?? ConsumerMode.CompetingConsumer));
         return ValueTask.CompletedTask;
     }
 

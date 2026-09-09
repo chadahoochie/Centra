@@ -32,14 +32,11 @@ public static class BindingsDemoRunner
         builder.WebHost.UseTestServer();
         builder.Logging.SetMinimumLevel(LogLevel.Information);
 
-        builder.Services.AddCentra();
+        // AddCentra scans this assembly for [CronBinding]/[Binding]-decorated handlers, so
+        // InventorySnapshotJob and OrdersWebhookTriggerHandler register themselves - no explicit
+        // AddCentraCronJob<T>()/AddCentraInputBindingHandler<T>() calls needed.
+        builder.Services.AddCentra(configure: null, typeof(BindingsDemoRunner).Assembly);
         builder.Services.AddCentraInMemory();
-
-        // Register Periodic Cron Job
-        builder.Services.AddCentraCronJob<InventorySnapshotJob>("inventory-sync", "@every 1s");
-
-        // Register Inbound Webhook Trigger Handler
-        builder.Services.AddCentraInputBindingHandler<OrdersWebhookTriggerHandler>("orders-webhook");
 
         var app = builder.Build();
         app.MapCentraEndpoints();

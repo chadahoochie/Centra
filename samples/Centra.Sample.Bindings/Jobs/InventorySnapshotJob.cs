@@ -19,6 +19,7 @@ public sealed class InventorySnapshotJob : IJobHandler
         _logger = logger;
     }
 
+    [CronBinding("@every 1s")]
     public async ValueTask ExecuteAsync(ScheduledJobContext context)
     {
         Interlocked.Increment(ref ExecutionCount);

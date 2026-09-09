@@ -64,4 +64,22 @@ public sealed class RedisPubSubDriverTests
             Arg.Any<Action<RedisChannel, RedisValue>>(),
             Arg.Any<CommandFlags>());
     }
+
+    [Fact]
+    public async Task SubscribeAsync_With_SingleActiveConsumer_And_ConsumerGroups_Disabled_Should_Fall_Back_To_Broadcast()
+    {
+        // EnableConsumerGroups defaults to false, so single-active can't be honored - the driver
+        // should still subscribe (broadcast, legacy behavior), not throw.
+        var options = new Centra.PubSub.PubSubSubscribeOptions { ConsumerMode = Centra.PubSub.ConsumerMode.SingleActiveConsumer };
+
+        await _sut.SubscribeAsync(
+            "pubsub", "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(Centra.PubSub.EventHandlingResult.Success),
+            options: options);
+
+        await _subscriber.Received(1).SubscribeAsync(
+            new RedisChannel("centra:pubsub:pubsub:orders.created", RedisChannel.PatternMode.Literal),
+            Arg.Any<Action<RedisChannel, RedisValue>>(),
+            Arg.Any<CommandFlags>());
+    }
 }

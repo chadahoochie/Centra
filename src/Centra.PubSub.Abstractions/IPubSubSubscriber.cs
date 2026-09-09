@@ -7,7 +7,8 @@ public interface IPubSubSubscriber
         string topic,
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         string? deadLetterTopic = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        PubSubSubscribeOptions? options = null);
 
     ValueTask UnsubscribeAsync(
         string pubSubName,
