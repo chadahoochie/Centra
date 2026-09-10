@@ -1,0 +1,87 @@
+name: PR Build & Coverage Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build, Test & Coverage Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore local .NET tools
+        run: dotnet tool restore
+
+      - name: Restore dependencies
+        run: dotnet restore Centra.slnx
+
+      - name: Build solution
+        run: dotnet build Centra.slnx --configuration Release --no-restore
+
+      - name: Run tests with code coverage
+        run: dotnet test Centra.slnx --configuration Release --no-build --settings coverage.runsettings --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      - name: Generate code coverage report
+        run: dotnet reportgenerator -reports:"TestResults/**/coverage.opencover.xml" -targetdir:"./coverage" -reporttypes:"MarkdownSummaryGithub;JsonSummary;Cobertura"
+
+      - name: Publish coverage summary to GitHub Step Summary
+        if: always()
+        run: |
+          if [ -f coverage/SummaryGithub.md ]; then
+            cat coverage/SummaryGithub.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Enforce 80% code coverage threshold
+        run: |
+          if [ ! -f coverage/Summary.json ]; then
+            echo "::error::Coverage Summary.json not found!"
+            exit 1
+          fi
+
+          COVERAGE=$(jq -r '.summary.linecoverage' coverage/Summary.json)
+          echo "Evaluated overall line coverage: ${COVERAGE}%"
+
+          awk -v cov="$COVERAGE" -v req="80.0" 'BEGIN {
+            if (cov + 0 < req + 0) {
+              printf "::error::Code coverage %.1f%% is below the required threshold of %.1f%%!\n", cov, req
+              exit 1
+            } else {
+              printf "Code coverage %.1f%% meets or exceeds the required threshold of %.1f%%.\n", cov, req
+              exit 0
+            }
+          }'
+
+      - name: Upload code coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: code-coverage-report
+          path: coverage/
+          retention-days: 14
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults/
+          retention-days: 14

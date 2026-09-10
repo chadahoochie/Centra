@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>High-performance, zero-dependency in-memory provider implementations of state stores, pub/sub, distributed locks, and bindings for Centra.</Description>
+    <PackageTags>$(PackageTags);providers;in-memory;testing;state;pubsub;locks;bindings</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

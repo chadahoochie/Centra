@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>.NET Aspire hosting extensions for Centra Central Control Plane.</Description>
+    <PackageTags>$(PackageTags);aspire;dotnet-aspire;hosting;cloud-native;orchestration</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

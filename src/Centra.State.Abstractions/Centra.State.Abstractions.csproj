@@ -2,5 +2,6 @@
   <PropertyGroup>
     <Description>State store, optimistic concurrency, and transactional state abstractions for Centra.</Description>
     <RootNamespace>Centra.State</RootNamespace>
+    <PackageTags>$(PackageTags);state;statestore;etag;optimistic-concurrency</PackageTags>
   </PropertyGroup>
 </Project>

@@ -2,5 +2,6 @@
   <PropertyGroup>
     <Description>Input and output binding trigger abstractions for Centra.</Description>
     <RootNamespace>Centra.Bindings</RootNamespace>
+    <PackageTags>$(PackageTags);bindings;triggers;cron;webhooks</PackageTags>
   </PropertyGroup>
 </Project>

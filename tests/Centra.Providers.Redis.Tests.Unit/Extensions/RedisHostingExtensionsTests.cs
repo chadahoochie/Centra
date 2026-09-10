@@ -50,4 +50,76 @@ public sealed class RedisHostingExtensionsTests
         registry.GetComponent("custom-state")!.Type.ShouldBe(ComponentType.StateStore);
         registry.GetComponent("custom-state")!.Provider.ShouldBe("redis");
     }
+
+    [Fact]
+    public void AddCentraRedisStateStore_Should_Register_StateStore_Component_And_Driver()
+    {
+        var services = new ServiceCollection();
+        var multiplexer = Substitute.For<IConnectionMultiplexer>();
+        services.AddSingleton(multiplexer);
+
+        services.AddCentraRedisStateStore("my-redis-state", options =>
+        {
+            options.ConnectionString = "localhost:6379";
+        });
+
+        var provider = services.BuildServiceProvider();
+        var driver = provider.GetService<RedisStateStoreDriver>();
+        driver.ShouldNotBeNull();
+
+        var initializer = provider.GetRequiredService<IComponentInitializer>();
+        var registry = new ComponentRegistry();
+        initializer.Initialize(registry);
+
+        registry.GetStateStoreDriver("my-redis-state").ShouldNotBeNull();
+        registry.GetComponent("my-redis-state")!.Type.ShouldBe(ComponentType.StateStore);
+    }
+
+    [Fact]
+    public void AddCentraRedisPubSub_Should_Register_PubSub_Component_And_Driver()
+    {
+        var services = new ServiceCollection();
+        var multiplexer = Substitute.For<IConnectionMultiplexer>();
+        services.AddSingleton(multiplexer);
+
+        services.AddCentraRedisPubSub("my-redis-pubsub", options =>
+        {
+            options.ConnectionString = "localhost:6379";
+        });
+
+        var provider = services.BuildServiceProvider();
+        var driver = provider.GetService<RedisPubSubDriver>();
+        driver.ShouldNotBeNull();
+
+        var initializer = provider.GetRequiredService<IComponentInitializer>();
+        var registry = new ComponentRegistry();
+        initializer.Initialize(registry);
+
+        registry.GetPubSubDriver("my-redis-pubsub").ShouldNotBeNull();
+        registry.GetComponent("my-redis-pubsub")!.Type.ShouldBe(ComponentType.PubSub);
+    }
+
+    [Fact]
+    public void AddCentraRedisLocks_Should_Register_Locks_Component_And_Driver()
+    {
+        var services = new ServiceCollection();
+        var multiplexer = Substitute.For<IConnectionMultiplexer>();
+        services.AddSingleton(multiplexer);
+
+        services.AddCentraRedisLocks("my-redis-locks", options =>
+        {
+            options.ConnectionString = "localhost:6379";
+        });
+
+        var provider = services.BuildServiceProvider();
+        var driver = provider.GetService<RedisDistributedLockDriver>();
+        driver.ShouldNotBeNull();
+
+        var initializer = provider.GetRequiredService<IComponentInitializer>();
+        var registry = new ComponentRegistry();
+        initializer.Initialize(registry);
+
+        registry.GetLockDriver("my-redis-locks").ShouldNotBeNull();
+        registry.GetComponent("my-redis-locks")!.Type.ShouldBe(ComponentType.DistributedLock);
+    }
 }

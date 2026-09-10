@@ -2,6 +2,7 @@
   <PropertyGroup>
     <Description>Control plane sync client and streaming event DTO abstractions for Centra.</Description>
     <RootNamespace>Centra.Sync</RootNamespace>
+    <PackageTags>$(PackageTags);sync;controlplane;streaming;sse;topology</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -2,6 +2,7 @@
   <PropertyGroup>
     <Description>Input/output binding, cron scheduling, and webhook driver implementation for Centra.</Description>
     <RootNamespace>Centra.Bindings</RootNamespace>
+    <PackageTags>$(PackageTags);bindings;cron;webhooks;triggers</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

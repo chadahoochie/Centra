@@ -50,4 +50,52 @@ public sealed class PostgreSqlHostingExtensionsTests
         lockDef.Type.ShouldBe(ComponentType.DistributedLock);
         lockDef.Provider.ShouldBe("postgresql");
     }
+
+    [Fact]
+    public void AddCentraPostgreSqlStateStore_Should_Register_StateStore_Component_And_Driver()
+    {
+        var services = new ServiceCollection();
+        var dataSource = NpgsqlDataSource.Create("Host=localhost;Database=test;Username=postgres;Password=postgres");
+        services.AddSingleton(dataSource);
+
+        services.AddCentraPostgreSqlStateStore("my-pg-state", options =>
+        {
+            options.ConnectionString = "Host=localhost;Database=test;Username=postgres;Password=postgres";
+        });
+
+        var provider = services.BuildServiceProvider();
+        var driver = provider.GetService<PostgreSqlStateStoreDriver>();
+        driver.ShouldNotBeNull();
+
+        var initializer = provider.GetRequiredService<IComponentInitializer>();
+        var registry = new ComponentRegistry();
+        initializer.Initialize(registry);
+
+        registry.GetStateStoreDriver("my-pg-state").ShouldNotBeNull();
+        registry.GetComponent("my-pg-state")!.Type.ShouldBe(ComponentType.StateStore);
+    }
+
+    [Fact]
+    public void AddCentraPostgreSqlLocks_Should_Register_Locks_Component_And_Driver()
+    {
+        var services = new ServiceCollection();
+        var dataSource = NpgsqlDataSource.Create("Host=localhost;Database=test;Username=postgres;Password=postgres");
+        services.AddSingleton(dataSource);
+
+        services.AddCentraPostgreSqlLocks("my-pg-locks", options =>
+        {
+            options.ConnectionString = "Host=localhost;Database=test;Username=postgres;Password=postgres";
+        });
+
+        var provider = services.BuildServiceProvider();
+        var driver = provider.GetService<PostgreSqlDistributedLockDriver>();
+        driver.ShouldNotBeNull();
+
+        var initializer = provider.GetRequiredService<IComponentInitializer>();
+        var registry = new ComponentRegistry();
+        initializer.Initialize(registry);
+
+        registry.GetLockDriver("my-pg-locks").ShouldNotBeNull();
+        registry.GetComponent("my-pg-locks")!.Type.ShouldBe(ComponentType.DistributedLock);
+    }
 }

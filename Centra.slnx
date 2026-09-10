@@ -5,6 +5,8 @@
     <File Path="global.json" />
     <File Path=".editorconfig" />
     <File Path=".gitignore" />
+    <File Path="README.md" />
+    <File Path="RELEASE_NOTES.md" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Centra.Abstractions/Centra.Abstractions.csproj" />

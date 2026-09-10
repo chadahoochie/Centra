@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Azure Cosmos DB distributed provider for Centra implementing globally-distributed NoSQL state store with point reads, transactional batches, optimistic concurrency, and distributed lease locks.</Description>
+    <PackageTags>$(PackageTags);providers;azure;cosmosdb;nosql;state;locks</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

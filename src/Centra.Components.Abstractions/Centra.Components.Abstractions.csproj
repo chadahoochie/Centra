@@ -2,5 +2,6 @@
   <PropertyGroup>
     <Description>Component definitions, component registry, and lifecycle abstractions for Centra.</Description>
     <RootNamespace>Centra.Components</RootNamespace>
+    <PackageTags>$(PackageTags);components;registry;catalog;lifecycle</PackageTags>
   </PropertyGroup>
 </Project>

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Cross-cutting component registry, diagnostics, and pooled-memory infrastructure shared across all Centra concern modules.</Description>
+    <PackageTags>$(PackageTags);runtime;diagnostics;metrics;opentelemetry;memory;buffer</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

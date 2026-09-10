@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "createdAt": "2026-09-10T04:05:28.6225886+00:00",
+  "updatedAt": "2026-09-10T04:05:28.6277274+00:00",
+  "description": "Initial baseline created by 'slopwatch init' on 2026-09-10 04:05:28 UTC",
+  "entries": [
+    {
+      "hash": "1a2372a0a4021e3e",
+      "ruleId": "SW005",
+      "filePath": "Directory.Build.props",
+      "lineNumber": 43,
+      "codeSnippet": "<NoWarn>$(NoWarn);CS1591;CS1574;CS1573;CS1572;CS1570</NoWarn>",
+      "message": "Adding warnings to NoWarn: CS1591;CS1574;CS1573;CS1572;CS1570",
+      "baselinedAt": "2026-09-10T04:05:28.6275265+00:00"
+    },
+    {
+      "hash": "99d156649e085a14",
+      "ruleId": "SW003",
+      "filePath": "src/Centra.Providers.Redis/PubSub/RedisPubSubDriver.cs",
+      "lineNumber": 152,
+      "codeSnippet": "catch (RedisException ex) when (ex.Message.Contains(\"BUSYGROUP\", StringComparison.OrdinalIgnoreCase))\n        {\n            // Consumer group already exists - fine, another subscriber (or a prior run) created it.\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-09-10T04:05:28.6276336+00:00"
+    },
+    {
+      "hash": "a7fe37148510527c",
+      "ruleId": "SW003",
+      "filePath": "src/Centra.Providers.Redis/PubSub/RedisStreamProcessor.cs",
+      "lineNumber": 94,
+      "codeSnippet": "catch (OperationCanceledException)\n        {\n            // Expected on unsubscribe/shutdown.\n        }",
+      "message": "Empty catch block swallows exceptions without handling",
+      "baselinedAt": "2026-09-10T04:05:28.6276404+00:00"
+    },
+    {
+      "hash": "c3532ddcd524db02",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Unit/Hosting/ControlPlaneSyncHostedServiceTests.cs",
+      "lineNumber": 56,
+      "codeSnippet": "Task.Delay(2000, cts.Token)",
+      "message": "Test uses Task.Delay(2000) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6276453+00:00"
+    },
+    {
+      "hash": "a0eec5c2ac9def31",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Unit/Hosting/ControlPlaneSyncHostedServiceTests.cs",
+      "lineNumber": 117,
+      "codeSnippet": "Task.Delay(Timeout.Infinite, ct)",
+      "message": "Test uses Task.Delay(Timeout.Infinite) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6276677+00:00"
+    },
+    {
+      "hash": "1842393046f0b1b4",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Unit/Resilience/TimeoutPolicyTests.cs",
+      "lineNumber": 24,
+      "codeSnippet": "Task.Delay(10, ct)",
+      "message": "Test uses Task.Delay(10) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6276728+00:00"
+    },
+    {
+      "hash": "da6fd49c406eb1e2",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Unit/Resilience/TimeoutPolicyTests.cs",
+      "lineNumber": 49,
+      "codeSnippet": "Task.Delay(TimeSpan.FromSeconds(10), fakeTime, ct)",
+      "message": "Test uses Task.Delay(TimeSpan.FromSeconds(10)) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6276762+00:00"
+    },
+    {
+      "hash": "467176a4f1c6db1e",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/ControlPlane/ControlPlaneLiveSyncIntegrationTests.cs",
+      "lineNumber": 88,
+      "codeSnippet": "Task.Delay(20)",
+      "message": "Test uses Task.Delay(20) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6276839+00:00"
+    },
+    {
+      "hash": "201062a450043350",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/ControlPlane/ControlPlaneLiveSyncIntegrationTests.cs",
+      "lineNumber": 103,
+      "codeSnippet": "Task.Delay(TimeSpan.FromSeconds(5))",
+      "message": "Test uses Task.Delay(TimeSpan.FromSeconds(5)) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6276881+00:00"
+    },
+    {
+      "hash": "56a0094d181a6f59",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/ControlPlane/ControlPlaneLiveSyncIntegrationTests.cs",
+      "lineNumber": 115,
+      "codeSnippet": "Task.Delay(150)",
+      "message": "Test uses Task.Delay(150) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6276922+00:00"
+    },
+    {
+      "hash": "476d363b5390a4eb",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/Providers/RedisProviderIntegrationTests.cs",
+      "lineNumber": 134,
+      "codeSnippet": "Task.Delay(5000)",
+      "message": "Test uses Task.Delay(5000) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6276993+00:00"
+    },
+    {
+      "hash": "70f02e96629602e8",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/Providers/RabbitMQProviderIntegrationTests.cs",
+      "lineNumber": 79,
+      "codeSnippet": "Task.Delay(10000)",
+      "message": "Test uses Task.Delay(10000) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6277028+00:00"
+    },
+    {
+      "hash": "c8be45d18294a46f",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/Providers/RabbitMQServiceInvocationIntegrationTests.cs",
+      "lineNumber": 160,
+      "codeSnippet": "Task.Delay(TimeSpan.FromSeconds(15))",
+      "message": "Test uses Task.Delay(TimeSpan.FromSeconds(15)) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6277062+00:00"
+    },
+    {
+      "hash": "62a5f3837f008959",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/MultiInstance/MultiInstanceClusterIntegrationTests.cs",
+      "lineNumber": 74,
+      "codeSnippet": "Task.Delay(50)",
+      "message": "Test uses Task.Delay(50) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6277101+00:00"
+    },
+    {
+      "hash": "ed34d83bb80e206f",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/Resilience/ResilientClusterIntegrationTests.cs",
+      "lineNumber": 98,
+      "codeSnippet": "Task.Delay(50)",
+      "message": "Test uses Task.Delay(50) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6277135+00:00"
+    },
+    {
+      "hash": "26c774b7d8e28eec",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.Tests.Integration/Resilience/ResilientClusterIntegrationTests.cs",
+      "lineNumber": 113,
+      "codeSnippet": "Task.Delay(20)",
+      "message": "Test uses Task.Delay(20) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6277165+00:00"
+    },
+    {
+      "hash": "c1f1f0c3603d6505",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.ControlPlane.Tests.Unit/Sync/ComponentSyncDispatcherTests.cs",
+      "lineNumber": 40,
+      "codeSnippet": "Task.Delay(10)",
+      "message": "Test uses Task.Delay(10) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.6277234+00:00"
+    },
+    {
+      "hash": "aacf1c4fcc461ee7",
+      "ruleId": "SW004",
+      "filePath": "tests/Centra.ControlPlane.Tests.Unit/Resilience/ResilienceEndpointsTests.cs",
+      "lineNumber": 140,
+      "codeSnippet": "Task.Delay(10, cts.Token)",
+      "message": "Test uses Task.Delay(10) which may indicate a timing-dependent test",
+      "baselinedAt": "2026-09-10T04:05:28.627727+00:00"
+    }
+  ]
+}
