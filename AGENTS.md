@@ -17,7 +17,7 @@ Always follow this workflow:
 
 ## 🗂️ Task -> Skill Routing Index
 
-Repo-level skills are saved in [`.agents/skills/`](file:///home/chad/source/dotnet/distributed-framework/.agents/skills) (also mirrored via [`.claude/skills`](file:///home/chad/source/dotnet/distributed-framework/.claude/skills)). Consult skills by name:
+Repo-level skills are saved in [`.agents/skills/`](.agents/skills) (also mirrored via [`.claude/skills`](.claude/skills)). Consult skills by name:
 
 ### 1. Framework Architecture & Centra Core
 - **`centra`**: Mandatory framework architectural standard, SPI driver contracts, CloudEvents packing/unpacking, zero-allocation conventions, and DI registration rules.
@@ -89,11 +89,12 @@ Repo-level skills are saved in [`.agents/skills/`](file:///home/chad/source/dotn
 3. **Zero Allocation**: Use `ValueTask`, `readonly record struct`, `ReadOnlyMemory<byte>`, and `ArrayPool<byte>.Shared` across hot execution paths.
 4. **Standards Compliant**: CNCF CloudEvents v1.0 (binary mode default) and W3C TraceContext propagation (`traceparent`, `tracestate`).
 5. **No Blind Overwrites**: State mutations must use ETags and optimistic concurrency (`TrySetAsync`).
-6. **Central Package Management**: Never specify package versions in `.csproj` files; declare them in [`Directory.Packages.props`](file:///home/chad/source/dotnet/distributed-framework/Directory.Packages.props).
+6. **Central Package Management**: Never specify package versions in `.csproj` files; declare them in [`Directory.Packages.props`](Directory.Packages.props).
 7. **Strict Build Settings**: `<Nullable>enable</Nullable>` and `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` are active across all projects.
 8. **Virtual Actor Concurrency & State Invariant**: Actor turns must execute sequentially via the actor mailbox (`ActorMailbox`). State mutations are staged in `ActorStateManager` and committed atomically on turn completion using ETags.
 9. **Durable Reminders Distributed Coordination**: Reminders surviving actor passivation must coordinate using distributed locks (`ActorReminderCoordinator`) to guarantee single-execution across cluster replicas.
 10. **Workflow Determinism & Saga Rollback Invariant**: Orchestration turns must be deterministic; side effects, clock checks, and random values must execute within activities or use `IWorkflowContext` (`CurrentUtcDateTime`, `NewGuid()`). On activity failure or cancellation, registered saga compensations must execute in strict reverse (LIFO) order.
+11. **Relative File Paths in Documentation**: Always use relative file paths for markdown links inside repository documentation, guides, and READMEs (e.g., `../../src/...`, `../operations/...`), never absolute machine paths or `file:///` URIs.
 
 ---
 

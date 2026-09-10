@@ -27,6 +27,16 @@ public static class CentraRabbitMQServiceCollectionExtensions
         services.TryAddSingleton<IConnectionFactory>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<RabbitMQProviderOptions>>().Value;
+            if (!string.IsNullOrWhiteSpace(opts.ConnectionString))
+            {
+                return new ConnectionFactory { Uri = new Uri(opts.ConnectionString) };
+            }
+
+            if (opts.Uri is not null)
+            {
+                return new ConnectionFactory { Uri = opts.Uri };
+            }
+
             return new ConnectionFactory
             {
                 HostName = opts.HostName,
@@ -61,6 +71,16 @@ public static class CentraRabbitMQServiceCollectionExtensions
         services.TryAddSingleton<IConnectionFactory>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<RabbitMQProviderOptions>>().Value;
+            if (!string.IsNullOrWhiteSpace(opts.ConnectionString))
+            {
+                return new ConnectionFactory { Uri = new Uri(opts.ConnectionString) };
+            }
+
+            if (opts.Uri is not null)
+            {
+                return new ConnectionFactory { Uri = opts.Uri };
+            }
+
             return new ConnectionFactory
             {
                 HostName = opts.HostName,

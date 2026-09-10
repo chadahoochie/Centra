@@ -23,6 +23,9 @@
     <ProjectReference Include="..\..\samples\Centra.Sample.Bindings\Centra.Sample.Bindings.csproj" />
     <ProjectReference Include="..\..\samples\Centra.Sample.Actors\Centra.Sample.Actors.csproj" />
     <ProjectReference Include="..\..\samples\Centra.Sample.Workflows\Centra.Sample.Workflows.csproj" />
+    <ProjectReference Include="..\..\samples\RabbitSimulation\Contracts\Centra.Sample.RabbitSimulation.Contracts.csproj" />
+    <ProjectReference Include="..\..\samples\RabbitSimulation\Consumer\Centra.Sample.RabbitSimulation.Consumer.csproj" />
+    <ProjectReference Include="..\..\samples\RabbitSimulation\Producer\Centra.Sample.RabbitSimulation.Producer.csproj" />
   </ItemGroup>
 
   <ItemGroup>

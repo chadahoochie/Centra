@@ -1,0 +1,20 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.3">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- slopwatch-ignore: SW005 Aspire 13.5.3 AppHost SDK emits experimental warning ASPIRE010 on .NET 10 preview -->
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+    <RootNamespace>Centra.Sample.RabbitSimulation.AppHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Api\Centra.Sample.RabbitSimulation.Api.csproj" />
+    <ProjectReference Include="..\Consumer\Centra.Sample.RabbitSimulation.Consumer.csproj" />
+    <ProjectReference Include="..\Producer\Centra.Sample.RabbitSimulation.Producer.csproj" />
+  </ItemGroup>
+
+</Project>

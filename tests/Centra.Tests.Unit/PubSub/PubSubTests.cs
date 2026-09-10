@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Centra.Diagnostics;
 using Centra.Drivers;
 using Centra.Events;
 using Centra.PubSub;
@@ -96,6 +98,43 @@ public sealed class PubSubTests
             Arg.Any<ReadOnlyMemory<byte>>(),
             Arg.Is<IReadOnlyDictionary<string, string>>(headers =>
                 headers[CloudEventConstants.DataContentTypeHeader] == "application/cloudevents+json"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_Inject_Traceparent_Header_From_Publish_Activity()
+    {
+        // Arrange
+        Activity? capturedActivity = null;
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == CentraDiagnostics.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStarted = a =>
+            {
+                if (a.OperationName == "Centra.PubSub.Publish")
+                {
+                    capturedActivity = a;
+                }
+            }
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        var evt = new TestOrderCreatedEvent("ord-123", "prod-456", 5);
+        var pubSubClient = new CentraPubSubClient(_registry, "orders-service", "event-bus");
+
+        // Act
+        await pubSubClient.PublishAsync("orders.created", evt);
+
+        // Assert
+        capturedActivity.ShouldNotBeNull();
+        await _driver.Received(1).PublishAsync(
+            "event-bus",
+            "orders.created",
+            Arg.Any<ReadOnlyMemory<byte>>(),
+            Arg.Is<IReadOnlyDictionary<string, string>>(headers =>
+                headers.ContainsKey("traceparent") &&
+                headers["traceparent"].Contains(capturedActivity.TraceId.ToHexString())),
             Arg.Any<CancellationToken>());
     }
 }

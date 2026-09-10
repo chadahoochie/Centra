@@ -50,11 +50,11 @@ public sealed class CentraPubSubClient : IPubSubClient
             throw new InvalidOperationException($"No PubSub driver registered for pubsub '{pubSubName}'");
         }
 
-        var mode = options?.Mode ?? CloudEventMode.Binary;
-        var packed = CloudEventPacker.Pack(data, _appId, mode, subject: null, additionalMetadata: options?.Metadata);
-
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartPublishActivity(pubSubName, topic);
+
+        var mode = options?.Mode ?? CloudEventMode.Binary;
+        var packed = CloudEventPacker.Pack(data, _appId, mode, subject: null, additionalMetadata: options?.Metadata);
 
         try
         {

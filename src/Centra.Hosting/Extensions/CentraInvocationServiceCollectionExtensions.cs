@@ -17,13 +17,16 @@ public static class CentraInvocationServiceCollectionExtensions
         services.TryAddSingleton<IServiceEndpointResolver>(sp =>
         {
             var topologyProvider = sp.GetService<Centra.Sync.IClusterTopologyProvider>();
-            if (topologyProvider is not null)
-            {
-                return new ControlPlaneServiceEndpointResolver(
+            IServiceEndpointResolver baseResolver = topologyProvider is not null
+                ? new ControlPlaneServiceEndpointResolver(
                     topologyProvider,
-                    sp.GetService<Microsoft.Extensions.Logging.ILogger<ControlPlaneServiceEndpointResolver>>());
-            }
-            return PassThroughServiceEndpointResolver.Instance;
+                    sp.GetService<Microsoft.Extensions.Logging.ILogger<ControlPlaneServiceEndpointResolver>>())
+                : PassThroughServiceEndpointResolver.Instance;
+
+            var configuration = sp.GetService<Microsoft.Extensions.Configuration.IConfiguration>();
+            return configuration is not null
+                ? new Centra.Hosting.Invocation.ConfigurationServiceEndpointResolver(configuration, baseResolver)
+                : baseResolver;
         });
         services.TryAddSingleton<IServiceInvoker, CentraServiceInvoker>();
 
