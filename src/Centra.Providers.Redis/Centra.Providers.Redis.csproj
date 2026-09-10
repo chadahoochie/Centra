@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Redis distributed provider for Centra implementing state store, pub/sub, and distributed locks.</Description>
+    <PackageTags>$(PackageTags);providers;redis;stackexchange-redis;state;pubsub;locks;cache</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -2,5 +2,6 @@
   <PropertyGroup>
     <Description>CNCF CloudEvents v1.0 and ambient context abstractions for Centra.</Description>
     <RootNamespace>Centra.Events</RootNamespace>
+    <PackageTags>$(PackageTags);cloudevents;cncf;events;w3c;tracecontext</PackageTags>
   </PropertyGroup>
 </Project>

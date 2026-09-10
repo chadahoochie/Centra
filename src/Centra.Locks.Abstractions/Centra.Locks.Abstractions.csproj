@@ -2,5 +2,6 @@
   <PropertyGroup>
     <Description>Distributed lock and mutual exclusion abstractions for Centra.</Description>
     <RootNamespace>Centra.Locks</RootNamespace>
+    <PackageTags>$(PackageTags);locks;distributed-lock;mutex;leases</PackageTags>
   </PropertyGroup>
 </Project>

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>RabbitMQ distributed provider for Centra implementing CNCF CloudEvents pub/sub over topic exchanges with dead-letter routing.</Description>
+    <PackageTags>$(PackageTags);providers;rabbitmq;amqp;pubsub;messaging;cloudevents</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

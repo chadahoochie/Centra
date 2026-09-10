@@ -2,5 +2,6 @@
   <PropertyGroup>
     <Description>Resilience, fault tolerance, circuit breaker, retry, and timeout abstractions for Centra.</Description>
     <RootNamespace>Centra.Resilience</RootNamespace>
+    <PackageTags>$(PackageTags);resilience;fault-tolerance;circuit-breaker;retry;timeout</PackageTags>
   </PropertyGroup>
 </Project>

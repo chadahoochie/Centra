@@ -2,6 +2,7 @@
   <PropertyGroup>
     <Description>Distributed lock provider implementation for Centra.</Description>
     <RootNamespace>Centra.Locks</RootNamespace>
+    <PackageTags>$(PackageTags);locks;distributed-lock;mutex;leases</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

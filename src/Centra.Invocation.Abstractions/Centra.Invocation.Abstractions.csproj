@@ -2,5 +2,6 @@
   <PropertyGroup>
     <Description>Service invocation and typed RPC client proxy abstractions for Centra.</Description>
     <RootNamespace>Centra.Invocation</RootNamespace>
+    <PackageTags>$(PackageTags);invocation;rpc;service-invocation;proxy</PackageTags>
   </PropertyGroup>
 </Project>

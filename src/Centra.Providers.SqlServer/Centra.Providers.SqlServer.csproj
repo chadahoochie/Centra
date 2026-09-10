@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>SQL Server distributed provider for Centra implementing enterprise relational state store with optimistic concurrency, transactions, and distributed lease locks.</Description>
+    <PackageTags>$(PackageTags);providers;sqlserver;mssql;state;locks;transactions</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

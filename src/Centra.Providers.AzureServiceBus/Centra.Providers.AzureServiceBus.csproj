@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Azure Service Bus distributed provider for Centra implementing enterprise cloud pub/sub messaging with CNCF CloudEvents and dead-letter routing.</Description>
+    <PackageTags>$(PackageTags);providers;azure;servicebus;pubsub;messaging;cloudevents</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

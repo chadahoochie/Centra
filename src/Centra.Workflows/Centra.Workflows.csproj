@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Durable workflow/saga engine implementation for Centra.</Description>
+    <PackageTags>$(PackageTags);workflows;sagas;compensation;durable;orchestrator</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

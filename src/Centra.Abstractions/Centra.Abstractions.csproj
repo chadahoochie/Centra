@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Umbrella metapackage referencing all Centra distributed building block abstractions.</Description>
+    <PackageTags>$(PackageTags);abstractions;state;pubsub;locks;bindings;actors;workflows</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

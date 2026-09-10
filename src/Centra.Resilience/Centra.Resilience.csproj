@@ -2,6 +2,7 @@
   <PropertyGroup>
     <Description>Polly-backed resilience pipeline implementation for Centra.</Description>
     <RootNamespace>Centra.Resilience</RootNamespace>
+    <PackageTags>$(PackageTags);resilience;polly;retry;circuit-breaker;timeout;rate-limiting</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

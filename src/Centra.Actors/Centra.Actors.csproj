@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Virtual actor runtime implementation (activation, placement, reminders, timers) for Centra.</Description>
+    <PackageTags>$(PackageTags);actors;virtual-actors;reminders;timers;distributed-actors</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>ASP.NET Core and Microsoft.Extensions.Hosting integration, minimal API route builders, and service collection extensions for Centra.</Description>
+    <PackageTags>$(PackageTags);hosting;aspnetcore;minimal-apis;dependency-injection</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -2,5 +2,6 @@
   <PropertyGroup>
     <Description>Distributed workflows, sagas, and durable execution contracts for Centra.</Description>
     <RootNamespace>Centra.Workflows</RootNamespace>
+    <PackageTags>$(PackageTags);workflows;sagas;durable-execution;orchestration</PackageTags>
   </PropertyGroup>
 </Project>

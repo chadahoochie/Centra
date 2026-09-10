@@ -2,6 +2,7 @@
   <PropertyGroup>
     <Description>RPC/service invocation, dispatch proxy, and control-plane endpoint resolution implementation for Centra.</Description>
     <RootNamespace>Centra.Invocation</RootNamespace>
+    <PackageTags>$(PackageTags);invocation;rpc;service-invocation;dispatch-proxy</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -2,6 +2,7 @@
   <PropertyGroup>
     <Description>State store client implementation for Centra.</Description>
     <RootNamespace>Centra.State</RootNamespace>
+    <PackageTags>$(PackageTags);state;statestore;optimistic-concurrency;transactions</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
