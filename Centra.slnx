@@ -57,6 +57,13 @@
     <Project Path="samples/Centra.Sample.DockerStack.Simulator/Centra.Sample.DockerStack.Simulator.csproj" />
     <Project Path="samples/Centra.AppHost/Centra.AppHost.csproj" />
   </Folder>
+  <Folder Name="/samples/RabbitSimulation/">
+    <Project Path="samples/RabbitSimulation/Contracts/Centra.Sample.RabbitSimulation.Contracts.csproj" />
+    <Project Path="samples/RabbitSimulation/Api/Centra.Sample.RabbitSimulation.Api.csproj" />
+    <Project Path="samples/RabbitSimulation/Consumer/Centra.Sample.RabbitSimulation.Consumer.csproj" />
+    <Project Path="samples/RabbitSimulation/Producer/Centra.Sample.RabbitSimulation.Producer.csproj" />
+    <Project Path="samples/RabbitSimulation/AppHost/Centra.Sample.RabbitSimulation.AppHost.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Centra.Tests.Unit/Centra.Tests.Unit.csproj" />
     <Project Path="tests/Centra.ControlPlane.Tests.Unit/Centra.ControlPlane.Tests.Unit.csproj" />

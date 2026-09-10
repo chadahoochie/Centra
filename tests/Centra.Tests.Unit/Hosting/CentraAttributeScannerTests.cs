@@ -1,6 +1,7 @@
 using Centra.Events;
 using Centra.Hosting.Extensions;
 using Centra.Hosting.Routing;
+using Centra.Invocation;
 using Centra.PubSub;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
@@ -50,7 +51,27 @@ public sealed class CentraAttributeScannerTests
         registrations[0].Topic.ShouldBe("scanned.only.topic");
     }
 
+    [Fact]
+    public void AddCentra_Should_AutoRegister_ServiceClient_With_No_Explicit_Call()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCentra(configure: null, typeof(CentraAttributeScannerTests).Assembly);
+
+        var serviceProvider = services.BuildServiceProvider();
+        var client = serviceProvider.GetService<IScannedOnlyServiceClient>();
+
+        client.ShouldNotBeNull();
+    }
+
     public sealed record ScannedEvent(string Value);
+
+    [ServiceClient("scanned-service")]
+    public interface IScannedOnlyServiceClient
+    {
+        [ServiceMethod("test", "GET")]
+        Task<string> GetTestAsync();
+    }
 
     [Topic("pubsub", "scanned.only.topic")]
     public sealed class ScannedOnlyEventHandler : IEventHandler<ScannedEvent>

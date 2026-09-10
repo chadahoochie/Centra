@@ -2,6 +2,8 @@ namespace Centra.Providers.RabbitMQ.Options;
 
 public sealed class RabbitMQProviderOptions
 {
+    public string? ConnectionString { get; set; }
+    public Uri? Uri { get; set; }
     public string HostName { get; set; } = "localhost";
     public int Port { get; set; } = 5672;
     public string UserName { get; set; } = "guest";

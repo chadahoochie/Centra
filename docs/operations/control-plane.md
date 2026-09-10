@@ -6,6 +6,9 @@
 
 ## 🏛️ Role in the Architecture
 
+> [!TIP]
+> Not sure if your architecture requires the Control Plane? Consult the [Control Plane Decision Guide](when-to-use-control-plane.md) to compare standalone direct-driver mode with orchestrated cluster mode.
+
 The **Centra Control Plane** (`Centra.ControlPlane`) serves as the central brain for a Centra cluster:
 1. **Component Catalog**: Eliminates scattered YAML component files. Components (State Stores, Pub/Sub Brokers, Locks, Bindings) are configured centrally.
 2. **Secret Resolution**: Resolves secret references (`secretKeyRef`) from environment variables or secret vaults before broadcasting to consumer nodes.
@@ -109,3 +112,11 @@ Returns the current execution state, status (`Running`, `Completed`, `Failed`, `
 
 #### `GET /api/v1/workflows/instances/{instanceId}/history`
 Returns the append-only event stream of past activities and timers for an orchestration instance.
+
+---
+
+## 🔗 Related Documentation
+
+- [When to Use Control Plane (Decision Guide)](when-to-use-control-plane.md)
+- [Configuration & Options Reference](configuration-reference.md)
+- [Observability, Distributed Tracing & Metrics](observability.md)

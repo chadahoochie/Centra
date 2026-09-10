@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Target API service invoked via Centra Service Invocation in the RabbitMQ simulation.</Description>
+    <RootNamespace>Centra.Sample.RabbitSimulation.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
+    <ProjectReference Include="..\Contracts\Centra.Sample.RabbitSimulation.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

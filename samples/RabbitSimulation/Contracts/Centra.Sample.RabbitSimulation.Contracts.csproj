@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Shared contracts, models, and typed RPC client interfaces for the RabbitMQ simulation.</Description>
+    <RootNamespace>Centra.Sample.RabbitSimulation.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Centra.Invocation.Abstractions\Centra.Invocation.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\src\Centra.Events.Abstractions\Centra.Events.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>
