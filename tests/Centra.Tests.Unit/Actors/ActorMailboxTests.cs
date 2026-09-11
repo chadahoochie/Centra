@@ -141,4 +141,51 @@ public sealed class ActorMailboxTests
         drained.ShouldBeTrue();
         completed.ShouldBe(5);
     }
+
+    [Fact]
+    public async Task Should_Throw_ObjectDisposedException_When_Enqueuing_To_Disposed_Mailbox()
+    {
+        var mailbox = new ActorMailbox();
+        await mailbox.DisposeAsync();
+
+        Should.Throw<ObjectDisposedException>(() => mailbox.EnqueueTurnAsync(() => ValueTask.CompletedTask));
+        Should.Throw<ObjectDisposedException>(() => mailbox.EnqueueTurnAsync(() => ValueTask.FromResult(1)));
+    }
+
+    [Fact]
+    public void Should_Return_Canceled_ValueTask_When_PreCanceled_Token_Supplied()
+    {
+        var mailbox = new ActorMailbox();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var vt = mailbox.EnqueueTurnAsync(() => ValueTask.CompletedTask, cts.Token);
+        vt.IsCanceled.ShouldBeTrue();
+
+        var vtTyped = mailbox.EnqueueTurnAsync(() => ValueTask.FromResult(42), cts.Token);
+        vtTyped.IsCanceled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Should_Return_False_When_Drain_Times_Out()
+    {
+        var mailbox = new ActorMailbox();
+        var blockedTurn = new TaskCompletionSource();
+
+        _ = mailbox.EnqueueTurnAsync(async () => await blockedTurn.Task);
+
+        var drained = await mailbox.DrainAsync(TimeSpan.FromMilliseconds(50));
+        drained.ShouldBeFalse();
+
+        blockedTurn.SetResult();
+        await mailbox.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Should_Handle_Double_Disposal_Safely()
+    {
+        var mailbox = new ActorMailbox();
+        await mailbox.DisposeAsync();
+        await mailbox.DisposeAsync();
+    }
 }

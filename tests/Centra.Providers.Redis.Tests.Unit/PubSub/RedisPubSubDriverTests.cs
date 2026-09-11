@@ -3,6 +3,7 @@ using Centra.Providers.Redis.Options;
 using Centra.Providers.Redis.PubSub;
 using Microsoft.Extensions.Options;
 using NSubstitute;
+using Shouldly;
 using StackExchange.Redis;
 using Xunit;
 
@@ -109,5 +110,111 @@ public sealed class RedisPubSubDriverTests
             Arg.Any<Microsoft.Extensions.Logging.ILogger>(),
             Arg.Any<CancellationToken>(),
             batchSize: 35);
+    }
+
+    [Fact]
+    public async Task PublishAsync_With_EnableConsumerGroups_Should_Publish_To_Stream()
+    {
+        var streamProcessor = Substitute.For<IRedisStreamProcessor>();
+        var db = Substitute.For<IDatabase>();
+        _multiplexer.GetDatabase(Arg.Any<int>(), Arg.Any<object>()).Returns(db);
+
+        var options = new RedisProviderOptions { EnableConsumerGroups = true, KeyPrefix = "centra:" };
+        var sut = new RedisPubSubDriver(_multiplexer, Microsoft.Extensions.Options.Options.Create(options), streamProcessor: streamProcessor);
+
+        var payload = Encoding.UTF8.GetBytes("stream-payload");
+        var metadata = new Dictionary<string, string> { ["ce-id"] = "101" };
+
+        await sut.PublishAsync("pubsub", "orders.created", payload, metadata);
+
+        await streamProcessor.Received(1).PublishToStreamAsync(
+            db,
+            "centra:pubsub-stream:pubsub:orders.created",
+            Arg.Is<ReadOnlyMemory<byte>>(m => m.Length == payload.Length),
+            metadata,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_MessageHandler_Processes_Message_And_Handles_DeadLetter()
+    {
+        Action<RedisChannel, RedisValue>? capturedHandler = null;
+        await _subscriber.SubscribeAsync(
+            Arg.Any<RedisChannel>(),
+            Arg.Do<Action<RedisChannel, RedisValue>>(h => capturedHandler = h),
+            Arg.Any<CommandFlags>());
+
+        await _sut.SubscribeAsync(
+            "pubsub",
+            "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(Centra.PubSub.EventHandlingResult.DeadLetter),
+            deadLetterTopic: "orders.dlq");
+
+        capturedHandler.ShouldNotBeNull();
+
+        var envelope = new RedisMessageEnvelope(new Dictionary<string, string> { ["k"] = "v" }, Encoding.UTF8.GetBytes("test"));
+        var envelopeBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(envelope);
+
+        // Invoke captured callback
+        capturedHandler!(new RedisChannel("test", RedisChannel.PatternMode.Literal), envelopeBytes);
+
+        // Also test empty value callback (should return early without error)
+        capturedHandler!(new RedisChannel("test", RedisChannel.PatternMode.Literal), RedisValue.Null);
+
+        // Also test corrupted JSON callback
+        capturedHandler!(new RedisChannel("test", RedisChannel.PatternMode.Literal), "not-valid-json");
+    }
+
+    [Fact]
+    public async Task SubscribeViaStreamAsync_Swallows_BusyGroup_Exception()
+    {
+        var db = Substitute.For<IDatabase>();
+        _multiplexer.GetDatabase(Arg.Any<int>(), Arg.Any<object>()).Returns(db);
+        db.StreamCreateConsumerGroupAsync(
+            Arg.Any<RedisKey>(),
+            Arg.Any<RedisValue>(),
+            Arg.Any<RedisValue?>(),
+            Arg.Any<bool>(),
+            Arg.Any<CommandFlags>())
+            .Returns<Task<bool>>(_ => throw new RedisException("BUSYGROUP Consumer Group name already exists"));
+
+        var streamProcessor = Substitute.For<IRedisStreamProcessor>();
+        var options = new RedisProviderOptions { EnableConsumerGroups = true };
+        var sut = new RedisPubSubDriver(_multiplexer, Microsoft.Extensions.Options.Options.Create(options), streamProcessor: streamProcessor);
+
+        await sut.SubscribeAsync(
+            "pubsub", "orders.stream",
+            (p, h, ct) => ValueTask.FromResult(Centra.PubSub.EventHandlingResult.Success));
+
+        // Did not throw and started the loop
+        await streamProcessor.Received(1).RunStreamLoopAsync(
+            Arg.Any<IDatabase>(),
+            Arg.Any<Centra.Locks.IDistributedLockProvider?>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<Centra.PubSub.EventHandlingResult>>>(),
+            Arg.Any<Centra.PubSub.ConsumerMode>(),
+            Arg.Any<Microsoft.Extensions.Logging.ILogger>(),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_And_DisposeAsync_Should_Cancel_Stream_Subscriptions()
+    {
+        var db = Substitute.For<IDatabase>();
+        _multiplexer.GetDatabase(Arg.Any<int>(), Arg.Any<object>()).Returns(db);
+        var streamProcessor = Substitute.For<IRedisStreamProcessor>();
+        var options = new RedisProviderOptions { EnableConsumerGroups = true };
+        var sut = new RedisPubSubDriver(_multiplexer, Microsoft.Extensions.Options.Options.Create(options), streamProcessor: streamProcessor);
+
+        await sut.SubscribeAsync("pubsub", "topic1", (p, h, ct) => ValueTask.FromResult(Centra.PubSub.EventHandlingResult.Success));
+        await sut.SubscribeAsync("pubsub", "topic2", (p, h, ct) => ValueTask.FromResult(Centra.PubSub.EventHandlingResult.Success));
+
+        await sut.UnsubscribeAsync("pubsub", "topic1");
+        await sut.DisposeAsync();
     }
 }

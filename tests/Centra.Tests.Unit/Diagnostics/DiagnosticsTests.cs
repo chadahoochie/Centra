@@ -65,6 +65,107 @@ public sealed class DiagnosticsTests
     }
 
     [Fact]
+    public void Should_Create_Process_Activity_Without_Parent()
+    {
+        using var listener = new TestActivityListener();
+
+        using var activity = CentraDiagnostics.StartProcessActivity("my-bus", "my.topic");
+        activity.ShouldNotBeNull();
+        activity.GetTagItem("messaging.source").ShouldBe("my.topic");
+    }
+
+    [Fact]
+    public void Should_Create_Invoke_Client_And_Server_Activities()
+    {
+        using var listener = new TestActivityListener();
+
+        ActivityContext clientContext;
+        using (var client = CentraDiagnostics.StartInvokeClientActivity("inventory-service", "get-items"))
+        {
+            client.ShouldNotBeNull();
+            client.Kind.ShouldBe(ActivityKind.Client);
+            client.GetTagItem("peer.service").ShouldBe("inventory-service");
+            client.GetTagItem("rpc.method").ShouldBe("get-items");
+            clientContext = client.Context;
+        }
+
+        using (var server = CentraDiagnostics.StartInvokeServerActivity("get-items", clientContext))
+        {
+            server.ShouldNotBeNull();
+            server.Kind.ShouldBe(ActivityKind.Server);
+            server.GetTagItem("rpc.method").ShouldBe("get-items");
+        }
+
+        using (var serverNoParent = CentraDiagnostics.StartInvokeServerActivity("get-items"))
+        {
+            serverNoParent.ShouldNotBeNull();
+        }
+    }
+
+    [Fact]
+    public void Should_Create_State_And_Lock_Activities()
+    {
+        using var listener = new TestActivityListener();
+
+        using (var state = CentraDiagnostics.StartStateActivity("get", "order-store", "order-1"))
+        {
+            state.ShouldNotBeNull();
+            state.GetTagItem("centra.store.name").ShouldBe("order-store");
+            state.GetTagItem("centra.key").ShouldBe("order-1");
+            state.GetTagItem("centra.operation").ShouldBe("get");
+        }
+
+        using (var lockAct = CentraDiagnostics.StartLockActivity("acquire", "redis-lock", "res-42"))
+        {
+            lockAct.ShouldNotBeNull();
+            lockAct.GetTagItem("centra.lock_store.name").ShouldBe("redis-lock");
+            lockAct.GetTagItem("centra.resource").ShouldBe("res-42");
+        }
+    }
+
+    [Fact]
+    public void Should_Create_Binding_Activities()
+    {
+        using var listener = new TestActivityListener();
+
+        using (var output = CentraDiagnostics.StartBindingOutputActivity("cron-trigger", "tick"))
+        {
+            output.ShouldNotBeNull();
+            output.GetTagItem("centra.binding.name").ShouldBe("cron-trigger");
+            output.GetTagItem("centra.binding.operation").ShouldBe("tick");
+        }
+
+        using (var outputNoOp = CentraDiagnostics.StartBindingOutputActivity("cron-trigger", null))
+        {
+            outputNoOp.ShouldNotBeNull();
+            outputNoOp.GetTagItem("centra.binding.name").ShouldBe("cron-trigger");
+        }
+
+        using (var input = CentraDiagnostics.StartBindingInputActivity("webhook-trigger"))
+        {
+            input.ShouldNotBeNull();
+            input.GetTagItem("centra.binding.name").ShouldBe("webhook-trigger");
+        }
+
+        using (var inputWithParent = CentraDiagnostics.StartBindingInputActivity("webhook-trigger", ActivityContext.Parse("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", null)))
+        {
+            inputWithParent.ShouldNotBeNull();
+        }
+    }
+
+    [Fact]
+    public void Should_Create_Actor_Invoke_Activity()
+    {
+        using var listener = new TestActivityListener();
+
+        using var actor = CentraDiagnostics.StartActorInvokeActivity("OrderActor", "order-123", "Submit");
+        actor.ShouldNotBeNull();
+        actor.GetTagItem("actor.type").ShouldBe("OrderActor");
+        actor.GetTagItem("actor.id").ShouldBe("order-123");
+        actor.GetTagItem("actor.method").ShouldBe("Submit");
+    }
+
+    [Fact]
     public void Should_Record_State_Metrics_Accurately()
     {
         // Arrange

@@ -121,6 +121,18 @@ public sealed class ControlPlaneWorkflowsEndpointsTests : IAsyncDisposable
         list.Count.ShouldBe(1);
         list[0].Name.ShouldBe("OrderFulfillmentWorkflow");
     }
+
+    [Fact]
+    public async Task Should_Return_NotFound_When_Workflow_State_Is_Null()
+    {
+        var id = new WorkflowInstanceId("wf-inst-notfound");
+        _engine.GetWorkflowStateAsync(id, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<WorkflowState?>((WorkflowState?)null));
+
+        var response = await _client.GetAsync($"/api/v1/workflows/instances/{id.Value}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
 }
 
 public sealed class DummyWorkflow : Workflow<string, bool>
