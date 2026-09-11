@@ -98,4 +98,20 @@ public sealed class PostgreSqlHostingExtensionsTests
         registry.GetLockDriver("my-pg-locks").ShouldNotBeNull();
         registry.GetComponent("my-pg-locks")!.Type.ShouldBe(ComponentType.DistributedLock);
     }
+
+    [Fact]
+    public void Extensions_Should_Support_Parameterless_Options()
+    {
+        var services = new ServiceCollection();
+        var dataSource = NpgsqlDataSource.Create("Host=localhost;Database=test;Username=postgres;Password=postgres");
+        services.AddSingleton(dataSource);
+
+        services.AddCentraPostgreSql();
+        services.AddCentraPostgreSqlStateStore("pg-default-state");
+        services.AddCentraPostgreSqlLocks("pg-default-locks");
+
+        var provider = services.BuildServiceProvider();
+        provider.GetService<PostgreSqlStateStoreDriver>().ShouldNotBeNull();
+        provider.GetService<PostgreSqlDistributedLockDriver>().ShouldNotBeNull();
+    }
 }

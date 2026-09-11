@@ -79,6 +79,7 @@ Centra provides high-performance, native C# driver implementations for leading p
 | [**When to Use Control Plane**](operations/when-to-use-control-plane.md) | Architectural decision guide comparing standalone direct-driver mode vs. orchestrated Control Plane mode. |
 | [**Observability & Telemetry**](operations/observability.md) | OpenTelemetry distributed tracing (`ActivitySource`), metrics (`Meter`), and logging conventions. |
 | [**Configuration & Options Reference**](operations/configuration-reference.md) | Declarative attributes vs. service collection extensions, options classes, environment variable bindings, and defaults. |
+| [**NuGet Packaging & OIDC Publishing**](operations/nuget-publishing.md) | Automated packaging, NuGet.org Trusted Publishing (OIDC), and CI/CD release operations. |
 
 ---
 

@@ -136,4 +136,59 @@ public sealed class InMemoryPubSubDriverTests
         counts[0].ShouldBe(1);
         counts[1].ShouldBe(1);
     }
+
+    [Theory, AutoNSubstituteData]
+    public async Task Should_Not_Deliver_After_Unsubscribe(string pubsub, string topic, string message)
+    {
+        var received = false;
+        await _driver.SubscribeAsync(pubsub, topic, (payload, headers, ct) =>
+        {
+            received = true;
+            return ValueTask.FromResult(EventHandlingResult.Success);
+        });
+
+        await _driver.UnsubscribeAsync(pubsub, topic);
+        await _driver.PublishAsync(pubsub, topic, Encoding.UTF8.GetBytes(message), new Dictionary<string, string>());
+
+        received.ShouldBeFalse();
+    }
+
+    [Theory, AutoNSubstituteData]
+    public async Task Should_Route_To_DeadLetter_When_Handler_Throws_With_DeadLetterTopic(string pubsub, string topic, string dlTopic, string message)
+    {
+        var dlReceived = false;
+        await _driver.SubscribeAsync(pubsub, topic, (payload, headers, ct) =>
+        {
+            throw new InvalidOperationException("Handler exploded");
+        }, deadLetterTopic: dlTopic);
+
+        await _driver.SubscribeAsync(pubsub, dlTopic, (payload, headers, ct) =>
+        {
+            dlReceived = true;
+            return ValueTask.FromResult(EventHandlingResult.Success);
+        });
+
+        await _driver.PublishAsync(pubsub, topic, Encoding.UTF8.GetBytes(message), new Dictionary<string, string>());
+
+        dlReceived.ShouldBeTrue();
+    }
+
+    [Theory, AutoNSubstituteData]
+    public async Task Should_Rethrow_When_Handler_Throws_Without_DeadLetterTopic(string pubsub, string topic, string message)
+    {
+        await _driver.SubscribeAsync(pubsub, topic, (payload, headers, ct) =>
+        {
+            throw new InvalidOperationException("No DLQ available");
+        });
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            _driver.PublishAsync(pubsub, topic, Encoding.UTF8.GetBytes(message), new Dictionary<string, string>()).AsTask());
+    }
+
+    [Fact]
+    public async Task Should_Do_Nothing_When_Publishing_To_Unsubscribed_Topic()
+    {
+        await _driver.PublishAsync("unknown-pubsub", "no-subscribers", Encoding.UTF8.GetBytes("payload"), new Dictionary<string, string>());
+        // Should complete without error
+    }
 }

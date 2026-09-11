@@ -82,6 +82,31 @@ public sealed class CentraWorkflowEndpointsTests : IAsyncDisposable
         var getAfterPurge = await _client.GetAsync($"/centra/workflows/{instanceId}");
         getAfterPurge.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task Should_Start_Workflow_With_Explicit_Instance_Id()
+    {
+        var explicitId = $"explicit-wf-{Guid.NewGuid():N}";
+        var startResponse = await _client.PostAsJsonAsync($"/centra/workflows/EndpointEchoWorkflow/{explicitId}/start", "HelloExplicit");
+        startResponse.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+
+        var node = await startResponse.Content.ReadFromJsonAsync<JsonObject>();
+        node.ShouldNotBeNull();
+        node["instanceId"]?.GetValue<string>().ShouldBe(explicitId);
+
+        var stateResponse = await _client.GetAsync($"/centra/workflows/{explicitId}");
+        stateResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Should_Terminate_Workflow_Via_Http()
+    {
+        var explicitId = $"term-wf-{Guid.NewGuid():N}";
+        await _client.PostAsJsonAsync($"/centra/workflows/EndpointEchoWorkflow/{explicitId}/start", "RunToTerminate");
+
+        var termResponse = await _client.PostAsJsonAsync($"/centra/workflows/{explicitId}/terminate", "Aborting test");
+        termResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
 }
 
 public sealed class EndpointEchoWorkflow : Workflow<string, string>

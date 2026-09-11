@@ -48,6 +48,75 @@ public sealed class WorkflowClientTests
     }
 
     [Fact]
+    public async Task StartWorkflowAsync_Untyped_Should_Delegate_Directly_To_Engine()
+    {
+        // Arrange
+        var client = new WorkflowClient(_engine, _registry);
+        var expectedId = new WorkflowInstanceId("wf-untyped-789");
+
+        _engine.StartWorkflowAsync("RawWorkflow", "some-input", "inst-1", Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<WorkflowInstanceId>(expectedId));
+
+        // Act
+        var resultId = await client.StartWorkflowAsync("RawWorkflow", "some-input", "inst-1");
+
+        // Assert
+        resultId.ShouldBe(expectedId);
+        await _engine.Received(1).StartWorkflowAsync("RawWorkflow", "some-input", "inst-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetWorkflowHistoryAsync_Should_Map_Records_To_WorkflowHistoryEvents()
+    {
+        // Arrange
+        var client = new WorkflowClient(_engine, _registry);
+        var id = new WorkflowInstanceId("wf-history");
+        var now = DateTimeOffset.UtcNow;
+
+        var records = new List<WorkflowHistoryEventRecord>
+        {
+            new()
+            {
+                EventId = 1,
+                EventType = (int)WorkflowHistoryEventType.WorkflowStarted,
+                Name = "TestWorkflow",
+                Timestamp = now,
+                Data = [1, 2, 3],
+                Details = "Started successfully"
+            },
+            new()
+            {
+                EventId = 2,
+                EventType = (int)WorkflowHistoryEventType.WorkflowCompleted,
+                Name = "TestWorkflow",
+                Timestamp = now.AddMinutes(1),
+                Data = null,
+                Details = null
+            }
+        };
+
+        _engine.GetWorkflowHistoryAsync(id, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<List<WorkflowHistoryEventRecord>>(records));
+
+        // Act
+        var events = await client.GetWorkflowHistoryAsync(id);
+
+        // Assert
+        events.Count.ShouldBe(2);
+        events[0].EventId.ShouldBe(1);
+        events[0].EventType.ShouldBe(WorkflowHistoryEventType.WorkflowStarted);
+        events[0].Name.ShouldBe("TestWorkflow");
+        events[0].Timestamp.ShouldBe(now);
+        events[0].Data.ToArray().ShouldBe(new byte[] { 1, 2, 3 });
+        events[0].Details.ShouldBe("Started successfully");
+
+        events[1].EventId.ShouldBe(2);
+        events[1].EventType.ShouldBe(WorkflowHistoryEventType.WorkflowCompleted);
+        events[1].Data.IsEmpty.ShouldBeTrue();
+        events[1].Details.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Client_Methods_Should_Delegate_Correctly()
     {
         // Arrange
@@ -79,21 +148,21 @@ public sealed class WorkflowClientTests
         await client.PurgeWorkflowAsync(id);
         await _engine.Received(1).PurgeWorkflowAsync(id, Arg.Any<CancellationToken>());
     }
-}
 
-[Workflow("CustomOnboardingWorkflow")]
-public sealed class AttributedCustomerWorkflow : Workflow<string, bool>
-{
-    public override ValueTask<bool> RunAsync(IWorkflowContext context, string input)
+    [Workflow("CustomOnboardingWorkflow")]
+    private sealed class AttributedCustomerWorkflow : Workflow<string, bool>
     {
-        return ValueTask.FromResult(true);
+        public override ValueTask<bool> RunAsync(IWorkflowContext context, string input)
+        {
+            return ValueTask.FromResult(true);
+        }
     }
-}
 
-public sealed class NonAttributedWorkflow : Workflow<int, int>
-{
-    public override ValueTask<int> RunAsync(IWorkflowContext context, int input)
+    private sealed class NonAttributedWorkflow : Workflow<int, int>
     {
-        return ValueTask.FromResult(input * 2);
+        public override ValueTask<int> RunAsync(IWorkflowContext context, int input)
+        {
+            return ValueTask.FromResult(input * 2);
+        }
     }
 }

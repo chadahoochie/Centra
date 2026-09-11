@@ -153,6 +153,37 @@ public sealed class PaymentNotificationHandler : IEventHandler<OrderCreatedEvent
 
 ---
 
+## ⚡ Consumer Tuning & Extended Subscription Options
+
+Centra provides fine-grained control over message prefetching, concurrency, and queue lifecycle both declaratively via `[Topic]` and programmatically via `PubSubSubscribeOptions`:
+
+| Option | `[Topic]` Attribute | `PubSubSubscribeOptions` | Description |
+| :--- | :--- | :--- | :--- |
+| **Prefetch Count** | `PrefetchCount = 50` | `PrefetchCount = 50` | Number of unacknowledged messages the broker pushes to the client buffer before waiting for ACKs. In RabbitMQ, configures `BasicQosAsync`. In Azure Service Bus and Redis Streams, governs prefetch buffers and stream batch sizes. |
+| **Max Concurrency** | `MaxConcurrentCalls = 4` | `MaxConcurrentCalls = 4` | Maximum number of concurrent handler invocations executed in parallel on a single consumer instance. Managed via `SemaphoreSlim` in RabbitMQ / In-Memory and native processor concurrency in Azure Service Bus. |
+| **Message TTL** | `MessageTtlSeconds = 60` | `MessageTimeToLive = TimeSpan.FromMinutes(1)` | Expiration duration for queued messages (`x-message-ttl` in RabbitMQ). |
+| **Auto-Delete** | `AutoDelete = true` | `AutoDelete = true` | Automatically destroys the queue when the last consumer disconnects (useful for ephemeral telemetry and test listeners). |
+| **Custom Args** | — | `CustomArguments = new Dictionary<string, object?> { ["x-queue-type"] = "quorum" }` | Universal escape hatch for broker-specific queue arguments without breaking vendor neutrality. |
+
+### Example: High-Throughput Worker with Bounded Concurrency
+
+```csharp
+[Topic("pubsub", "orders.created",
+    PrefetchCount = 50,
+    MaxConcurrentCalls = 8,
+    MessageTtlSeconds = 300)]
+public sealed class OrderProcessorHandler : IEventHandler<OrderCreatedEvent>
+{
+    public async Task<EventHandlingResult> HandleAsync(OrderCreatedEvent @event, EventContext context, CancellationToken ct)
+    {
+        await ProcessAsync(@event, ct);
+        return EventHandlingResult.Success;
+    }
+}
+```
+
+---
+
 ## 🔗 Ambient W3C TraceContext Propagation
 
 When an event is published, Centra injects the current W3C `traceparent` and `tracestate` into the CloudEvent headers or AMQP properties.

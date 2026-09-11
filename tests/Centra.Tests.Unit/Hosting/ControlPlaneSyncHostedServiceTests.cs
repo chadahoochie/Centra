@@ -1,6 +1,7 @@
 using Centra.Components;
 using Centra.Hosting.HostedServices;
 using Centra.Hosting.Options;
+using Centra.Resilience;
 using Centra.Sync;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -12,6 +13,29 @@ namespace Centra.Tests.Unit.Hosting;
 
 public sealed class ControlPlaneSyncHostedServiceTests
 {
+    [Fact]
+    public async Task Should_Return_Immediately_When_No_ControlPlane_Endpoint_Configured()
+    {
+        var client = Substitute.For<IControlPlaneClient>();
+        var registry = Substitute.For<IComponentRegistry>();
+        var options = Options.Create(new CentraOptions
+        {
+            AppId = "orders-service",
+            ControlPlaneEndpoint = null
+        });
+
+        var service = new CentraControlPlaneSyncHostedService(
+            client,
+            registry,
+            options,
+            NullLogger<CentraControlPlaneSyncHostedService>.Instance);
+
+        await service.StartAsync(CancellationToken.None);
+        await service.StopAsync(CancellationToken.None);
+
+        await client.DidNotReceiveWithAnyArgs().GetComponentsAsync(default);
+    }
+
     [Fact]
     public async Task Should_Sync_Initial_Components_On_Startup()
     {
@@ -103,6 +127,114 @@ public sealed class ControlPlaneSyncHostedServiceTests
         // Assert
         registry.Received(1).RegisterComponent(Arg.Is<ComponentDefinition>(d => d.Name == "dynamic-store"));
         registry.Received(1).RemoveComponent("old-store");
+    }
+
+    [Fact]
+    public async Task Should_Sync_Resilience_Policies_And_Stream_Updates()
+    {
+        var client = Substitute.For<IControlPlaneClient>();
+        var registry = Substitute.For<IComponentRegistry>();
+        var resilienceRegistry = Substitute.For<IResiliencePolicyRegistry>();
+        var options = Options.Create(new CentraOptions
+        {
+            AppId = "orders-service",
+            ControlPlaneEndpoint = "http://controlplane.local"
+        });
+
+        client.GetComponentsAsync(Arg.Any<CancellationToken>()).Returns(new List<ComponentDefinition>());
+        client.StreamUpdatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => ToAsyncEnumerable(new List<ComponentSyncEventDto>(), callInfo.Arg<CancellationToken>()));
+
+        var policy1 = new ResiliencePolicyDto
+        {
+            PolicyName = "full-policy",
+            MaxRetries = 3,
+            BackoffType = "Constant",
+            BaseDelayMs = 50,
+            MaxDelayMs = 500,
+            UseJitter = false,
+            FailureRatio = 0.6,
+            SamplingDurationSeconds = 15,
+            MinimumThroughput = 10,
+            BreakDurationSeconds = 8,
+            TimeoutSeconds = 2.5,
+            PermitLimit = 100,
+            QueueLimit = 5,
+            WindowSeconds = 1,
+            MaxParallelism = 10,
+            MaxQueuedActions = 25
+        };
+
+        var policy2 = new ResiliencePolicyDto
+        {
+            PolicyName = "linear-policy",
+            MaxRetries = 2,
+            BackoffType = "Linear"
+        };
+
+        client.GetResiliencePoliciesAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<ResiliencePolicyDto> { policy1, policy2 });
+
+        var streamEvents = new List<ResilienceSyncEventDto>
+        {
+            new() { Action = "Deleted", PolicyName = "full-policy" },
+            new() { Action = "Upserted", PolicyName = "linear-policy", Policy = policy2 }
+        };
+
+        client.StreamResilienceUpdatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => ToAsyncEnumerable(streamEvents, callInfo.Arg<CancellationToken>()));
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        resilienceRegistry.When(r => r.RemovePolicy("full-policy")).Do(_ => tcs.TrySetResult());
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var service = new CentraControlPlaneSyncHostedService(
+            client,
+            registry,
+            options,
+            NullLogger<CentraControlPlaneSyncHostedService>.Instance,
+            null,
+            resilienceRegistry);
+
+        // Act
+        await service.StartAsync(cts.Token);
+        await Task.WhenAny(tcs.Task, Task.Delay(2000, cts.Token));
+        await service.StopAsync(CancellationToken.None);
+
+        // Assert
+        resilienceRegistry.Received().RegisterPolicy(Arg.Is<CentraResiliencePolicyDefinition>(p => p.PolicyName == "full-policy"));
+        resilienceRegistry.Received().RegisterPolicy(Arg.Is<CentraResiliencePolicyDefinition>(p => p.PolicyName == "linear-policy"));
+        resilienceRegistry.Received(1).RemovePolicy("full-policy");
+    }
+
+    [Fact]
+    public async Task Should_Handle_Initial_Sync_Exception_Gracefully()
+    {
+        var client = Substitute.For<IControlPlaneClient>();
+        var registry = Substitute.For<IComponentRegistry>();
+        var options = Options.Create(new CentraOptions
+        {
+            AppId = "orders-service",
+            ControlPlaneEndpoint = "http://controlplane.local"
+        });
+
+        client.GetComponentsAsync(Arg.Any<CancellationToken>())
+            .Returns<Task<IReadOnlyCollection<ComponentDefinition>>>(_ => throw new HttpRequestException("ControlPlane unreachable"));
+        client.StreamUpdatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => ToAsyncEnumerable(new List<ComponentSyncEventDto>(), callInfo.Arg<CancellationToken>()));
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var service = new CentraControlPlaneSyncHostedService(
+            client,
+            registry,
+            options,
+            NullLogger<CentraControlPlaneSyncHostedService>.Instance);
+
+        await Should.NotThrowAsync(async () =>
+        {
+            await service.StartAsync(cts.Token);
+            await service.StopAsync(CancellationToken.None);
+        });
     }
 
     private static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(IEnumerable<T> items, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)

@@ -122,4 +122,22 @@ public sealed class RedisHostingExtensionsTests
         registry.GetLockDriver("my-redis-locks").ShouldNotBeNull();
         registry.GetComponent("my-redis-locks")!.Type.ShouldBe(ComponentType.DistributedLock);
     }
+
+    [Fact]
+    public void Extensions_Should_Support_Parameterless_Options()
+    {
+        var services = new ServiceCollection();
+        var multiplexer = Substitute.For<IConnectionMultiplexer>();
+        services.AddSingleton(multiplexer);
+
+        services.AddCentraRedis();
+        services.AddCentraRedisStateStore("state-default");
+        services.AddCentraRedisPubSub("pubsub-default");
+        services.AddCentraRedisLocks("locks-default");
+
+        var provider = services.BuildServiceProvider();
+        provider.GetService<RedisStateStoreDriver>().ShouldNotBeNull();
+        provider.GetService<RedisPubSubDriver>().ShouldNotBeNull();
+        provider.GetService<RedisDistributedLockDriver>().ShouldNotBeNull();
+    }
 }

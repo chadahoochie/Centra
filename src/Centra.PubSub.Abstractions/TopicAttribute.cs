@@ -8,4 +8,8 @@ public sealed class TopicAttribute(string pubSubName, string topic, string? dead
     public string? DeadLetterTopic { get; } = deadLetterTopic;
     public string? RuleFilter { get; init; }
     public ConsumerMode ConsumerMode { get; init; } = ConsumerMode.CompetingConsumer;
+    public int PrefetchCount { get; init; } = 0;
+    public int MaxConcurrentCalls { get; init; } = 0;
+    public int MessageTtlSeconds { get; init; } = 0;
+    public bool AutoDelete { get; init; } = false;
 }

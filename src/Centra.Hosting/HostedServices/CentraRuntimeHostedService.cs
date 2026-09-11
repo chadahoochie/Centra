@@ -59,7 +59,15 @@ public sealed class CentraRuntimeHostedService : IHostedService
                 },
                 localReg.DeadLetterTopic,
                 cancellationToken,
-                new PubSubSubscribeOptions { ConsumerMode = localReg.ConsumerMode }).ConfigureAwait(false);
+                new PubSubSubscribeOptions
+                {
+                    ConsumerMode = localReg.ConsumerMode,
+                    PrefetchCount = localReg.PrefetchCount,
+                    MaxConcurrentCalls = localReg.MaxConcurrentCalls,
+                    MessageTimeToLive = localReg.MessageTimeToLive,
+                    AutoDelete = localReg.AutoDelete,
+                    CustomArguments = localReg.CustomArguments
+                }).ConfigureAwait(false);
         }
     }
 

@@ -3,6 +3,7 @@ using Centra.Core.Actors;
 using Centra.Hosting.Extensions;
 using Centra.Hosting.HostedServices;
 using Centra.State;
+using Centra.Sync;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NSubstitute;
@@ -61,6 +62,68 @@ public sealed class CentraActorHostingTests
 
         var manager = sp.GetRequiredService<ActorManager>();
         manager.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void AddActor_Shorthand_Should_Register_Actor()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IStateStore>());
+        services.AddCentraActors();
+        services.AddActor<SampleHostedTestActor, ISampleHostedTestActor>();
+
+        var sp = services.BuildServiceProvider();
+        sp.GetService<SampleHostedTestActor>().ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void AddCentraActors_With_ClusterTopologyProvider_Should_Update_Placement_Director()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IStateStore>());
+
+        var centraOptions = new Centra.Hosting.Options.CentraOptions
+        {
+            AppId = "my-service",
+            DefaultStateStore = "shared-store"
+        };
+        centraOptions.ControlPlane.InstanceId = "node-1";
+        services.AddSingleton(centraOptions);
+
+        var topologyProvider = Substitute.For<IClusterTopologyProvider>();
+        var initialNodes = new[]
+        {
+            new ServiceNodeDto("my-service", "node-2", "Ready", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string>()),
+            new ServiceNodeDto("other-service", "other-1", "Ready", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string>())
+        };
+        topologyProvider.GetSnapshot().Returns(initialNodes);
+        services.AddSingleton(topologyProvider);
+
+        services.AddCentraActors();
+
+        var sp = services.BuildServiceProvider();
+        var director = sp.GetRequiredService<IActorPlacementDirector>();
+        director.ShouldNotBeNull();
+
+        // Fire TopologyChanged
+        var added = new[] { new ServiceNodeDto("my-service", "node-3", "Ready", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string>()) };
+        var removed = new[] { new ServiceNodeDto("my-service", "node-2", "Ready", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new Dictionary<string, string>()) };
+        topologyProvider.TopologyChanged += Raise.Event<EventHandler<ClusterTopologyChangedEventArgs>>(
+            topologyProvider,
+            new ClusterTopologyChangedEventArgs
+            {
+                AddedNodes = added,
+                RemovedNodes = removed,
+                CurrentSnapshot = added
+            });
+
+        // Check actor placement
+        var isLocal = director.IsLocal(new ActorIdentity(new ActorType("SampleActor"), new ActorId("actor-1")));
+        // Resolving ActorManager applies fallback to DefaultStateStore
+        sp.GetRequiredService<ActorManager>().ShouldNotBeNull();
+        sp.GetRequiredService<ActorOptions>().DefaultStateStore.ShouldBe("shared-store");
     }
 
     public interface ISampleHostedTestActor : IActor

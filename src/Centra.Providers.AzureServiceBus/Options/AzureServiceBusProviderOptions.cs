@@ -7,6 +7,7 @@ public sealed class AzureServiceBusProviderOptions
     public string TopicPrefix { get; set; } = "";
     public string SubscriptionName { get; set; } = "centra-sub";
     public int MaxConcurrentCalls { get; set; } = 1;
+    public int PrefetchCount { get; set; } = 0;
     public bool AutoCompleteMessages { get; set; } = false;
 
     /// <summary>

@@ -16,7 +16,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
     private readonly IConnectionFactory _connectionFactory;
     private readonly RabbitMQProviderOptions _options;
     private readonly ILogger<RabbitMQPubSubDriver> _logger;
-    private readonly ConcurrentDictionary<string, (IChannel Channel, string ConsumerTag)> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (IChannel Channel, string ConsumerTag, SemaphoreSlim? Limiter)> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly IRabbitMQHeaderExtractor _headerExtractor;
     private readonly IRabbitMQMessageAcknowledger _acknowledger;
@@ -140,7 +140,21 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             arguments: null,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
+        var prefetch = options?.PrefetchCount is > 0
+            ? (ushort)options.PrefetchCount.Value
+            : _options.DefaultPrefetchCount;
+
+        if (prefetch > 0)
+        {
+            await channel.BasicQosAsync(
+                prefetchSize: 0,
+                prefetchCount: prefetch,
+                global: false,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
         var queueName = $"{_options.QueuePrefix}.{pubSubName}.{topic}";
+        var autoDelete = options?.AutoDelete ?? false;
 
         Dictionary<string, object?>? queueArgs = null;
         if (!string.IsNullOrWhiteSpace(deadLetterTopic))
@@ -161,11 +175,26 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             queueArgs["x-single-active-consumer"] = true;
         }
 
+        if (options?.MessageTimeToLive is { } ttl && ttl > TimeSpan.Zero)
+        {
+            queueArgs ??= new Dictionary<string, object?>();
+            queueArgs["x-message-ttl"] = (long)ttl.TotalMilliseconds;
+        }
+
+        if (options?.CustomArguments is { Count: > 0 } customArgs)
+        {
+            queueArgs ??= new Dictionary<string, object?>();
+            foreach (var (k, v) in customArgs)
+            {
+                queueArgs[k] = v;
+            }
+        }
+
         await channel.QueueDeclareAsync(
             queue: queueName,
-            durable: true,
+            durable: !autoDelete,
             exclusive: false,
-            autoDelete: false,
+            autoDelete: autoDelete,
             arguments: queueArgs,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -176,21 +205,38 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             arguments: null,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
+        var maxConcurrency = options?.MaxConcurrentCalls is > 0
+            ? options.MaxConcurrentCalls.Value
+            : _options.DefaultMaxConcurrentCalls;
+
+        var limiter = maxConcurrency > 1 ? new SemaphoreSlim(maxConcurrency, maxConcurrency) : null;
+
         var consumer = new AsyncEventingBasicConsumer(channel);
-        consumer.ReceivedAsync += async (_, ea) =>
+        if (limiter is not null)
         {
-            try
+            consumer.ReceivedAsync += async (_, ea) =>
             {
-                var headers = _headerExtractor.ExtractHeaders(ea.BasicProperties);
-                var result = await handler(ea.Body, headers, CancellationToken.None).ConfigureAwait(false);
-                await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, result).ConfigureAwait(false);
-            }
-            catch (Exception ex)
+                await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await ProcessAndAckAsync(channel, queueName, ea, handler).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        limiter.Release();
+                    }
+                });
+            };
+        }
+        else
+        {
+            consumer.ReceivedAsync += async (_, ea) =>
             {
-                _logger.LogError(ex, "Exception thrown while processing RabbitMQ message on queue {Queue}", queueName);
-                await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true).ConfigureAwait(false);
-            }
-        };
+                await ProcessAndAckAsync(channel, queueName, ea, handler).ConfigureAwait(false);
+            };
+        }
 
         var tag = await channel.BasicConsumeAsync(
             queue: queueName,
@@ -199,7 +245,26 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _subscriptions[subKey] = (channel, tag);
+        _subscriptions[subKey] = (channel, tag, limiter);
+    }
+
+    private async Task ProcessAndAckAsync(
+        IChannel channel,
+        string queueName,
+        BasicDeliverEventArgs ea,
+        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler)
+    {
+        try
+        {
+            var headers = _headerExtractor.ExtractHeaders(ea.BasicProperties);
+            var result = await handler(ea.Body, headers, CancellationToken.None).ConfigureAwait(false);
+            await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, result).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception thrown while processing RabbitMQ message on queue {Queue}", queueName);
+            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true).ConfigureAwait(false);
+        }
     }
 
     public async ValueTask UnsubscribeAsync(
@@ -231,6 +296,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             {
                 _logger.LogDebug(ex, "Error closing subscription channel on unsubscribe");
             }
+
+            sub.Limiter?.Dispose();
         }
     }
 
@@ -252,6 +319,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             {
                 _logger.LogDebug(ex, "Error closing subscription channel during disposal");
             }
+
+            sub.Limiter?.Dispose();
         }
         _subscriptions.Clear();
 

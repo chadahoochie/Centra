@@ -82,7 +82,7 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
         var pubSubTopics = GetOrCreatePubSub(pubSubName);
         var subs = pubSubTopics.GetOrAdd(topic, static _ => new ConcurrentBag<InMemorySubscription>());
 
-        subs.Add(new InMemorySubscription(handler, deadLetterTopic, options?.ConsumerMode ?? ConsumerMode.CompetingConsumer));
+        subs.Add(new InMemorySubscription(handler, deadLetterTopic, options?.ConsumerMode ?? ConsumerMode.CompetingConsumer, options));
         return ValueTask.CompletedTask;
     }
 

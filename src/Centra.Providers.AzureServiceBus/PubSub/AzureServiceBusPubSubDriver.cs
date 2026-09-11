@@ -112,6 +112,7 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
         var targetTopic = $"{_options.TopicPrefix}{topic}";
         var subKey = $"{pubSubName}:{targetTopic}";
 
+        var prefetch = options?.PrefetchCount is > 0 ? options.PrefetchCount.Value : _options.PrefetchCount;
         if (options?.ConsumerMode == ConsumerMode.SingleActiveConsumer)
         {
             // Requires the subscription to be provisioned with RequiresSession=true - an
@@ -120,7 +121,8 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
             {
                 AutoCompleteMessages = _options.AutoCompleteMessages,
                 MaxConcurrentSessions = 1,
-                SessionIds = { _options.SingleActiveSessionId }
+                SessionIds = { _options.SingleActiveSessionId },
+                PrefetchCount = prefetch
             };
 
             var sessionProcessor = _client.CreateSessionProcessor(targetTopic, _options.SubscriptionName, sessionProcessorOptions);
@@ -151,10 +153,12 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
             return;
         }
 
+        var maxConcurrency = options?.MaxConcurrentCalls is > 0 ? options.MaxConcurrentCalls.Value : _options.MaxConcurrentCalls;
         var processorOptions = new ServiceBusProcessorOptions
         {
             AutoCompleteMessages = _options.AutoCompleteMessages,
-            MaxConcurrentCalls = _options.MaxConcurrentCalls
+            MaxConcurrentCalls = maxConcurrency,
+            PrefetchCount = prefetch
         };
 
         var processor = _client.CreateProcessor(targetTopic, _options.SubscriptionName, processorOptions);

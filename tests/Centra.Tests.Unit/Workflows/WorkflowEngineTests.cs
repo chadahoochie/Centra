@@ -283,6 +283,53 @@ public sealed class WorkflowEngineTests
         guid1B.ShouldBe(guid2B);
         guid1A.ShouldNotBe(guid1B);
     }
+
+    [Fact]
+    public void Dispose_DisposesTimerScheduler()
+    {
+        var timerScheduler = Substitute.For<IWorkflowTimerScheduler>();
+        var historyStore = Substitute.For<IWorkflowHistoryStore>();
+        var dispatcher = Substitute.For<IWorkflowActivityDispatcher>();
+        var registry = new WorkflowRegistry();
+        var sp = _services.BuildServiceProvider();
+
+        var engine = new WorkflowEngine(
+            sp,
+            registry,
+            historyStore,
+            dispatcher,
+            _serializer,
+            _timeProvider,
+            null,
+            null,
+            timerScheduler,
+            null);
+
+        engine.Dispose();
+
+        timerScheduler.Received(1).Dispose();
+    }
+
+    [Fact]
+    public void Constructor_NullRequiredArguments_ThrowsArgumentNullException()
+    {
+        var historyStore = Substitute.For<IWorkflowHistoryStore>();
+        var dispatcher = Substitute.For<IWorkflowActivityDispatcher>();
+        var registry = new WorkflowRegistry();
+        var sp = _services.BuildServiceProvider();
+
+        Should.Throw<ArgumentNullException>(() =>
+            new WorkflowEngine(null!, registry, historyStore, dispatcher, _serializer));
+
+        Should.Throw<ArgumentNullException>(() =>
+            new WorkflowEngine(sp, null!, historyStore, dispatcher, _serializer));
+
+        Should.Throw<ArgumentNullException>(() =>
+            new WorkflowEngine(sp, registry, null!, dispatcher, _serializer));
+
+        Should.Throw<ArgumentNullException>(() =>
+            new WorkflowEngine(sp, registry, historyStore, dispatcher, null!));
+    }
 }
 
 // ======================= Test Workflows & Activities =======================

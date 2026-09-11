@@ -159,6 +159,7 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
         _streamSubscriptions[subKey] = cts;
 
         var consumerMode = options?.ConsumerMode ?? ConsumerMode.CompetingConsumer;
+        var batchSize = options?.PrefetchCount is > 0 ? options.PrefetchCount.Value : _options.StreamBatchSize;
 
         _ = _streamProcessor.RunStreamLoopAsync(
             db,
@@ -171,7 +172,8 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
             handler,
             consumerMode,
             _logger,
-            cts.Token);
+            cts.Token,
+            batchSize);
     }
 
     public async ValueTask UnsubscribeAsync(

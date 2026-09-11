@@ -18,4 +18,10 @@ public sealed class RedisProviderOptions
     /// so existing consumers relying on today's broadcast semantics are not silently affected.
     /// </summary>
     public bool EnableConsumerGroups { get; set; } = false;
+
+    /// <summary>
+    /// The maximum number of stream messages to read in a single batch when reading from Redis Streams consumer groups.
+    /// Defaults to 10. Can be overridden per subscription via PubSubSubscribeOptions.PrefetchCount.
+    /// </summary>
+    public int StreamBatchSize { get; set; } = 10;
 }
