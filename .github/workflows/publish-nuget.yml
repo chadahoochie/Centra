@@ -1,0 +1,89 @@
+name: Publish NuGet Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_base:
+        description: 'Base version prefix (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+        type: string
+      prerelease_suffix:
+        description: 'Prerelease tag suffix (optional, e.g., preview, beta, rc)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    name: Build, Pack & Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Calculate Package Version
+        id: versioning
+        run: |
+          BASE_VER="${{ github.event.inputs.version_base }}"
+          RUN_NUM="${{ github.run_number }}"
+          SUFFIX="${{ github.event.inputs.prerelease_suffix }}"
+
+          FULL_VER="${BASE_VER}.${RUN_NUM}"
+          if [ -n "$SUFFIX" ]; then
+            FULL_VER="${FULL_VER}-${SUFFIX}"
+          fi
+
+          echo "VERSION=${FULL_VER}" >> $GITHUB_OUTPUT
+          echo "Calculated package version: ${FULL_VER}"
+
+      - name: Restore Dependencies
+        run: dotnet restore Centra.slnx
+
+      - name: Build Solution
+        run: dotnet build Centra.slnx --configuration Release --no-restore
+
+      - name: Run Tests
+        run: dotnet test Centra.slnx --configuration Release --no-build --verbosity normal --filter "Category!=Integration"
+
+      - name: Pack NuGet Packages
+        run: >
+          dotnet pack Centra.slnx
+          --configuration Release
+          --no-build
+          /p:PackageVersion="${{ steps.versioning.outputs.VERSION }}"
+          --output ./nupkgs
+
+      - name: NuGet Login (Trusted Publisher OIDC)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ github.repository_owner }}
+
+      - name: Publish to NuGet.org
+        run: >
+          dotnet nuget push "./nupkgs/*.nupkg"
+          --source "https://api.nuget.org/v3/index.json"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --skip-duplicate
+
+      - name: Upload Package Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkgs-${{ steps.versioning.outputs.VERSION }}
+          path: './nupkgs/*.nupkg'
+          retention-days: 30
