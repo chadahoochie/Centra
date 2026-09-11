@@ -160,3 +160,9 @@ Centra's driver SPI decouples physical drivers from domain logic:
 - **`Centra.Hosting`**: Integrates Centra into ASP.NET Core and Microsoft.Extensions.Hosting. Supports two complementary configuration models: declarative auto-discovery via the attribute reflection scanner (`CentraAttributeScanner`) and programmatic wiring via fluent `IServiceCollection` extension methods. Also provides minimal API route builders (`MapCentraEndpoints`, `MapCentraActorEndpoints`, `MapCentraWorkflowEndpoints`) and hosted services.
 - **`Centra.ControlPlane`**: Standalone ASP.NET Core service providing centralized component catalog management, secret resolution, cluster topology heartbeats, real-time SSE event broadcasting, and actor/workflow inspection APIs.
 - **`Centra.Aspire.Hosting`**: .NET Aspire AppHost integration extensions (`AddCentraControlPlane`, `WithCentra`) for local multi-replica orchestration.
+
+---
+
+## 📦 Package Distribution & CI/CD
+
+All 30+ Centra packages are built, versioned, and published to NuGet.org via GitHub Actions OIDC Trusted Publishing. For automated publishing workflows, versioning schemes, and operational notes, see [NuGet Package Publishing & OIDC Trusted Publishing](../operations/nuget-publishing.md).

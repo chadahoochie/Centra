@@ -16,6 +16,7 @@ public sealed class AzureServiceBusProviderOptionsTests
         options.TopicPrefix.ShouldBe("");
         options.SubscriptionName.ShouldBe("centra-sub");
         options.MaxConcurrentCalls.ShouldBe(1);
+        options.PrefetchCount.ShouldBe(0);
         options.AutoCompleteMessages.ShouldBeFalse();
     }
 
@@ -29,6 +30,7 @@ public sealed class AzureServiceBusProviderOptionsTests
             TopicPrefix = "dev.",
             SubscriptionName = "orders-worker",
             MaxConcurrentCalls = 8,
+            PrefetchCount = 20,
             AutoCompleteMessages = true
         };
 
@@ -37,6 +39,7 @@ public sealed class AzureServiceBusProviderOptionsTests
         options.TopicPrefix.ShouldBe("dev.");
         options.SubscriptionName.ShouldBe("orders-worker");
         options.MaxConcurrentCalls.ShouldBe(8);
+        options.PrefetchCount.ShouldBe(20);
         options.AutoCompleteMessages.ShouldBeTrue();
     }
 }

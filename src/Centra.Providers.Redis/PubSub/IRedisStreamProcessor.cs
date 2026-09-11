@@ -34,7 +34,8 @@ public interface IRedisStreamProcessor
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         ConsumerMode consumerMode,
         ILogger logger,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        int batchSize = 10);
 
     /// <summary>
     /// Processes a single stream entry, delegating to the subscriber handler and acknowledging the message.

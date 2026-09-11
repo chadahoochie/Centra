@@ -82,4 +82,32 @@ public sealed class RedisPubSubDriverTests
             Arg.Any<Action<RedisChannel, RedisValue>>(),
             Arg.Any<CommandFlags>());
     }
+
+    [Fact]
+    public async Task SubscribeAsync_With_EnableConsumerGroups_And_PrefetchCount_Should_Pass_BatchSize_To_StreamProcessor()
+    {
+        var streamProcessor = Substitute.For<IRedisStreamProcessor>();
+        var options = new RedisProviderOptions { EnableConsumerGroups = true };
+        var sut = new RedisPubSubDriver(_multiplexer, Microsoft.Extensions.Options.Options.Create(options), streamProcessor: streamProcessor);
+        var subOptions = new Centra.PubSub.PubSubSubscribeOptions { PrefetchCount = 35 };
+
+        await sut.SubscribeAsync(
+            "pubsub", "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(Centra.PubSub.EventHandlingResult.Success),
+            options: subOptions);
+
+        await streamProcessor.Received(1).RunStreamLoopAsync(
+            Arg.Any<IDatabase>(),
+            Arg.Any<Centra.Locks.IDistributedLockProvider?>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            "pubsub",
+            Arg.Any<string?>(),
+            Arg.Any<Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<Centra.PubSub.EventHandlingResult>>>(),
+            Arg.Any<Centra.PubSub.ConsumerMode>(),
+            Arg.Any<Microsoft.Extensions.Logging.ILogger>(),
+            Arg.Any<CancellationToken>(),
+            batchSize: 35);
+    }
 }

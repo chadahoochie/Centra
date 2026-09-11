@@ -65,7 +65,9 @@ internal static class CentraAttributeScanner
             .GetMethod(nameof(Extensions.CentraPubSubServiceCollectionExtensions.AddCentraEventHandler))!
             .MakeGenericMethod(type, eventType);
 
-        method.Invoke(null, [services, null, null, null, null]);
+        var parameters = new object?[method.GetParameters().Length];
+        parameters[0] = services;
+        method.Invoke(null, parameters);
     }
 
     private static void RegisterIfWorkflow(IServiceCollection services, Type type)

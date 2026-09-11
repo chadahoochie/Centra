@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Centra.Sample.RabbitSimulation.Consumer.Handlers;
 
-[Topic("pubsub", "orders.new")]
+[Topic("pubsub", "orders.new", PrefetchCount = 20, MaxConcurrentCalls = 4)]
 public sealed class OrderSubmittedEventHandler : IEventHandler<OrderMessage>
 {
     private readonly IOrderApiClient _apiClient;

@@ -34,7 +34,12 @@ public static class CentraPubSubServiceCollectionExtensions
         string? pubSubName = null,
         string? topic = null,
         string? deadLetterTopic = null,
-        ConsumerMode? consumerMode = null)
+        ConsumerMode? consumerMode = null,
+        int? prefetchCount = null,
+        int? maxConcurrentCalls = null,
+        TimeSpan? messageTimeToLive = null,
+        bool? autoDelete = null,
+        IReadOnlyDictionary<string, object?>? customArguments = null)
         where THandler : class, IEventHandler<TEvent>
     {
         services.TryAddTransient<THandler>();
@@ -44,6 +49,10 @@ public static class CentraPubSubServiceCollectionExtensions
         var resolvedTopic = topic ?? topicAttr?.Topic ?? typeof(TEvent).Name;
         var resolvedDlTopic = deadLetterTopic ?? topicAttr?.DeadLetterTopic;
         var resolvedConsumerMode = consumerMode ?? topicAttr?.ConsumerMode ?? ConsumerMode.CompetingConsumer;
+        var resolvedPrefetchCount = prefetchCount ?? (topicAttr?.PrefetchCount > 0 ? topicAttr.PrefetchCount : null);
+        var resolvedMaxConcurrentCalls = maxConcurrentCalls ?? (topicAttr?.MaxConcurrentCalls > 0 ? topicAttr.MaxConcurrentCalls : null);
+        var resolvedTtl = messageTimeToLive ?? (topicAttr?.MessageTtlSeconds > 0 ? TimeSpan.FromSeconds(topicAttr.MessageTtlSeconds) : null);
+        var resolvedAutoDelete = autoDelete ?? topicAttr?.AutoDelete ?? false;
 
         services.ReplaceRegistrationFor<CentraTopicRegistration>(
             r => r.HandlerType == typeof(THandler),
@@ -54,7 +63,12 @@ public static class CentraPubSubServiceCollectionExtensions
                 typeof(THandler),
                 resolvedDlTopic,
                 CentraTopicRegistration.CreateTypedInvoker<TEvent>(),
-                resolvedConsumerMode));
+                resolvedConsumerMode,
+                resolvedPrefetchCount,
+                resolvedMaxConcurrentCalls,
+                resolvedTtl,
+                resolvedAutoDelete,
+                customArguments));
 
         return services;
     }

@@ -45,7 +45,8 @@ public sealed class RedisStreamProcessor : IRedisStreamProcessor
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         ConsumerMode consumerMode,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int batchSize = 10)
     {
         IDistributedLock? heldLock = null;
         try
@@ -70,7 +71,7 @@ public sealed class RedisStreamProcessor : IRedisStreamProcessor
                 StreamEntry[] entries;
                 try
                 {
-                    entries = await db.StreamReadGroupAsync(streamKey, groupName, consumerName, StreamPosition.NewMessages, count: 10).ConfigureAwait(false);
+                    entries = await db.StreamReadGroupAsync(streamKey, groupName, consumerName, StreamPosition.NewMessages, count: batchSize).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
