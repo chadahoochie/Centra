@@ -64,7 +64,7 @@ public sealed class SimulationWorker(
         }
     }
 
-    private Task RunOperationAsync(Operation operation, string node, CancellationToken ct) => operation switch
+    internal Task RunOperationAsync(Operation operation, string node, CancellationToken ct) => operation switch
     {
         Operation.ActorIncrement => IncrementActorAsync(node, ct),
         Operation.StateCounterIncrement => IncrementCounterAsync(node, ct),
@@ -76,7 +76,7 @@ public sealed class SimulationWorker(
         _ => Task.CompletedTask,
     };
 
-    private async Task IncrementActorAsync(string node, CancellationToken ct)
+    internal async Task IncrementActorAsync(string node, CancellationToken ct)
     {
         var actorId = $"actor-{Random.Shared.Next(1, options.ActorPoolSize + 1)}";
         var response = await _http.PostAsync($"{node}/actors/{actorId}/increment", content: null, ct);
@@ -84,7 +84,7 @@ public sealed class SimulationWorker(
         logger.LogInformation("Incremented {ActorId} via {Node}", actorId, node);
     }
 
-    private async Task IncrementCounterAsync(string node, CancellationToken ct)
+    internal async Task IncrementCounterAsync(string node, CancellationToken ct)
     {
         // Occasionally force the ETag CAS retry path so the dashboard's conflict/retry panel stays alive.
         var simulateConflict = Random.Shared.Next(100) < 15;
@@ -96,7 +96,7 @@ public sealed class SimulationWorker(
         logger.LogInformation("Incremented shared counter via {Node} (simulateConflict={SimulateConflict})", node, simulateConflict);
     }
 
-    private async Task DispatchTaskAsync(string node, CancellationToken ct)
+    internal async Task DispatchTaskAsync(string node, CancellationToken ct)
     {
         var response = await _http.PostAsJsonAsync(
             $"{node}/tasks/dispatch",
@@ -106,21 +106,21 @@ public sealed class SimulationWorker(
         logger.LogInformation("Dispatched task via {Node}", node);
     }
 
-    private async Task GetPeerInfoAsync(string node, CancellationToken ct)
+    internal async Task GetPeerInfoAsync(string node, CancellationToken ct)
     {
         var response = await _http.GetAsync($"{node}/peers/info", ct);
         response.EnsureSuccessStatusCode();
         logger.LogInformation("Queried peer info via {Node}", node);
     }
 
-    private async Task GetCronLastRunAsync(string node, CancellationToken ct)
+    internal async Task GetCronLastRunAsync(string node, CancellationToken ct)
     {
         var response = await _http.GetAsync($"{node}/cron/last-run", ct);
         response.EnsureSuccessStatusCode();
         logger.LogInformation("Queried cron last-run via {Node}", node);
     }
 
-    private async Task RunLeaderLeaseCycleAsync(string node, CancellationToken ct)
+    internal async Task RunLeaderLeaseCycleAsync(string node, CancellationToken ct)
     {
         var acquire = await _http.PostAsync($"{node}/leader/acquire?leaseSeconds=5", content: null, ct);
         if (acquire.StatusCode == System.Net.HttpStatusCode.Conflict)
@@ -139,7 +139,7 @@ public sealed class SimulationWorker(
         logger.LogInformation("Released leadership lease via {Node}", node);
     }
 
-    private async Task StartWorkflowAsync(string node, CancellationToken ct)
+    internal async Task StartWorkflowAsync(string node, CancellationToken ct)
     {
         // ~30% of orders exceed the $1000 threshold that ProcessPaymentActivity rejects, so the
         // saga's compensation path (ReleaseInventoryCompensationActivity) gets exercised too.
@@ -165,9 +165,9 @@ public sealed class SimulationWorker(
             orderId, node, totalAmount, shouldFail);
     }
 
-    private string PickNode() => options.NodeBaseUrls[Random.Shared.Next(options.NodeBaseUrls.Count)];
+    internal string PickNode() => options.NodeBaseUrls[Random.Shared.Next(options.NodeBaseUrls.Count)];
 
-    private Operation PickOperation()
+    internal Operation PickOperation()
     {
         var roll = Random.Shared.Next(_totalWeight);
         var cumulative = 0;
@@ -187,16 +187,5 @@ public sealed class SimulationWorker(
     {
         _http.Dispose();
         base.Dispose();
-    }
-
-    private enum Operation
-    {
-        ActorIncrement,
-        StateCounterIncrement,
-        TaskDispatch,
-        PeerInfo,
-        CronLastRun,
-        LeaderLeaseCycle,
-        WorkflowStart,
     }
 }

@@ -29,7 +29,7 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(cronExpression);
         ArgumentNullException.ThrowIfNull(handler);
 
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         var parser = CronExpressionParser.Parse(cronExpression);
         var entry = new ScheduledJobEntry(this, jobName, handler, parser, null, options ?? new CronScheduleOptions());
@@ -50,7 +50,7 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
             throw new ArgumentOutOfRangeException(nameof(interval), "Interval must be greater than zero.");
         }
 
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         var entry = new ScheduledJobEntry(this, jobName, handler, null, interval, new CronScheduleOptions());
 
@@ -68,7 +68,7 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
         return false;
     }
 
-    private void AddOrUpdateJob(ScheduledJobEntry entry)
+    internal void AddOrUpdateJob(ScheduledJobEntry entry)
     {
         _jobs.AddOrUpdate(
             entry.JobName,
@@ -85,7 +85,7 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
             });
     }
 
-    private void ScheduleNext(ScheduledJobEntry entry)
+    internal void ScheduleNext(ScheduledJobEntry entry)
     {
         if (_disposed || entry.IsDisposed) return;
 
@@ -133,7 +133,7 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
         }
     }
 
-    private async Task ExecuteJobTickAsync(ScheduledJobEntry entry)
+    internal async Task ExecuteJobTickAsync(ScheduledJobEntry entry)
     {
         if (_disposed || entry.IsDisposed) return;
 
@@ -162,11 +162,6 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
         }
     }
 
-    private void ThrowIfDisposed()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-    }
-
     public void Dispose()
     {
         if (_disposed) return;
@@ -178,34 +173,5 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
         }
 
         _jobs.Clear();
-    }
-
-    private sealed class ScheduledJobEntry(
-        CentraCronScheduler scheduler,
-        string jobName,
-        IJobHandler handler,
-        CronExpressionParser? parser,
-        TimeSpan? interval,
-        CronScheduleOptions options) : IDisposable
-    {
-        public CentraCronScheduler Scheduler { get; } = scheduler;
-        public string JobName { get; } = jobName;
-        public IJobHandler Handler { get; } = handler;
-        public CronExpressionParser? Parser { get; } = parser;
-        public TimeSpan? Interval { get; } = interval;
-        public CronScheduleOptions Options { get; } = options;
-        public ITimer? Timer { get; set; }
-        public DateTimeOffset ScheduledTime { get; set; }
-        public long Iteration;
-        public CancellationTokenSource Cts { get; } = new();
-        public bool IsDisposed { get; private set; }
-
-        public void Dispose()
-        {
-            if (IsDisposed) return;
-            IsDisposed = true;
-            Cts.Cancel();
-            Timer?.Dispose();
-        }
     }
 }

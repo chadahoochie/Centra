@@ -14,7 +14,7 @@ namespace Centra.Tests.Unit.Actors;
 
 public sealed class ActorReminderManagerTests
 {
-    private static ActorReminderCoordinator CreateCoordinator()
+    internal static ActorReminderCoordinator CreateCoordinator()
     {
         var serviceProvider = Substitute.For<IServiceProvider>();
         var stateStore = Substitute.For<IStateStore>();

@@ -19,7 +19,10 @@ public static class CloudEventPacker
     {
         var eventId = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
-        var (eventType, schemaVersion, dataSchema) = ResolveEventMetadata<T>();
+        var attr = typeof(T).GetCustomAttribute<EventContractAttribute>();
+        var (eventType, schemaVersion, dataSchema) = attr is not null
+            ? (attr.Type, attr.Version, attr.Schema)
+            : (typeof(T).Name, null, null);
 
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -102,16 +105,5 @@ public static class CloudEventPacker
             var payload = Serializer.Serialize(cloudEvent);
             return new PackedCloudEvent(payload, headers, CloudEventMode.Structured);
         }
-    }
-
-    private static (string Type, string? Version, string? Schema) ResolveEventMetadata<T>()
-    {
-        var attr = typeof(T).GetCustomAttribute<EventContractAttribute>();
-        if (attr is not null)
-        {
-            return (attr.Type, attr.Version, attr.Schema);
-        }
-
-        return (typeof(T).Name, null, null);
     }
 }

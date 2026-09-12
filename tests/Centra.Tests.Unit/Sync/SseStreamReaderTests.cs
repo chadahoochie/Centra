@@ -14,7 +14,7 @@ public sealed class SseStreamReaderTests
 {
     private record TestSseEvent(string Name, int Value);
 
-    private static Stream CreateStream(string sseData)
+    internal static Stream CreateStream(string sseData)
     {
         var bytes = Encoding.UTF8.GetBytes(sseData);
         return new MemoryStream(bytes);

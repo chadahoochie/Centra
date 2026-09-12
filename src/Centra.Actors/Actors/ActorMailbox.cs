@@ -78,7 +78,7 @@ public sealed class ActorMailbox : IAsyncDisposable
         }
     }
 
-    private async Task ProcessQueueAsync()
+    internal async Task ProcessQueueAsync()
     {
         try
         {

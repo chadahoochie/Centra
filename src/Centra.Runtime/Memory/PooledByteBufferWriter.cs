@@ -33,28 +33,6 @@ public sealed class PooledByteBufferWriter : IBufferWriter<byte>, IDisposable
 
     public Memory<byte> GetMemory(int sizeHint = 0)
     {
-        CheckAndResizeBuffer(sizeHint);
-        return _rentedBuffer.AsMemory(_index);
-    }
-
-    public Span<byte> GetSpan(int sizeHint = 0)
-    {
-        CheckAndResizeBuffer(sizeHint);
-        return _rentedBuffer.AsSpan(_index);
-    }
-
-    public void Reset()
-    {
-        _index = 0;
-    }
-
-    public byte[] ToArray()
-    {
-        return WrittenSpan.ToArray();
-    }
-
-    private void CheckAndResizeBuffer(int sizeHint)
-    {
         ArgumentOutOfRangeException.ThrowIfNegative(sizeHint);
 
         if (sizeHint == 0)
@@ -72,6 +50,20 @@ public sealed class PooledByteBufferWriter : IBufferWriter<byte>, IDisposable
             ArrayPool<byte>.Shared.Return(_rentedBuffer);
             _rentedBuffer = newBuffer;
         }
+
+        return _rentedBuffer.AsMemory(_index);
+    }
+
+    public Span<byte> GetSpan(int sizeHint = 0) => GetMemory(sizeHint).Span;
+
+    public void Reset()
+    {
+        _index = 0;
+    }
+
+    public byte[] ToArray()
+    {
+        return WrittenSpan.ToArray();
     }
 
     public void Dispose()

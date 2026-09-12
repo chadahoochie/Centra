@@ -34,13 +34,13 @@ public sealed class RabbitMQPubSubDriverTests
         _sut = new RabbitMQPubSubDriver(_connectionFactory, Microsoft.Extensions.Options.Options.Create(_options));
     }
 
-    private static bool HasSingleActiveConsumerArg(IDictionary<string, object?>? arguments) =>
+    internal static bool HasSingleActiveConsumerArg(IDictionary<string, object?>? arguments) =>
         arguments is not null && arguments.TryGetValue("x-single-active-consumer", out var value) && value is true;
 
-    private static bool HasTtlArg(IDictionary<string, object?>? arguments, long expectedTtl) =>
+    internal static bool HasTtlArg(IDictionary<string, object?>? arguments, long expectedTtl) =>
         arguments is not null && arguments.TryGetValue("x-message-ttl", out var value) && Equals(value, expectedTtl);
 
-    private static bool HasCustomArgs(IDictionary<string, object?>? arguments, string expectedType, int expectedMax) =>
+    internal static bool HasCustomArgs(IDictionary<string, object?>? arguments, string expectedType, int expectedMax) =>
         arguments is not null &&
         arguments.TryGetValue("x-queue-type", out var type) && Equals(type, expectedType) &&
         arguments.TryGetValue("x-max-length", out var max) && Equals(max, expectedMax);

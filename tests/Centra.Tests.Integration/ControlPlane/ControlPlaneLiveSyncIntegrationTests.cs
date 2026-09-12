@@ -122,7 +122,7 @@ public sealed class ControlPlaneLiveSyncIntegrationTests
         await cpApp.StopAsync();
     }
 
-    private static async Task<ComponentDefinition?> WaitForComponentAsync(
+    internal static async Task<ComponentDefinition?> WaitForComponentAsync(
         IComponentRegistry registry,
         string name,
         TimeSpan timeout)

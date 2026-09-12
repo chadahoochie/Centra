@@ -87,29 +87,29 @@ internal sealed class ActorDispatchMethodMetadata
         };
     }
 
-    private static object? InvokeLocalTaskVoid(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
+    internal static object? InvokeLocalTaskVoid(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
     {
         return DispatchLocalVoidAsync(manager, identity, method, args, ct);
     }
 
-    private static object? InvokeLocalValueTaskVoid(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
+    internal static object? InvokeLocalValueTaskVoid(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
     {
         var task = DispatchLocalVoidAsync(manager, identity, method, args, ct);
         return new ValueTask(task);
     }
 
-    private static object? InvokeLocalTaskGeneric<T>(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
+    internal static object? InvokeLocalTaskGeneric<T>(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
     {
         return DispatchLocalGenericTaskAsync<T>(manager, identity, method, args, ct);
     }
 
-    private static object? InvokeLocalValueTaskGeneric<T>(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
+    internal static object? InvokeLocalValueTaskGeneric<T>(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
     {
         var task = DispatchLocalGenericTaskAsync<T>(manager, identity, method, args, ct);
         return new ValueTask<T>(task);
     }
 
-    private static async Task DispatchLocalVoidAsync(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
+    internal static async Task DispatchLocalVoidAsync(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
     {
         await manager.DispatchAsync(
             identity,
@@ -136,7 +136,7 @@ internal sealed class ActorDispatchMethodMetadata
             ct).ConfigureAwait(false);
     }
 
-    private static async Task<T> DispatchLocalGenericTaskAsync<T>(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
+    internal static async Task<T> DispatchLocalGenericTaskAsync<T>(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
     {
         return await manager.DispatchAsync(
             identity,
@@ -166,35 +166,35 @@ internal sealed class ActorDispatchMethodMetadata
             ct).ConfigureAwait(false);
     }
 
-    private static async ValueTask<T> DispatchLocalGenericValueTaskAsync<T>(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
+    internal static async ValueTask<T> DispatchLocalGenericValueTaskAsync<T>(ActorManager manager, ActorIdentity identity, MethodInfo method, object?[]? args, CancellationToken ct)
     {
         return await DispatchLocalGenericTaskAsync<T>(manager, identity, method, args, ct).ConfigureAwait(false);
     }
 
-    private static object? InvokeRemoteTaskVoid(IServiceInvoker invoker, string targetNode, string path, object? body, CancellationToken ct)
+    internal static object? InvokeRemoteTaskVoid(IServiceInvoker invoker, string targetNode, string path, object? body, CancellationToken ct)
     {
         var vt = invoker.InvokeMethodAsync<object, object?>(targetNode, path, body ?? new object(), "POST", null, ct);
         return vt.AsTask();
     }
 
-    private static object? InvokeRemoteValueTaskVoid(IServiceInvoker invoker, string targetNode, string path, object? body, CancellationToken ct)
+    internal static object? InvokeRemoteValueTaskVoid(IServiceInvoker invoker, string targetNode, string path, object? body, CancellationToken ct)
     {
         var vt = invoker.InvokeMethodAsync<object, object?>(targetNode, path, body ?? new object(), "POST", null, ct);
         return new ValueTask(vt.AsTask());
     }
 
-    private static object? InvokeRemoteTaskGeneric<T>(IServiceInvoker invoker, string targetNode, string path, object? body, CancellationToken ct)
+    internal static object? InvokeRemoteTaskGeneric<T>(IServiceInvoker invoker, string targetNode, string path, object? body, CancellationToken ct)
     {
         var vt = invoker.InvokeMethodAsync<object, T>(targetNode, path, body ?? new object(), "POST", null, ct);
         return vt.AsTask();
     }
 
-    private static object? InvokeRemoteValueTaskGeneric<T>(IServiceInvoker invoker, string targetNode, string path, object? body, CancellationToken ct)
+    internal static object? InvokeRemoteValueTaskGeneric<T>(IServiceInvoker invoker, string targetNode, string path, object? body, CancellationToken ct)
     {
         return invoker.InvokeMethodAsync<object, T>(targetNode, path, body ?? new object(), "POST", null, ct);
     }
 
-    private static MethodInfo ResolveActorMethod(Type actorType, MethodInfo interfaceMethod)
+    internal static MethodInfo ResolveActorMethod(Type actorType, MethodInfo interfaceMethod)
     {
         return MethodResolutionCache.GetOrAdd((actorType, interfaceMethod), static key =>
         {

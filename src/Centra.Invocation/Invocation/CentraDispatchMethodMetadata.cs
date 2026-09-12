@@ -81,24 +81,24 @@ internal sealed class CentraDispatchMethodMetadata
         };
     }
 
-    private static object? InvokeTaskGeneric<TReq, TResp>(IServiceInvoker invoker, string appId, string methodName, string verb, object? body, CancellationToken ct)
+    internal static object? InvokeTaskGeneric<TReq, TResp>(IServiceInvoker invoker, string appId, string methodName, string verb, object? body, CancellationToken ct)
     {
         var vt = invoker.InvokeMethodAsync<TReq, TResp>(appId, methodName, (TReq)body!, verb, null, ct);
         return vt.AsTask();
     }
 
-    private static object? InvokeValueTaskGeneric<TReq, TResp>(IServiceInvoker invoker, string appId, string methodName, string verb, object? body, CancellationToken ct)
+    internal static object? InvokeValueTaskGeneric<TReq, TResp>(IServiceInvoker invoker, string appId, string methodName, string verb, object? body, CancellationToken ct)
     {
         return invoker.InvokeMethodAsync<TReq, TResp>(appId, methodName, (TReq)body!, verb, null, ct);
     }
 
-    private static object? InvokeTaskVoid<TReq>(IServiceInvoker invoker, string appId, string methodName, string verb, object? body, CancellationToken ct)
+    internal static object? InvokeTaskVoid<TReq>(IServiceInvoker invoker, string appId, string methodName, string verb, object? body, CancellationToken ct)
     {
         var vt = invoker.InvokeMethodAsync<TReq, object?>(appId, methodName, (TReq)body!, verb, null, ct);
         return vt.AsTask();
     }
 
-    private static object? InvokeValueTaskVoid<TReq>(IServiceInvoker invoker, string appId, string methodName, string verb, object? body, CancellationToken ct)
+    internal static object? InvokeValueTaskVoid<TReq>(IServiceInvoker invoker, string appId, string methodName, string verb, object? body, CancellationToken ct)
     {
         var vt = invoker.InvokeMethodAsync<TReq, object?>(appId, methodName, (TReq)body!, verb, null, ct);
         return new ValueTask(vt.AsTask());

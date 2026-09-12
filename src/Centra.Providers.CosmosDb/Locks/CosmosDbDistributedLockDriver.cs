@@ -23,9 +23,9 @@ public sealed class CosmosDbDistributedLockDriver : IDistributedLockDriver
         _options = options?.Value ?? new CosmosDbProviderOptions();
     }
 
-    private Container LockContainer => _client.GetContainer(_options.DatabaseName, _options.LockContainerName);
+    internal Container LockContainer => _client.GetContainer(_options.DatabaseName, _options.LockContainerName);
 
-    private async ValueTask EnsureInitializedAsync(CancellationToken cancellationToken)
+    internal async ValueTask EnsureInitializedAsync(CancellationToken cancellationToken)
     {
         if (_options.AutoCreateDatabaseAndContainers && Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
         {

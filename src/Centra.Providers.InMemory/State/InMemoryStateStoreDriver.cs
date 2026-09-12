@@ -20,7 +20,7 @@ public sealed class InMemoryStateStoreDriver : IStateStoreDriver
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var store = GetOrCreateStore(storeName);
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryStateRecord>(StringComparer.OrdinalIgnoreCase));
         if (store.TryGetValue(key, out var record))
         {
             var now = _timeProvider.GetUtcNow();
@@ -44,7 +44,7 @@ public sealed class InMemoryStateStoreDriver : IStateStoreDriver
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var store = GetOrCreateStore(storeName);
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryStateRecord>(StringComparer.OrdinalIgnoreCase));
         var etag = Guid.NewGuid().ToString("N");
         DateTimeOffset? expiresAt = options?.TimeToLive.HasValue == true
             ? _timeProvider.GetUtcNow() + options.TimeToLive.Value
@@ -64,7 +64,7 @@ public sealed class InMemoryStateStoreDriver : IStateStoreDriver
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var store = GetOrCreateStore(storeName);
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryStateRecord>(StringComparer.OrdinalIgnoreCase));
 
         if (store.TryGetValue(key, out var existing))
         {
@@ -111,7 +111,7 @@ public sealed class InMemoryStateStoreDriver : IStateStoreDriver
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var store = GetOrCreateStore(storeName);
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryStateRecord>(StringComparer.OrdinalIgnoreCase));
         store.TryRemove(key, out _);
         return ValueTask.CompletedTask;
     }
@@ -123,7 +123,7 @@ public sealed class InMemoryStateStoreDriver : IStateStoreDriver
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var store = GetOrCreateStore(storeName);
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryStateRecord>(StringComparer.OrdinalIgnoreCase));
         if (store.TryGetValue(key, out var existing))
         {
             if (string.Equals(existing.ETag, expectedETag, StringComparison.Ordinal))
@@ -141,7 +141,7 @@ public sealed class InMemoryStateStoreDriver : IStateStoreDriver
         IReadOnlyList<StateTransactionOperation> operations,
         CancellationToken cancellationToken = default)
     {
-        var store = GetOrCreateStore(storeName);
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryStateRecord>(StringComparer.OrdinalIgnoreCase));
 
         lock (store)
         {
@@ -164,10 +164,5 @@ public sealed class InMemoryStateStoreDriver : IStateStoreDriver
         }
 
         return ValueTask.CompletedTask;
-    }
-
-    private ConcurrentDictionary<string, InMemoryStateRecord> GetOrCreateStore(string storeName)
-    {
-        return _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryStateRecord>(StringComparer.OrdinalIgnoreCase));
     }
 }

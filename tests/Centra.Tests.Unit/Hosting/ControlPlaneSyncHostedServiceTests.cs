@@ -237,7 +237,7 @@ public sealed class ControlPlaneSyncHostedServiceTests
         });
     }
 
-    private static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(IEnumerable<T> items, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    internal static async IAsyncEnumerable<T> ToAsyncEnumerable<T>(IEnumerable<T> items, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         foreach (var item in items)
         {

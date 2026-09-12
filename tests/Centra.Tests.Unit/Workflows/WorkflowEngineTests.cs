@@ -25,7 +25,7 @@ public sealed class WorkflowEngineTests
         _services = new ServiceCollection();
     }
 
-    private (IWorkflowEngine Engine, IWorkflowRegistry Registry, IWorkflowHistoryStore HistoryStore) CreateEngine(
+    internal (IWorkflowEngine Engine, IWorkflowRegistry Registry, IWorkflowHistoryStore HistoryStore) CreateEngine(
         Dictionary<string, object> stateDatabase)
     {
         // Mock state store backed by stateDatabase

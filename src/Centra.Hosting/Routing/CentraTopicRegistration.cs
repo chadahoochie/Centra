@@ -50,7 +50,7 @@ public sealed record CentraTopicRegistration
         Invoker = invoker ?? CreateInvoker(eventType);
     }
 
-    private static Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>> CreateInvoker(Type eventType)
+    internal static Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>> CreateInvoker(Type eventType)
     {
         var genericMethod = CreateTypedInvokerMethod.MakeGenericMethod(eventType);
         return (Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>>)genericMethod.Invoke(null, null)!;

@@ -21,7 +21,7 @@ public sealed class CentraDistributedLockProvider : IDistributedLockProvider
         TimeSpan expiryTime,
         CancellationToken cancellationToken = default)
     {
-        var driver = GetDriver(lockStoreName);
+        var driver = _registry.GetLockDriver(lockStoreName) ?? throw new InvalidOperationException($"No DistributedLock driver registered for lock store '{lockStoreName}'");
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartLockActivity("TryAcquire", lockStoreName, resourceId);
 
@@ -48,7 +48,7 @@ public sealed class CentraDistributedLockProvider : IDistributedLockProvider
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
-        var driver = GetDriver(lockStoreName);
+        var driver = _registry.GetLockDriver(lockStoreName) ?? throw new InvalidOperationException($"No DistributedLock driver registered for lock store '{lockStoreName}'");
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartLockActivity("Acquire", lockStoreName, resourceId);
 
@@ -66,16 +66,5 @@ public sealed class CentraDistributedLockProvider : IDistributedLockProvider
             CentraMeters.RecordLockAcquisition(lockStoreName, "error", durationMs);
             throw;
         }
-    }
-
-    private IDistributedLockDriver GetDriver(string lockStoreName)
-    {
-        var driver = _registry.GetLockDriver(lockStoreName);
-        if (driver is null)
-        {
-            throw new InvalidOperationException($"No DistributedLock driver registered for lock store '{lockStoreName}'");
-        }
-
-        return driver;
     }
 }

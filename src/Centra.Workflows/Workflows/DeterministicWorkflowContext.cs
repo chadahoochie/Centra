@@ -132,7 +132,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         return ExecuteLiveExternalEvent<TEvent>(eventName);
     }
 
-    private bool TryReplayActivity<TResult>(string activityName, out TResult result)
+    internal bool TryReplayActivity<TResult>(string activityName, out TResult result)
     {
         while (_replayIndex < PastHistory.Count)
         {
@@ -165,7 +165,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         return false;
     }
 
-    private bool TryReplayTimer(TimeSpan duration)
+    internal bool TryReplayTimer(TimeSpan duration)
     {
         while (_replayIndex < PastHistory.Count)
         {
@@ -197,7 +197,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         return false;
     }
 
-    private bool TryReplayExternalEvent<TEvent>(string eventName, out ValueTask<TEvent> result)
+    internal bool TryReplayExternalEvent<TEvent>(string eventName, out ValueTask<TEvent> result)
     {
         while (_replayIndex < PastHistory.Count)
         {
@@ -233,7 +233,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         return false;
     }
 
-    private async ValueTask<TResult> ExecuteLiveActivityAsync<TResult>(
+    internal async ValueTask<TResult> ExecuteLiveActivityAsync<TResult>(
         string activityName,
         object? input,
         ActivityOptions? options)
@@ -287,7 +287,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         }
     }
 
-    private ValueTask ExecuteLiveTimer(TimeSpan duration)
+    internal ValueTask ExecuteLiveTimer(TimeSpan duration)
     {
         var dueTime = CurrentUtcDateTime.Add(duration);
         var createdEvent = new WorkflowHistoryEventRecord
@@ -305,7 +305,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         throw new WorkflowSuspendedException($"Waiting for timer due at {dueTime:O}");
     }
 
-    private ValueTask<TEvent> ExecuteLiveExternalEvent<TEvent>(string eventName)
+    internal ValueTask<TEvent> ExecuteLiveExternalEvent<TEvent>(string eventName)
     {
         var awaitedEvent = new WorkflowHistoryEventRecord
         {
@@ -321,7 +321,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         throw new WorkflowSuspendedException($"Waiting for external event '{eventName}'");
     }
 
-    private bool HasFutureEvent(int fromIndex, WorkflowHistoryEventType eventType, string? eventName = null)
+    internal bool HasFutureEvent(int fromIndex, WorkflowHistoryEventType eventType, string? eventName = null)
     {
         for (var j = fromIndex; j < PastHistory.Count; j++)
         {
@@ -336,13 +336,13 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         return false;
     }
 
-    private void CompleteReplay()
+    internal void CompleteReplay()
     {
         IsReplaying = false;
         CurrentUtcDateTime = _timeProvider.GetUtcNow();
     }
 
-    private void CheckReplayCompletion()
+    internal void CheckReplayCompletion()
     {
         if (_replayIndex >= PastHistory.Count)
         {
@@ -351,7 +351,7 @@ public sealed class DeterministicWorkflowContext : IWorkflowContext
         }
     }
 
-    private long NextEventId()
+    internal long NextEventId()
     {
         long baseId = PastHistory.Count > 0 ? PastHistory[^1].EventId : 0;
         return baseId + NewEvents.Count + 1;

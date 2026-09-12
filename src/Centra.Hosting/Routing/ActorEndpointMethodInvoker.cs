@@ -19,7 +19,7 @@ internal sealed class ActorEndpointMethodInvoker
         return innerCache.GetOrAdd(methodName, static (m, type) => Create(type, m), actorType);
     }
 
-    private ActorEndpointMethodInvoker(Func<object, ReadOnlyMemory<byte>, CancellationToken, ValueTask<object?>> invoker)
+    internal ActorEndpointMethodInvoker(Func<object, ReadOnlyMemory<byte>, CancellationToken, ValueTask<object?>> invoker)
     {
         _invoker = invoker;
     }
@@ -29,7 +29,7 @@ internal sealed class ActorEndpointMethodInvoker
         return _invoker(actor, bodyBytes, cancellationToken);
     }
 
-    private static ActorEndpointMethodInvoker? Create(Type actorType, string methodName)
+    internal static ActorEndpointMethodInvoker? Create(Type actorType, string methodName)
     {
         var method = actorType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .FirstOrDefault(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase));
@@ -194,7 +194,7 @@ internal sealed class ActorEndpointMethodInvoker
         });
     }
 
-    private static async ValueTask<object?> AwaitTaskGeneric<TResult>(object? raw)
+    internal static async ValueTask<object?> AwaitTaskGeneric<TResult>(object? raw)
     {
         if (raw is Task<TResult> task)
         {
@@ -203,7 +203,7 @@ internal sealed class ActorEndpointMethodInvoker
         return null;
     }
 
-    private static async ValueTask<object?> AwaitValueTaskGeneric<TResult>(object? raw)
+    internal static async ValueTask<object?> AwaitValueTaskGeneric<TResult>(object? raw)
     {
         if (raw is ValueTask<TResult> vt)
         {

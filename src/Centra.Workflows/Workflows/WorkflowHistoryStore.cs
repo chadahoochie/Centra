@@ -83,6 +83,6 @@ public sealed class WorkflowHistoryStore : IWorkflowHistoryStore
         await _stateStore.DeleteAsync(_storeName, FormatHistoryKey(instanceId), cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    private static string FormatStateKey(string instanceId) => $"wf:state:{instanceId}";
-    private static string FormatHistoryKey(string instanceId) => $"wf:history:{instanceId}";
+    internal static string FormatStateKey(string instanceId) => $"wf:state:{instanceId}";
+    internal static string FormatHistoryKey(string instanceId) => $"wf:history:{instanceId}";
 }
