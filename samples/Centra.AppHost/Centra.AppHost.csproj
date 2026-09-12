@@ -7,10 +7,21 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Redis" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.SqlServer" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Aspire.Hosting\Centra.Aspire.Hosting.csproj" IsAspireProjectResource="false" />
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
     <ProjectReference Include="..\Centra.Sample.OrdersService\Centra.Sample.OrdersService.csproj" />
     <ProjectReference Include="..\Centra.Sample.MultiInstance\Centra.Sample.MultiInstance.csproj" />
+    <ProjectReference Include="..\Centra.Sample.Actors\Centra.Sample.Actors.csproj" />
+    <ProjectReference Include="..\Centra.Sample.Workflows\Centra.Sample.Workflows.csproj" />
+    <ProjectReference Include="..\Centra.Sample.Bindings\Centra.Sample.Bindings.csproj" />
+    <ProjectReference Include="..\Centra.Sample.Resilience\Centra.Sample.Resilience.csproj" />
   </ItemGroup>
 
 </Project>

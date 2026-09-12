@@ -4,8 +4,8 @@ using Centra.Resilience;
 using Centra.Sample.Resilience.Domain;
 using Centra.Sample.Resilience.Simulation;
 
-// If explicitly requested via CLI flag or running directly, execute simulation
-if (args.Contains("--demo", StringComparer.OrdinalIgnoreCase) || args.Length == 0)
+// If explicitly requested via CLI flag, execute simulation
+if (args.Contains("--demo", StringComparer.OrdinalIgnoreCase))
 {
     var simResult = await ResilienceDemoRunner.RunAsync(args);
     return simResult.BaselineSuccess && simResult.TransientRetrySuccess && simResult.CircuitBreakerTripped ? 0 : 1;

@@ -65,7 +65,7 @@ public sealed class WorkflowActivityDispatcherTests
         // Arrange
         using var listener = new ActivityListener
         {
-            ShouldListenTo = s => s.Name == CentraDiagnostics.Source.Name,
+            ShouldListenTo = s => s.Name == CentraDiagnostics.SourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded
         };
         ActivitySource.AddActivityListener(listener);
