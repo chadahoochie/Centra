@@ -4,8 +4,10 @@ using Centra.Hosting.Extensions;
 using Centra.Hosting.Options;
 using Centra.Invocation;
 using Centra.Locks;
+using Centra.Providers.PostgreSql.Extensions;
 using Centra.Providers.RabbitMQ.Extensions;
 using Centra.Providers.Redis.Extensions;
+using Centra.Providers.SqlServer.Extensions;
 using Centra.PubSub;
 using Centra.Sample.DockerStack.Cluster;
 using Centra.Sample.DockerStack.Cron;
@@ -78,6 +80,22 @@ builder.Services.AddCentraRabbitMQPubSub("pubsub", o =>
     o.UserName = builder.Configuration["RabbitMQ:UserName"] ?? "guest";
     o.Password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
 });
+
+var pgConnectionString = builder.Configuration.GetConnectionString("postgresql")
+    ?? builder.Configuration["PostgreSql:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(pgConnectionString))
+{
+    builder.Services.AddCentraPostgreSqlStateStore("pg-statestore", o => o.ConnectionString = pgConnectionString);
+    builder.Services.AddCentraPostgreSqlLocks("pg-lockstore", o => o.ConnectionString = pgConnectionString);
+}
+
+var sqlConnectionString = builder.Configuration.GetConnectionString("sqlserver")
+    ?? builder.Configuration["SqlServer:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(sqlConnectionString))
+{
+    builder.Services.AddCentraSqlServerStateStore("sql-statestore", o => o.ConnectionString = sqlConnectionString);
+    builder.Services.AddCentraSqlServerLocks("sql-lockstore", o => o.ConnectionString = sqlConnectionString);
+}
 
 // 3. Actors: register the demo actor. AddCentra (above) already wires actor placement's
 // consistent hash ring from the built-in IClusterTopologyProvider, so every replica learns about
@@ -308,6 +326,32 @@ app.MapGet("/actors/{id}", async (string id, IActorProxyFactory proxyFactory, IA
     var value = await proxy.GetValueAsync();
 
     return Results.Ok(new { ActorId = id, Value = value, HandledByInstanceId = ownerNodeId });
+});
+
+// --- PostgreSQL State Store & Locks ---
+app.MapPost("/db/postgres/{key}", async (string key, SetDbStateRequest request, IStateStore stateStore, CancellationToken ct) =>
+{
+    await stateStore.SetAsync("pg-statestore", key, request.Value, cancellationToken: ct);
+    return Results.Ok(new { Database = "PostgreSQL", Key = key, Value = request.Value });
+});
+
+app.MapGet("/db/postgres/{key}", async (string key, IStateStore stateStore, CancellationToken ct) =>
+{
+    var entry = await stateStore.GetAsync<string>("pg-statestore", key, cancellationToken: ct);
+    return entry.HasValue ? Results.Ok(new { Database = "PostgreSQL", Key = key, Value = entry.Value.Value, ETag = entry.Value.ETag }) : Results.NotFound();
+});
+
+// --- SQL Server State Store & Locks ---
+app.MapPost("/db/sqlserver/{key}", async (string key, SetDbStateRequest request, IStateStore stateStore, CancellationToken ct) =>
+{
+    await stateStore.SetAsync("sql-statestore", key, request.Value, cancellationToken: ct);
+    return Results.Ok(new { Database = "SQL Server", Key = key, Value = request.Value });
+});
+
+app.MapGet("/db/sqlserver/{key}", async (string key, IStateStore stateStore, CancellationToken ct) =>
+{
+    var entry = await stateStore.GetAsync<string>("sql-statestore", key, cancellationToken: ct);
+    return entry.HasValue ? Results.Ok(new { Database = "SQL Server", Key = key, Value = entry.Value.Value, ETag = entry.Value.ETag }) : Results.NotFound();
 });
 
 // 7. Mount Centra actor invocation, workflow (start/status/history), and CloudEvents/bindings routes.

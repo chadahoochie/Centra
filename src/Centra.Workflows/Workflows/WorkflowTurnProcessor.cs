@@ -19,6 +19,7 @@ public sealed class WorkflowTurnProcessor : IWorkflowTurnProcessor
     private readonly IWorkflowTimerScheduler _timerScheduler;
     private readonly TimeProvider _timeProvider;
     private readonly Func<WorkflowInstanceId, ValueTask> _onTimerDue;
+    private readonly IDurableWorkflowTimerStore? _durableTimerStore;
     private readonly ILogger? _logger;
 
     public WorkflowTurnProcessor(
@@ -30,6 +31,7 @@ public sealed class WorkflowTurnProcessor : IWorkflowTurnProcessor
         IWorkflowTimerScheduler timerScheduler,
         TimeProvider timeProvider,
         Func<WorkflowInstanceId, ValueTask> onTimerDue,
+        IDurableWorkflowTimerStore? durableTimerStore = null,
         ILogger? logger = null)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
@@ -40,6 +42,7 @@ public sealed class WorkflowTurnProcessor : IWorkflowTurnProcessor
         _timerScheduler = timerScheduler ?? throw new ArgumentNullException(nameof(timerScheduler));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _onTimerDue = onTimerDue ?? throw new ArgumentNullException(nameof(onTimerDue));
+        _durableTimerStore = durableTimerStore;
         _logger = logger;
     }
 
@@ -150,6 +153,16 @@ public sealed class WorkflowTurnProcessor : IWorkflowTurnProcessor
 
         if (context.TimerDueTime.HasValue)
         {
+            if (_durableTimerStore is not null)
+            {
+                var timerRecord = new DurableWorkflowTimerRecord(
+                    instanceId,
+                    0,
+                    context.TimerDueTime.Value,
+                    _timeProvider.GetUtcNow());
+                await _durableTimerStore.SaveTimerAsync(timerRecord, cancellationToken).ConfigureAwait(false);
+            }
+
             var delay = context.TimerDueTime.Value - _timeProvider.GetUtcNow();
             _timerScheduler.ScheduleTimer(instanceId, delay < TimeSpan.Zero ? TimeSpan.Zero : delay, _onTimerDue);
         }

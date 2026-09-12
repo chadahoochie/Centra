@@ -23,7 +23,7 @@ public sealed class PostgreSqlDistributedLockDriver : IDistributedLockDriver
         _fullTableName = $"{_options.SchemaName}.{_options.LockTableName}";
     }
 
-    private async ValueTask EnsureTableCreatedAsync(CancellationToken cancellationToken)
+    internal async ValueTask EnsureTableCreatedAsync(CancellationToken cancellationToken)
     {
         if (_options.AutoCreateTable && Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
         {

@@ -170,7 +170,7 @@ public sealed class WorkflowClusterIntegrationTests
         }
     }
 
-    private static IHost CreateWorkflowHost(
+    internal static IHost CreateWorkflowHost(
         string instanceId,
         InMemoryStateStoreDriver sharedStateDriver,
         InMemoryDistributedLockDriver sharedLockDriver)

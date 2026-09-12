@@ -95,6 +95,7 @@ Repo-level skills are saved in [`.agents/skills/`](.agents/skills) (also mirrore
 9. **Durable Reminders Distributed Coordination**: Reminders surviving actor passivation must coordinate using distributed locks (`ActorReminderCoordinator`) to guarantee single-execution across cluster replicas.
 10. **Workflow Determinism & Saga Rollback Invariant**: Orchestration turns must be deterministic; side effects, clock checks, and random values must execute within activities or use `IWorkflowContext` (`CurrentUtcDateTime`, `NewGuid()`). On activity failure or cancellation, registered saga compensations must execute in strict reverse (LIFO) order.
 11. **Relative File Paths in Documentation**: Always use relative file paths for markdown links inside repository documentation, guides, and READMEs (e.g., `../../src/...`, `../operations/...`), never absolute machine paths or `file:///` URIs.
+12. **No Private Instance or Static Methods**: Do not use private instance or static methods in classes or structs. Private methods obscure type responsibilities, complicate testing, and signal hidden coupling. Keep public/internal methods cohesive by inlining simple logic directly at the call site, or factor distinct sub-operations into dedicated, single-purpose collaborator types (internal or public, strictly adhering to 1 type per file).
 
 ---
 

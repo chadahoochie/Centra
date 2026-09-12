@@ -14,7 +14,7 @@ public sealed class FlakyPaymentGatewayServer : IAsyncDisposable
 
     public PaymentChaosState State => _state;
 
-    private FlakyPaymentGatewayServer(WebApplication app, PaymentChaosState state)
+    internal FlakyPaymentGatewayServer(WebApplication app, PaymentChaosState state)
     {
         _app = app;
         _state = state;

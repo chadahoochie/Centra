@@ -23,7 +23,9 @@ public sealed class WorkflowClient : IWorkflowClient
         CancellationToken cancellationToken = default)
         where TWorkflow : class, IWorkflow
     {
-        var workflowName = ResolveWorkflowName<TWorkflow>();
+        var workflowName = typeof(TWorkflow).GetCustomAttribute<WorkflowAttribute>()?.Name is { Length: > 0 } name
+            ? name
+            : typeof(TWorkflow).Name;
         return _engine.StartWorkflowAsync(workflowName, input, instanceId, cancellationToken);
     }
 
@@ -94,17 +96,5 @@ public sealed class WorkflowClient : IWorkflowClient
         CancellationToken cancellationToken = default)
     {
         return _engine.PurgeWorkflowAsync(instanceId, cancellationToken);
-    }
-
-    private string ResolveWorkflowName<TWorkflow>()
-    {
-        var type = typeof(TWorkflow);
-        var attr = type.GetCustomAttribute<WorkflowAttribute>();
-        if (attr is not null && !string.IsNullOrWhiteSpace(attr.Name))
-        {
-            return attr.Name;
-        }
-
-        return type.Name;
     }
 }

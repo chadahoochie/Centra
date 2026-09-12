@@ -201,6 +201,6 @@ public sealed class RedisStateStoreDriver : IStateStoreDriver
         }
     }
 
-    private string BuildKey(string storeName, string key) =>
+    internal string BuildKey(string storeName, string key) =>
         $"{_options.KeyPrefix}state:{storeName}:{key}";
 }

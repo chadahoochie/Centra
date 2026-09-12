@@ -28,7 +28,7 @@ public sealed class RedisDistributedLockDriver : IDistributedLockDriver
         ArgumentException.ThrowIfNullOrWhiteSpace(resourceId);
 
         var db = _connection.GetDatabase();
-        var redisKey = BuildKey(lockStoreName, resourceId);
+        var redisKey = $"{_options.KeyPrefix}lock:{lockStoreName}:{resourceId}";
         var lockId = Guid.NewGuid().ToString("N");
 
         var acquired = await db.StringSetAsync(
@@ -52,7 +52,4 @@ public sealed class RedisDistributedLockDriver : IDistributedLockDriver
         TimeSpan timeout,
         CancellationToken cancellationToken = default) =>
         DistributedLockHelper.AcquireLockAsync(this, lockStoreName, resourceId, expiryTime, timeout, cancellationToken);
-
-    private string BuildKey(string lockStoreName, string resourceId) =>
-        $"{_options.KeyPrefix}lock:{lockStoreName}:{resourceId}";
 }

@@ -1,9 +1,9 @@
 # Centra Docker Compose Cluster Sample
 
 A `docker compose up` stack that runs three replicas of `Centra.Sample.DockerStack` behind real
-Redis, RabbitMQ, and a Centra Control Plane - demonstrating service invocation, Redis state,
-RabbitMQ pub/sub, Redis distributed locks, single-execution cron bindings, cluster-aware virtual
-actors, and a workflow saga, all running as genuinely separate processes/containers instead of the
+Redis, RabbitMQ, PostgreSQL, SQL Server, and a Centra Control Plane - demonstrating service invocation, Redis state,
+PostgreSQL and SQL Server state and distributed locks, RabbitMQ pub/sub, Redis distributed locks, single-execution cron bindings,
+cluster-aware virtual actors, and a workflow saga, all running as genuinely separate processes/containers instead of the
 in-memory single-process samples elsewhere in `samples/`.
 
 The stack also ships a full observability path (OpenTelemetry Collector -> Tempo/Loki/Prometheus ->
@@ -16,8 +16,10 @@ sample itself - see [Observability](#observability).
 
 | Service | Image / Build | Role |
 |---|---|---|
-| `redis` | `redis:7-alpine` | Backs the shared state store and distributed lock store |
+| `redis` | `redis:7-alpine` | Backs the shared Redis state store and distributed lock store |
 | `rabbitmq` | `rabbitmq:4.3-management` | Backs pub/sub (management UI on `:15672`, guest/guest) |
+| `postgres` | `postgres:17-alpine` | Backs PostgreSQL state store (`pg-statestore`) and lock store (`pg-lockstore`) |
+| `sqlserver` | `mcr.microsoft.com/mssql/server:2022-latest` | Backs SQL Server state store (`sql-statestore`) and lock store (`sql-lockstore`) |
 | `control-plane` | `src/Centra.ControlPlane` | Tracks cluster topology/heartbeats, resolves peer addresses |
 | `node-1` / `node-2` / `node-3` | `samples/Centra.Sample.DockerStack` | Three identical replicas of the cluster node, published on `:8081`/`:8082`/`:8083` |
 | `simulator` | `samples/Centra.Sample.DockerStack.Simulator` | Background worker that steadily drives traffic at every demo below, so the stack keeps generating data without manual curls |
@@ -39,7 +41,7 @@ identities are kept separate.
 docker compose -f samples/DockerStack/docker-compose.yml up --build
 ```
 
-Wait for all 6 containers to report healthy/running, then use the curl sequence below. Any
+Wait for all containers to report healthy/running, then use the curl sequence below. Any
 endpoint below can be called against `:8081`, `:8082`, or `:8083` interchangeably unless noted.
 
 Tear down with:
@@ -118,6 +120,34 @@ curl -X POST http://localhost:8081/leader/acquire
 curl -X POST http://localhost:8082/leader/acquire   # 409 Conflict - node-1 already holds the lease
 curl -X POST http://localhost:8081/leader/release
 curl -X POST http://localhost:8082/leader/acquire   # now succeeds
+```
+
+### PostgreSQL state store
+
+Persists state to PostgreSQL with schema auto-initialization, optimistic concurrency, and ETag tracking:
+
+```sh
+curl -X POST http://localhost:8081/db/postgres/order-100 \
+  -H "Content-Type: application/json" \
+  -d '{"value":"{\"status\":\"Pending\",\"total\":199.99}"}'
+
+# Read from peer replicas
+curl http://localhost:8082/db/postgres/order-100
+curl http://localhost:8083/db/postgres/order-100
+```
+
+### SQL Server state store
+
+Persists state to Microsoft SQL Server with schema auto-initialization and ETag support:
+
+```sh
+curl -X POST http://localhost:8081/db/sqlserver/inv-200 \
+  -H "Content-Type: application/json" \
+  -d '{"value":"{\"sku\":\"WIDGET-1\",\"stock\":42}"}'
+
+# Read from peer replicas
+curl http://localhost:8082/db/sqlserver/inv-200
+curl http://localhost:8083/db/sqlserver/inv-200
 ```
 
 ### Workflows / sagas

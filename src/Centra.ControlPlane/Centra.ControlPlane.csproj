@@ -19,5 +19,7 @@
     <ProjectReference Include="..\Centra.Workflows.Abstractions\Centra.Workflows.Abstractions.csproj" />
     <ProjectReference Include="..\Centra.Workflows\Centra.Workflows.csproj" />
     <ProjectReference Include="..\Centra.Sync.Abstractions\Centra.Sync.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.State.Abstractions\Centra.State.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.State\Centra.State.csproj" />
   </ItemGroup>
 </Project>

@@ -18,7 +18,7 @@ public sealed class CosmosDbDistributedLockTests
     private const string LockId = "guid-123";
     private const string InitialETag = "\"initial-etag\"";
 
-    private CosmosDbDistributedLock CreateSut(string etag = InitialETag) =>
+    internal CosmosDbDistributedLock CreateSut(string etag = InitialETag) =>
         new(_container, LockStoreName, ResourceId, LockId, etag);
 
     [Fact]

@@ -1,6 +1,8 @@
 using Centra.Hosting.Extensions;
 using Centra.Locks;
 using Centra.Providers.InMemory.Extensions;
+using Centra.Providers.RabbitMQ.Extensions;
+using Centra.Providers.Redis.Extensions;
 using Centra.PubSub;
 using Centra.Sample.OrdersService.Domain;
 using Centra.Sample.OrdersService.Handlers;
@@ -18,11 +20,34 @@ builder.Services.AddCentra(options =>
     options.DefaultLockStore = "orders-lockstore";
 });
 
-// 2. Add In-Memory Provider for zero-dependency local dev & testing
-builder.Services.AddCentraInMemory(
-    defaultStateStore: "orders-statestore",
-    defaultPubSub: "orders-pubsub",
-    defaultLockStore: "orders-lockstore");
+var redisConnectionString = builder.Configuration.GetConnectionString("redis")
+    ?? builder.Configuration["Centra:Redis:ConnectionString"];
+var rabbitHostName = builder.Configuration["RabbitMQ:HostName"]
+    ?? (builder.Configuration.GetConnectionString("rabbitmq") is not null ? "localhost" : null);
+
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddCentraRedisStateStore("orders-statestore", o => o.ConnectionString = redisConnectionString);
+    builder.Services.AddCentraRedisLocks("orders-lockstore", o => o.ConnectionString = redisConnectionString);
+}
+
+if (!string.IsNullOrWhiteSpace(rabbitHostName))
+{
+    builder.Services.AddCentraRabbitMQPubSub("orders-pubsub", o =>
+    {
+        o.HostName = rabbitHostName;
+        o.UserName = builder.Configuration["RabbitMQ:UserName"] ?? "guest";
+        o.Password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
+    });
+}
+
+if (string.IsNullOrWhiteSpace(redisConnectionString) || string.IsNullOrWhiteSpace(rabbitHostName))
+{
+    builder.Services.AddCentraInMemory(
+        defaultStateStore: "orders-statestore",
+        defaultPubSub: "orders-pubsub",
+        defaultLockStore: "orders-lockstore");
+}
 
 // 3. Register typed service client proxy & event handlers
 builder.Services.AddCentraServiceClient<IInventoryClient>();

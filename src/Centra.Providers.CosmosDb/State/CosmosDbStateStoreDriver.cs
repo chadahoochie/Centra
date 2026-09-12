@@ -22,9 +22,9 @@ public sealed class CosmosDbStateStoreDriver : IStateStoreDriver
         _options = options?.Value ?? new CosmosDbProviderOptions();
     }
 
-    private Container StateContainer => _client.GetContainer(_options.DatabaseName, _options.StateContainerName);
+    internal Container StateContainer => _client.GetContainer(_options.DatabaseName, _options.StateContainerName);
 
-    private async ValueTask EnsureInitializedAsync(CancellationToken cancellationToken)
+    internal async ValueTask EnsureInitializedAsync(CancellationToken cancellationToken)
     {
         if (_options.AutoCreateDatabaseAndContainers && Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
         {

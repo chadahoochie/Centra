@@ -18,7 +18,7 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
         IReadOnlyDictionary<string, string> metadata,
         CancellationToken cancellationToken = default)
     {
-        var pubSubTopics = GetOrCreatePubSub(pubSubName);
+        var pubSubTopics = _topics.GetOrAdd(pubSubName, static _ => new ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>>(StringComparer.OrdinalIgnoreCase));
         if (!pubSubTopics.TryGetValue(topic, out var subscriptions) || subscriptions.IsEmpty)
         {
             return;
@@ -29,7 +29,7 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
         var competing = subscriptions.Where(s => s.ConsumerMode == ConsumerMode.CompetingConsumer);
         foreach (var sub in competing)
         {
-            await DispatchAsync(pubSubName, sub, payload, metadata, cancellationToken).ConfigureAwait(false);
+            await sub.DispatchAsync(this, pubSubName, payload, metadata, cancellationToken).ConfigureAwait(false);
         }
 
         var singleActive = subscriptions.Where(s => s.ConsumerMode == ConsumerMode.SingleActiveConsumer).ToList();
@@ -38,35 +38,7 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
             var subKey = $"{pubSubName}:{topic}";
             var index = _singleActiveRoundRobinIndex.AddOrUpdate(subKey, 0, (_, current) => (current + 1) % singleActive.Count);
             var chosen = singleActive[Math.Abs(index) % singleActive.Count];
-            await DispatchAsync(pubSubName, chosen, payload, metadata, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private async ValueTask DispatchAsync(
-        string pubSubName,
-        InMemorySubscription sub,
-        ReadOnlyMemory<byte> payload,
-        IReadOnlyDictionary<string, string> metadata,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var result = await sub.Handler(payload, metadata, cancellationToken).ConfigureAwait(false);
-            if (result == EventHandlingResult.DeadLetter && !string.IsNullOrWhiteSpace(sub.DeadLetterTopic))
-            {
-                await PublishAsync(pubSubName, sub.DeadLetterTopic, payload, metadata, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch
-        {
-            if (!string.IsNullOrWhiteSpace(sub.DeadLetterTopic))
-            {
-                await PublishAsync(pubSubName, sub.DeadLetterTopic, payload, metadata, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                throw;
-            }
+            await chosen.DispatchAsync(this, pubSubName, payload, metadata, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -79,7 +51,7 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
         PubSubSubscribeOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        var pubSubTopics = GetOrCreatePubSub(pubSubName);
+        var pubSubTopics = _topics.GetOrAdd(pubSubName, static _ => new ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>>(StringComparer.OrdinalIgnoreCase));
         var subs = pubSubTopics.GetOrAdd(topic, static _ => new ConcurrentBag<InMemorySubscription>());
 
         subs.Add(new InMemorySubscription(handler, deadLetterTopic, options?.ConsumerMode ?? ConsumerMode.CompetingConsumer, options));
@@ -91,13 +63,8 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
         string topic,
         CancellationToken cancellationToken = default)
     {
-        var pubSubTopics = GetOrCreatePubSub(pubSubName);
+        var pubSubTopics = _topics.GetOrAdd(pubSubName, static _ => new ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>>(StringComparer.OrdinalIgnoreCase));
         pubSubTopics.TryRemove(topic, out _);
         return ValueTask.CompletedTask;
-    }
-
-    private ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>> GetOrCreatePubSub(string pubSubName)
-    {
-        return _topics.GetOrAdd(pubSubName, static _ => new ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>>(StringComparer.OrdinalIgnoreCase));
     }
 }

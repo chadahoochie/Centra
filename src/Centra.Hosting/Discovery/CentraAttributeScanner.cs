@@ -46,7 +46,7 @@ internal static class CentraAttributeScanner
         }
     }
 
-    private static void RegisterIfEventHandler(IServiceCollection services, Type type)
+    internal static void RegisterIfEventHandler(IServiceCollection services, Type type)
     {
         if (type.IsAbstract || type.GetCustomAttribute<TopicAttribute>() is null)
         {
@@ -70,7 +70,7 @@ internal static class CentraAttributeScanner
         method.Invoke(null, parameters);
     }
 
-    private static void RegisterIfWorkflow(IServiceCollection services, Type type)
+    internal static void RegisterIfWorkflow(IServiceCollection services, Type type)
     {
         if (type.IsAbstract || type.GetCustomAttribute<WorkflowAttribute>() is null || !typeof(IWorkflow).IsAssignableFrom(type))
         {
@@ -84,7 +84,7 @@ internal static class CentraAttributeScanner
         method.Invoke(null, [services]);
     }
 
-    private static void RegisterIfWorkflowActivity(IServiceCollection services, Type type)
+    internal static void RegisterIfWorkflowActivity(IServiceCollection services, Type type)
     {
         if (type.IsAbstract || type.GetCustomAttribute<WorkflowActivityAttribute>() is null)
         {
@@ -98,7 +98,7 @@ internal static class CentraAttributeScanner
         method.Invoke(null, [services]);
     }
 
-    private static void RegisterIfCronJob(IServiceCollection services, Type type)
+    internal static void RegisterIfCronJob(IServiceCollection services, Type type)
     {
         if (type.IsAbstract || !typeof(IJobHandler).IsAssignableFrom(type))
         {
@@ -118,7 +118,7 @@ internal static class CentraAttributeScanner
         method.Invoke(null, [services, null, null, null]);
     }
 
-    private static void RegisterIfInputBindingHandler(IServiceCollection services, Type type)
+    internal static void RegisterIfInputBindingHandler(IServiceCollection services, Type type)
     {
         if (type.IsAbstract || !typeof(IBindingTriggerHandler).IsAssignableFrom(type))
         {
@@ -138,7 +138,7 @@ internal static class CentraAttributeScanner
         method.Invoke(null, [services, null]);
     }
 
-    private static void RegisterIfServiceClient(IServiceCollection services, Type type)
+    internal static void RegisterIfServiceClient(IServiceCollection services, Type type)
     {
         if (!type.IsInterface || type.GetCustomAttribute<ServiceClientAttribute>() is null)
         {
@@ -152,7 +152,7 @@ internal static class CentraAttributeScanner
         method.Invoke(null, [services]);
     }
 
-    private static void RegisterIfActor(IServiceCollection services, Type type)
+    internal static void RegisterIfActor(IServiceCollection services, Type type)
     {
         if (type.IsAbstract || type.GetCustomAttribute<ActorAttribute>() is null || !typeof(Actor).IsAssignableFrom(type))
         {

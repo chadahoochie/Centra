@@ -174,7 +174,7 @@ public sealed class ActorClusterIntegrationTests
         }
     }
 
-    private static IHost CreateActorHost(
+    internal static IHost CreateActorHost(
         string instanceId,
         InMemoryStateStoreDriver sharedStateDriver,
         InMemoryDistributedLockDriver? sharedLockDriver = null)

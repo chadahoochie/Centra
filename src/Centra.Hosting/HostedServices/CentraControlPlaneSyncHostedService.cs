@@ -90,7 +90,7 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
         await Task.WhenAll(heartbeatTask, streamTask, resilienceStreamTask).ConfigureAwait(false);
     }
 
-    private async Task RunHeartbeatLoopAsync(string instanceId, CancellationToken stoppingToken)
+    internal async Task RunHeartbeatLoopAsync(string instanceId, CancellationToken stoppingToken)
     {
         var interval = _options.ControlPlane.HeartbeatInterval;
         while (!stoppingToken.IsCancellationRequested)
@@ -116,7 +116,7 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
         }
     }
 
-    private async Task RunStreamLoopAsync(string instanceId, CancellationToken stoppingToken)
+    internal async Task RunStreamLoopAsync(string instanceId, CancellationToken stoppingToken)
     {
         if (!_options.ControlPlane.EnableLiveSync)
         {
@@ -155,7 +155,7 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
         }
     }
 
-    private void HandleSyncEvent(ComponentSyncEventDto evt)
+    internal void HandleSyncEvent(ComponentSyncEventDto evt)
     {
         switch (evt.Action)
         {
@@ -179,7 +179,7 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
         }
     }
 
-    private async Task RunResilienceStreamLoopAsync(string instanceId, CancellationToken stoppingToken)
+    internal async Task RunResilienceStreamLoopAsync(string instanceId, CancellationToken stoppingToken)
     {
         if (!_options.ControlPlane.EnableLiveSync || _resilienceRegistry is null)
         {
@@ -217,7 +217,7 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
         }
     }
 
-    private void HandleResilienceSyncEvent(ResilienceSyncEventDto evt)
+    internal void HandleResilienceSyncEvent(ResilienceSyncEventDto evt)
     {
         if (_resilienceRegistry is null)
         {
@@ -237,7 +237,7 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
         }
     }
 
-    private static CentraResiliencePolicyDefinition MapFromDto(ResiliencePolicyDto dto)
+    internal static CentraResiliencePolicyDefinition MapFromDto(ResiliencePolicyDto dto)
     {
         RetryPolicyOptions? retry = null;
         if (dto.MaxRetries.HasValue)

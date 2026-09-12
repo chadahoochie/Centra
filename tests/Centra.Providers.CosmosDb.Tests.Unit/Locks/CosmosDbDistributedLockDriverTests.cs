@@ -33,7 +33,7 @@ public sealed class CosmosDbDistributedLockDriverTests
             .Returns(_container);
     }
 
-    private CosmosDbDistributedLockDriver CreateSut(CosmosDbProviderOptions? options = null)
+    internal CosmosDbDistributedLockDriver CreateSut(CosmosDbProviderOptions? options = null)
     {
         var opts = options ?? _options;
         return new CosmosDbDistributedLockDriver(_client, Microsoft.Extensions.Options.Options.Create(opts));

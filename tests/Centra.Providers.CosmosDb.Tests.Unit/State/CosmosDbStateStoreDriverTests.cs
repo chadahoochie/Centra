@@ -34,7 +34,7 @@ public sealed class CosmosDbStateStoreDriverTests
             .Returns(_container);
     }
 
-    private CosmosDbStateStoreDriver CreateSut(CosmosDbProviderOptions? options = null)
+    internal CosmosDbStateStoreDriver CreateSut(CosmosDbProviderOptions? options = null)
     {
         var opts = options ?? _options;
         return new CosmosDbStateStoreDriver(_client, Microsoft.Extensions.Options.Options.Create(opts));

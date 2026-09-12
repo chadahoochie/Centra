@@ -26,7 +26,7 @@ public static class CentraEndpointRouteBuilderExtensions
             endpoints.MapPost(routePattern, async (HttpContext context) =>
             {
                 // Read payload bytes
-                var payload = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+                var payload = await CentraHttpEndpointHelpers.ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
 
                 // Build header dictionary
                 var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -80,7 +80,7 @@ public static class CentraEndpointRouteBuilderExtensions
                 return Results.NotFound();
             }
 
-            var payload = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var payload = await CentraHttpEndpointHelpers.ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
 
             var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var header in context.Request.Headers)
@@ -93,11 +93,11 @@ public static class CentraEndpointRouteBuilderExtensions
                 var bindingData = new BindingData(payload, metadata, context.Request.ContentType);
                 var response = await dispatcher.DispatchAsync(bindingName, bindingData, context.RequestAborted).ConfigureAwait(false);
 
-                ApplyResponseHeaders(context.Response, response.Metadata);
+                CentraHttpEndpointHelpers.ApplyResponseHeaders(context.Response, response.Metadata);
 
                 if (!response.Data.IsEmpty)
                 {
-                    var contentType = ResolveResponseContentType(response.Metadata);
+                    var contentType = CentraHttpEndpointHelpers.ResolveResponseContentType(response.Metadata);
                     return Results.Bytes(response.Data.ToArray(), contentType);
                 }
 
@@ -132,7 +132,7 @@ public static class CentraEndpointRouteBuilderExtensions
 
             var identity = new Centra.Actors.ActorIdentity(actorType, actorId);
 
-            var bodyBytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var bodyBytes = await CentraHttpEndpointHelpers.ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
 
             try
             {
@@ -177,7 +177,7 @@ public static class CentraEndpointRouteBuilderExtensions
             var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
             if (workflowClient is null) return Results.NotFound();
 
-            var bytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var bytes = await CentraHttpEndpointHelpers.ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
             var payload = bytes.Length > 0 ? bytes : null;
 
             var instanceId = await workflowClient.StartWorkflowAsync(
@@ -197,7 +197,7 @@ public static class CentraEndpointRouteBuilderExtensions
             var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
             if (workflowClient is null) return Results.NotFound();
 
-            var bytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var bytes = await CentraHttpEndpointHelpers.ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
             var payload = bytes.Length > 0 ? bytes : null;
 
             var actualId = await workflowClient.StartWorkflowAsync(
@@ -250,7 +250,7 @@ public static class CentraEndpointRouteBuilderExtensions
             var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
             if (workflowClient is null) return Results.NotFound();
 
-            var bytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var bytes = await CentraHttpEndpointHelpers.ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
             var payload = bytes.Length > 0 ? bytes : null;
 
             await workflowClient.RaiseEventAsync(
@@ -269,7 +269,7 @@ public static class CentraEndpointRouteBuilderExtensions
             var workflowClient = context.RequestServices.GetService<IWorkflowClient>();
             if (workflowClient is null) return Results.NotFound();
 
-            var bytes = await ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
+            var bytes = await CentraHttpEndpointHelpers.ReadRequestBodyBytesAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
             var reason = bytes.Length > 0 ? System.Text.Encoding.UTF8.GetString(bytes) : "Terminated via API";
 
             await workflowClient.TerminateWorkflowAsync(
@@ -293,46 +293,5 @@ public static class CentraEndpointRouteBuilderExtensions
 
         return endpoints;
     }
-
-    private static void ApplyResponseHeaders(HttpResponse response, IReadOnlyDictionary<string, string>? metadata)
-    {
-        if (metadata is null) return;
-        foreach (var (k, v) in metadata)
-        {
-            if (k.StartsWith("header:", StringComparison.OrdinalIgnoreCase))
-            {
-                response.Headers.TryAdd(k["header:".Length..], v);
-            }
-        }
-    }
-
-    private static string ResolveResponseContentType(IReadOnlyDictionary<string, string>? metadata)
-    {
-        if (metadata is not null && metadata.TryGetValue("content-type", out var ct))
-        {
-            return ct;
-        }
-
-        return "application/octet-stream";
-    }
-
-    private static async ValueTask<byte[]> ReadRequestBodyBytesAsync(HttpRequest request, CancellationToken cancellationToken)
-    {
-        if (request.ContentLength.HasValue)
-        {
-            var length = (int)request.ContentLength.Value;
-            if (length <= 0)
-            {
-                return [];
-            }
-
-            var buffer = GC.AllocateUninitializedArray<byte>(length);
-            await request.Body.ReadExactlyAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
-            return buffer;
-        }
-
-        using var ms = new MemoryStream();
-        await request.Body.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
-        return ms.ToArray();
-    }
 }
+

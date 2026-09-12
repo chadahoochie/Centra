@@ -137,7 +137,7 @@ public sealed class MultiInstanceClusterIntegrationTests
         await host2.StopAsync();
     }
 
-    private static IHost CreateTestHost(string instanceId, HttpClient cpClient)
+    internal static IHost CreateTestHost(string instanceId, HttpClient cpClient)
     {
         return Host.CreateDefaultBuilder()
             .ConfigureLogging(l => l.SetMinimumLevel(LogLevel.Warning))

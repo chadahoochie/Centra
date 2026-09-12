@@ -22,7 +22,7 @@ public sealed class InMemoryDistributedLockDriver : IDistributedLockDriver
         TimeSpan expiryTime,
         CancellationToken cancellationToken = default)
     {
-        var store = GetOrCreateStore(lockStoreName);
+        var store = _stores.GetOrAdd(lockStoreName, static _ => new ConcurrentDictionary<string, InMemoryDistributedLock>(StringComparer.OrdinalIgnoreCase));
         var now = _timeProvider.GetUtcNow();
         var lockId = Guid.NewGuid().ToString("N");
         var newLock = new InMemoryDistributedLock(this, lockStoreName, resourceId, lockId, now + expiryTime);
@@ -62,7 +62,7 @@ public sealed class InMemoryDistributedLockDriver : IDistributedLockDriver
 
     internal ValueTask<bool> RenewLockAsync(string storeName, string resourceId, string lockId, TimeSpan additionalTime)
     {
-        var store = GetOrCreateStore(storeName);
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryDistributedLock>(StringComparer.OrdinalIgnoreCase));
         if (store.TryGetValue(resourceId, out var existing) && existing.LockId == lockId)
         {
             var now = _timeProvider.GetUtcNow();
@@ -78,17 +78,12 @@ public sealed class InMemoryDistributedLockDriver : IDistributedLockDriver
 
     internal ValueTask ReleaseLockAsync(string storeName, string resourceId, string lockId)
     {
-        var store = GetOrCreateStore(storeName);
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryDistributedLock>(StringComparer.OrdinalIgnoreCase));
         if (store.TryGetValue(resourceId, out var existing) && existing.LockId == lockId)
         {
             store.TryRemove(new KeyValuePair<string, InMemoryDistributedLock>(resourceId, existing));
         }
 
         return ValueTask.CompletedTask;
-    }
-
-    private ConcurrentDictionary<string, InMemoryDistributedLock> GetOrCreateStore(string storeName)
-    {
-        return _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryDistributedLock>(StringComparer.OrdinalIgnoreCase));
     }
 }

@@ -5,8 +5,10 @@ using Centra.Sample.Actors.Simulation;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
-// If requested via CLI flag or running without args, execute simulation
-if (args.Contains("--demo", StringComparer.OrdinalIgnoreCase) || args.Length == 0)
+using Centra.Providers.Redis.Extensions;
+
+// If requested via CLI flag, execute interactive simulation
+if (args.Contains("--demo", StringComparer.OrdinalIgnoreCase))
 {
     var simResult = await ActorDemoRunner.RunAsync(args);
     return simResult.ConcurrentDepositsCount == 50 && simResult.PassivationAndReactivationSucceeded && simResult.ReminderExecuted ? 0 : 1;
@@ -19,7 +21,19 @@ builder.Services.AddCentra(options =>
     options.AppId = "actors-sample-app";
     options.DefaultStateStore = "statestore";
 });
-builder.Services.AddCentraInMemory();
+
+var redisConnectionString = builder.Configuration.GetConnectionString("redis")
+    ?? builder.Configuration["Centra:Redis:ConnectionString"];
+
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddCentraRedisStateStore("statestore", o => o.ConnectionString = redisConnectionString);
+    builder.Services.AddCentraRedisLocks("statestore", o => o.ConnectionString = redisConnectionString);
+}
+else
+{
+    builder.Services.AddCentraInMemory();
+}
 builder.Services.AddCentraActors(options =>
 {
     options.DefaultStateStore = "statestore";

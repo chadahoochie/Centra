@@ -20,5 +20,7 @@
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.Redis\Centra.Providers.Redis.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.PostgreSql\Centra.Providers.PostgreSql.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.SqlServer\Centra.Providers.SqlServer.csproj" />
   </ItemGroup>
 </Project>

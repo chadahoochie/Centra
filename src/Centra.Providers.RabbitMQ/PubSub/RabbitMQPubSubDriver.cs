@@ -248,7 +248,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
         _subscriptions[subKey] = (channel, tag, limiter);
     }
 
-    private async Task ProcessAndAckAsync(
+    internal async Task ProcessAndAckAsync(
         IChannel channel,
         string queueName,
         BasicDeliverEventArgs ea,

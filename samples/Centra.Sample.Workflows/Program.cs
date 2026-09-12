@@ -5,8 +5,10 @@ using Centra.Sample.Workflows.Simulation;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
-// If requested via CLI flag or running without args, execute simulation
-if (args.Contains("--demo", StringComparer.OrdinalIgnoreCase) || args.Length == 0)
+using Centra.Providers.Redis.Extensions;
+
+// If requested via CLI flag, execute simulation
+if (args.Contains("--demo", StringComparer.OrdinalIgnoreCase))
 {
     var simResult = await WorkflowDemoRunner.RunAsync(args);
     return simResult.HappyPathCompleted && simResult.SagaRollbackSucceeded && simResult.ExternalApprovalSucceeded ? 0 : 1;
@@ -20,7 +22,19 @@ builder.Services.AddCentra(options =>
     options.DefaultStateStore = "statestore";
     options.DefaultLockStore = "lockstore";
 });
-builder.Services.AddCentraInMemory();
+
+var redisConnectionString = builder.Configuration.GetConnectionString("redis")
+    ?? builder.Configuration["Centra:Redis:ConnectionString"];
+
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddCentraRedisStateStore("statestore", o => o.ConnectionString = redisConnectionString);
+    builder.Services.AddCentraRedisLocks("lockstore", o => o.ConnectionString = redisConnectionString);
+}
+else
+{
+    builder.Services.AddCentraInMemory();
+}
 builder.Services.AddCentraWorkflows(options =>
 {
     options.DefaultStateStore = "statestore";

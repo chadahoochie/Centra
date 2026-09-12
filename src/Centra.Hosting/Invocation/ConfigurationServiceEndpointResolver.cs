@@ -46,5 +46,5 @@ public sealed class ConfigurationServiceEndpointResolver : IServiceEndpointResol
         return _fallback.ResolveEndpointAsync(serviceAppId, cancellationToken);
     }
 
-    private static string EnsureTrailingSlash(string url) => url.EndsWith('/') ? url : url + "/";
+    internal static string EnsureTrailingSlash(string url) => url.EndsWith('/') ? url : url + "/";
 }

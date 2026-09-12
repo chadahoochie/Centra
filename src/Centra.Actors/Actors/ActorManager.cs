@@ -175,7 +175,7 @@ public sealed class ActorManager : IAsyncDisposable
         }
     }
 
-    private async Task<ActorActivation> CreateActivationCoreAsync(
+    internal async Task<ActorActivation> CreateActivationCoreAsync(
         ActorIdentity identity,
         CancellationToken cancellationToken)
     {
@@ -207,7 +207,7 @@ public sealed class ActorManager : IAsyncDisposable
         return activation;
     }
 
-    private Type ResolveActorType(ActorType type)
+    internal Type ResolveActorType(ActorType type)
     {
         if (_registeredActorTypes.TryGetValue(type, out var registeredType))
         {

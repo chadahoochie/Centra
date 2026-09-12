@@ -30,7 +30,7 @@ public sealed class CentraStateStore : IStateStore
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var driver = GetDriver(storeName);
+        var driver = _registry.GetStateStoreDriver(storeName) ?? throw new InvalidOperationException($"No StateStore driver registered for store '{storeName}'");
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartStateActivity("Get", storeName, key);
 
@@ -79,7 +79,7 @@ public sealed class CentraStateStore : IStateStore
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var driver = GetDriver(storeName);
+        var driver = _registry.GetStateStoreDriver(storeName) ?? throw new InvalidOperationException($"No StateStore driver registered for store '{storeName}'");
         var bytes = _serializer.Serialize(value);
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartStateActivity("Set", storeName, key);
@@ -116,7 +116,7 @@ public sealed class CentraStateStore : IStateStore
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var driver = GetDriver(storeName);
+        var driver = _registry.GetStateStoreDriver(storeName) ?? throw new InvalidOperationException($"No StateStore driver registered for store '{storeName}'");
         var bytes = _serializer.Serialize(value);
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartStateActivity("TrySet", storeName, key);
@@ -153,7 +153,7 @@ public sealed class CentraStateStore : IStateStore
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var driver = GetDriver(storeName);
+        var driver = _registry.GetStateStoreDriver(storeName) ?? throw new InvalidOperationException($"No StateStore driver registered for store '{storeName}'");
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartStateActivity("Delete", storeName, key);
 
@@ -188,7 +188,7 @@ public sealed class CentraStateStore : IStateStore
         StateOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var driver = GetDriver(storeName);
+        var driver = _registry.GetStateStoreDriver(storeName) ?? throw new InvalidOperationException($"No StateStore driver registered for store '{storeName}'");
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartStateActivity("TryDelete", storeName, key);
 
@@ -223,13 +223,13 @@ public sealed class CentraStateStore : IStateStore
         IReadOnlyList<StateTransactionOperation> operations,
         CancellationToken cancellationToken = default)
     {
-        var driver = GetDriver(storeName);
+        var driver = _registry.GetStateStoreDriver(storeName) ?? throw new InvalidOperationException($"No StateStore driver registered for store '{storeName}'");
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartStateActivity("ExecuteTransaction", storeName, "batch");
 
         try
         {
-            var normalizedOps = NormalizeOperations(operations);
+            var normalizedOps = StateTransactionNormalizer.Normalize(operations, _serializer);
             if (_resilienceProvider is not null)
             {
                 var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
@@ -250,67 +250,5 @@ public sealed class CentraStateStore : IStateStore
             CentraMeters.RecordStateOperation(storeName, "ExecuteTransaction", "error", durationMs);
             throw;
         }
-    }
-
-    private IReadOnlyList<StateTransactionOperation> NormalizeOperations(IReadOnlyList<StateTransactionOperation> operations)
-    {
-        if (operations.Count == 0)
-        {
-            return operations;
-        }
-
-        List<StateTransactionOperation>? converted = null;
-        for (var i = 0; i < operations.Count; i++)
-        {
-            var op = operations[i];
-            if (op is SetTransactionOperation<byte[]> || op is DeleteTransactionOperation)
-            {
-                converted?.Add(op);
-                continue;
-            }
-
-            converted ??= new List<StateTransactionOperation>(operations.Take(i));
-            converted.Add(NormalizeOperation(op));
-        }
-
-        return converted ?? operations;
-    }
-
-    private StateTransactionOperation NormalizeOperation(StateTransactionOperation op)
-    {
-        var opType = op.GetType();
-        if (!opType.IsGenericType || opType.GetGenericTypeDefinition() != typeof(SetTransactionOperation<>))
-        {
-            return op;
-        }
-
-        var genericArg = opType.GetGenericArguments()[0];
-        var valueProp = opType.GetProperty(nameof(SetTransactionOperation<object>.Value))!;
-        var expectedETagProp = opType.GetProperty(nameof(SetTransactionOperation<object>.ExpectedETag))!;
-        var optionsProp = opType.GetProperty(nameof(SetTransactionOperation<object>.Options))!;
-
-        var rawValue = valueProp.GetValue(op);
-        var expectedETag = (string?)expectedETagProp.GetValue(op);
-        var options = (StateOptions?)optionsProp.GetValue(op);
-
-        var bytes = rawValue switch
-        {
-            null => [],
-            ReadOnlyMemory<byte> rom => rom.ToArray(),
-            _ => _serializer.Serialize(rawValue, genericArg)
-        };
-
-        return new SetTransactionOperation<byte[]>(op.Key, bytes, expectedETag, options);
-    }
-
-    private IStateStoreDriver GetDriver(string storeName)
-    {
-        var driver = _registry.GetStateStoreDriver(storeName);
-        if (driver is null)
-        {
-            throw new InvalidOperationException($"No StateStore driver registered for store '{storeName}'");
-        }
-
-        return driver;
     }
 }

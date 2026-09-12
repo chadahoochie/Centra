@@ -12,6 +12,28 @@ services:
       - "5672:5672"
       - "15672:15672"
 
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: centra
+      POSTGRES_USER: centra
+      POSTGRES_PASSWORD: centra_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U centra -d centra"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Centra_Password123!"
+
   control-plane:
     build:
       context: ../..
@@ -23,6 +45,8 @@ services:
     depends_on:
       - redis
       - rabbitmq
+      - postgres
+      - sqlserver
       - otel-collector
 
   node-1:
@@ -36,10 +60,14 @@ services:
       Centra__ControlPlaneEndpoint: http://control-plane:8080
       ConnectionStrings__redis: redis:6379
       RabbitMQ__HostName: rabbitmq
+      ConnectionStrings__postgresql: "Host=postgres;Database=centra;Username=centra;Password=centra_password"
+      ConnectionStrings__sqlserver: "Server=sqlserver,1433;Database=centra;User Id=sa;Password=Centra_Password123!;TrustServerCertificate=True"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     depends_on:
       - redis
       - rabbitmq
+      - postgres
+      - sqlserver
       - control-plane
       - otel-collector
 
@@ -54,10 +82,14 @@ services:
       Centra__ControlPlaneEndpoint: http://control-plane:8080
       ConnectionStrings__redis: redis:6379
       RabbitMQ__HostName: rabbitmq
+      ConnectionStrings__postgresql: "Host=postgres;Database=centra;Username=centra;Password=centra_password"
+      ConnectionStrings__sqlserver: "Server=sqlserver,1433;Database=centra;User Id=sa;Password=Centra_Password123!;TrustServerCertificate=True"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     depends_on:
       - redis
       - rabbitmq
+      - postgres
+      - sqlserver
       - control-plane
       - otel-collector
 
@@ -72,10 +104,14 @@ services:
       Centra__ControlPlaneEndpoint: http://control-plane:8080
       ConnectionStrings__redis: redis:6379
       RabbitMQ__HostName: rabbitmq
+      ConnectionStrings__postgresql: "Host=postgres;Database=centra;Username=centra;Password=centra_password"
+      ConnectionStrings__sqlserver: "Server=sqlserver,1433;Database=centra;User Id=sa;Password=Centra_Password123!;TrustServerCertificate=True"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     depends_on:
       - redis
       - rabbitmq
+      - postgres
+      - sqlserver
       - control-plane
       - otel-collector
 
