@@ -33,6 +33,7 @@ Use this skill when:
 6. **API Design** - Accept abstractions, return appropriately specific types
 7. **Composition Over Inheritance** - Avoid abstract base classes, prefer composition
 8. **Value Objects as Structs** - Use `readonly record struct` for value objects
+9. **No Private Methods** - Avoid private instance or static methods. Factor helper logic into dedicated, single-purpose collaborator types (SRP) or inline simple logic directly.
 
 ---
 

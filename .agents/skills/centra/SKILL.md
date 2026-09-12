@@ -208,6 +208,7 @@ if (!@lock.Success)
 - **SOLID Principles**: Strict adherence to ISP and DIP across all abstraction libraries.
 - **Single Responsibility (File per Type)**: Exactly one type (class, struct, interface, enum) per `.cs` file.
 - **Nullability & Warnings**: `<Nullable>enable</Nullable>` and `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` are globally enforced. Do not suppress warnings without explicit rationale.
+- **No Private Instance or Static Methods**: Do not use private instance or static methods in classes or structs. Factor distinct sub-operations into dedicated, single-purpose collaborator types (internal or public, strictly 1 type per file) or inline simple logic directly at the call site.
 - **Central Package Management**: Never add `<PackageReference Version="...">` directly to project files. Add versions to [`Directory.Packages.props`](file:///home/chad/source/dotnet/distributed-framework/Directory.Packages.props).
 - **TDD (Test-Driven Development)**: All driver implementations and abstractions must be accompanied by unit tests and, where appropriate, Testcontainers integration tests.
 

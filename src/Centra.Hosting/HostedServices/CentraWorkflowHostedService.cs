@@ -11,6 +11,7 @@ public sealed class CentraWorkflowHostedService : BackgroundService
 {
     private readonly IWorkflowEngine _engine;
     private readonly WorkflowOptions _options;
+    private readonly DurableWorkflowTimerCoordinator? _timerCoordinator;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<CentraWorkflowHostedService>? _logger;
 
@@ -19,9 +20,20 @@ public sealed class CentraWorkflowHostedService : BackgroundService
         WorkflowOptions options,
         TimeProvider? timeProvider = null,
         ILogger<CentraWorkflowHostedService>? logger = null)
+        : this(engine, options, null, timeProvider, logger)
+    {
+    }
+
+    public CentraWorkflowHostedService(
+        IWorkflowEngine engine,
+        WorkflowOptions options,
+        DurableWorkflowTimerCoordinator? timerCoordinator,
+        TimeProvider? timeProvider = null,
+        ILogger<CentraWorkflowHostedService>? logger = null)
     {
         _engine = engine;
         _options = options;
+        _timerCoordinator = timerCoordinator;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger;
     }
@@ -34,6 +46,11 @@ public sealed class CentraWorkflowHostedService : BackgroundService
         {
             try
             {
+                if (_timerCoordinator is not null)
+                {
+                    await _timerCoordinator.ProcessDueTimersAsync(stoppingToken).ConfigureAwait(false);
+                }
+
                 await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

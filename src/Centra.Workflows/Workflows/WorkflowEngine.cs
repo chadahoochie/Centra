@@ -17,6 +17,7 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly IWorkflowTimerScheduler _timerScheduler;
     private readonly IWorkflowTurnProcessor _turnProcessor;
+    private readonly IDurableWorkflowTimerStore? _durableTimerStore;
 
     public WorkflowEngine(
         IServiceProvider serviceProvider,
@@ -28,13 +29,15 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         ILogger<WorkflowEngine>? logger = null,
         IWorkflowRunnerInvoker? runnerInvoker = null,
         IWorkflowTimerScheduler? timerScheduler = null,
-        IWorkflowTurnProcessor? turnProcessor = null)
+        IWorkflowTurnProcessor? turnProcessor = null,
+        IDurableWorkflowTimerStore? durableTimerStore = null)
     {
         ArgumentNullException.ThrowIfNull(serviceProvider);
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _historyStore = historyStore ?? throw new ArgumentNullException(nameof(historyStore));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _durableTimerStore = durableTimerStore;
 
         _timerScheduler = timerScheduler ?? new WorkflowTimerScheduler(_timeProvider, logger);
         var invoker = runnerInvoker ?? WorkflowRunnerInvoker.Instance;
@@ -47,6 +50,7 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
             _timerScheduler,
             _timeProvider,
             async id => await FireTimerAsync(id).ConfigureAwait(false),
+            _durableTimerStore,
             logger);
     }
 
@@ -233,6 +237,10 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         CancellationToken cancellationToken = default)
     {
         _timerScheduler.CancelTimer(instanceId);
+        if (_durableTimerStore is not null)
+        {
+            await _durableTimerStore.DeleteTimerAsync(instanceId, cancellationToken).ConfigureAwait(false);
+        }
 
         var state = await _historyStore.GetStateAsync(instanceId, cancellationToken).ConfigureAwait(false);
         if (state is null) return;
@@ -270,6 +278,10 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         CancellationToken cancellationToken = default)
     {
         _timerScheduler.CancelTimer(instanceId);
+        if (_durableTimerStore is not null)
+        {
+            await _durableTimerStore.DeleteTimerAsync(instanceId, cancellationToken).ConfigureAwait(false);
+        }
 
         var state = await _historyStore.GetStateAsync(instanceId, cancellationToken).ConfigureAwait(false);
         if (state is null) return;
@@ -299,6 +311,10 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         CancellationToken cancellationToken = default)
     {
         _timerScheduler.CancelTimer(instanceId);
+        if (_durableTimerStore is not null)
+        {
+            await _durableTimerStore.DeleteTimerAsync(instanceId, cancellationToken).ConfigureAwait(false);
+        }
         await _historyStore.PurgeAsync(instanceId, cancellationToken).ConfigureAwait(false);
     }
 

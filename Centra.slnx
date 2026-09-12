@@ -20,6 +20,7 @@
     <Project Path="src/Centra.Hosting/Centra.Hosting.csproj" />
     <Project Path="src/Centra.ControlPlane/Centra.ControlPlane.csproj" />
     <Project Path="src/Centra.Aspire.Hosting/Centra.Aspire.Hosting.csproj" />
+    <Project Path="src/Centra.Generators/Centra.Generators.csproj" />
   </Folder>
   <Folder Name="/src/impl/">
     <Project Path="src/Centra.Runtime/Centra.Runtime.csproj" />
@@ -75,6 +76,7 @@
     <Project Path="tests/Centra.Providers.SqlServer.Tests.Unit/Centra.Providers.SqlServer.Tests.Unit.csproj" />
     <Project Path="tests/Centra.Providers.AzureServiceBus.Tests.Unit/Centra.Providers.AzureServiceBus.Tests.Unit.csproj" />
     <Project Path="tests/Centra.Providers.CosmosDb.Tests.Unit/Centra.Providers.CosmosDb.Tests.Unit.csproj" />
+    <Project Path="tests/Centra.Generators.Tests.Unit/Centra.Generators.Tests.Unit.csproj" />
     <Project Path="tests/Centra.Tests.Integration/Centra.Tests.Integration.csproj" />
   </Folder>
 </Solution>

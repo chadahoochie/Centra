@@ -6,6 +6,7 @@ using Centra.Events;
 using Centra.Hosting.Options;
 using Centra.Hosting.Routing;
 using Centra.PubSub;
+using Centra.PubSub.Inbox;
 using Centra.Registry;
 using Centra.Resilience;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +23,7 @@ public sealed class CentraRuntimeHostedService : IHostedService
     private readonly IOptions<CentraOptions> _options;
     private readonly IReadOnlyList<CentraTopicRegistration> _registrations;
     private readonly ILogger<CentraRuntimeHostedService> _logger;
+    private readonly CentraSubscriptionEventDispatcher _dispatcher;
 
     public CentraRuntimeHostedService(
         ComponentRegistry registry,
@@ -35,6 +37,7 @@ public sealed class CentraRuntimeHostedService : IHostedService
         _options = options;
         _registrations = registrations.ToArray();
         _logger = logger;
+        _dispatcher = new CentraSubscriptionEventDispatcher(serviceProvider, logger);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -55,7 +58,7 @@ public sealed class CentraRuntimeHostedService : IHostedService
                 localReg.Topic,
                 async (payload, headers, ct) =>
                 {
-                    return await DispatchEventAsync(localReg, payload, headers, ct).ConfigureAwait(false);
+                    return await _dispatcher.DispatchEventAsync(localReg, payload, headers, ct).ConfigureAwait(false);
                 },
                 localReg.DeadLetterTopic,
                 cancellationToken,
@@ -80,75 +83,6 @@ public sealed class CentraRuntimeHostedService : IHostedService
             {
                 await driver.UnsubscribeAsync(reg.PubSubName, reg.Topic, cancellationToken).ConfigureAwait(false);
             }
-        }
-    }
-
-    private async ValueTask<EventHandlingResult> DispatchEventAsync(
-        CentraTopicRegistration reg,
-        ReadOnlyMemory<byte> payload,
-        IReadOnlyDictionary<string, string> headers,
-        CancellationToken cancellationToken)
-    {
-        var parentContext = CentraTracePropagator.Extract(headers);
-        var startTime = Stopwatch.GetTimestamp();
-        using var activity = CentraDiagnostics.StartProcessActivity(reg.PubSubName, reg.Topic, parentContext);
-
-        // Ambient context setup
-        if (headers.TryGetValue(CloudEventConstants.CorrelationIdHeader, out var corrId))
-        {
-            CentraAmbientContext.CorrelationId = corrId;
-        }
-
-        if (headers.TryGetValue(CloudEventConstants.IdHeader, out var causeId))
-        {
-            CentraAmbientContext.CausationId = causeId;
-        }
-
-        if (headers.TryGetValue(CloudEventConstants.TenantIdHeader, out var tenantId))
-        {
-            CentraAmbientContext.TenantId = tenantId;
-        }
-
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var handler = scope.ServiceProvider.GetService(reg.HandlerType);
-            if (handler is null)
-            {
-                return EventHandlingResult.Drop;
-            }
-
-            var resilienceProvider = _serviceProvider.GetService<IResiliencePipelineProvider>();
-            EventHandlingResult result;
-            if (resilienceProvider is not null)
-            {
-                var pipeline = resilienceProvider.GetPubSubPipeline(reg.PubSubName);
-                result = await pipeline.ExecuteAsync(async ct =>
-                {
-                    return await reg.Invoker(handler, payload, headers, ct).ConfigureAwait(false);
-                }, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                result = await reg.Invoker(handler, payload, headers, cancellationToken).ConfigureAwait(false);
-            }
-
-            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-            CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, result.ToString(), durationMs);
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-            CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, "error", durationMs);
-            _logger.LogEventProcessingFailed(ex, reg.EventType.Name, reg.PubSubName, reg.Topic, causeId ?? "unknown");
-            return EventHandlingResult.DeadLetter;
-        }
-        finally
-        {
-            CentraAmbientContext.Clear();
         }
     }
 }

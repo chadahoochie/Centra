@@ -3,12 +3,14 @@ using Centra.Core.Workflows;
 using Centra.Hosting.HostedServices;
 using Centra.Hosting.Options;
 using Centra.Hosting.Routing;
+using Centra.Locks;
 using Centra.Resilience;
 using Centra.Serialization;
 using Centra.State;
 using Centra.Workflows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Centra.Hosting.Extensions;
@@ -63,6 +65,17 @@ public static class CentraWorkflowServiceCollectionExtensions
             return new WorkflowActivityDispatcher(sp, registry, serializer, resilience);
         });
 
+        services.TryAddSingleton<IDurableWorkflowTimerStore>(sp =>
+        {
+            var stateStore = sp.GetRequiredService<IStateStore>();
+            var opt = sp.GetRequiredService<WorkflowOptions>();
+            var centraOpt = sp.GetService<CentraOptions>();
+            var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
+                ? opt.DefaultStateStore
+                : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
+            return new StateStoreDurableWorkflowTimerStore(stateStore, storeName);
+        });
+
         services.TryAddSingleton<IWorkflowEngine>(sp =>
         {
             var registry = sp.GetRequiredService<IWorkflowRegistry>();
@@ -70,7 +83,27 @@ public static class CentraWorkflowServiceCollectionExtensions
             var dispatcher = sp.GetRequiredService<IWorkflowActivityDispatcher>();
             var serializer = sp.GetRequiredService<ICentraSerializer>();
             var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
-            return new WorkflowEngine(sp, registry, historyStore, dispatcher, serializer, timeProvider);
+            var timerStore = sp.GetService<IDurableWorkflowTimerStore>();
+            var logger = sp.GetService<ILogger<WorkflowEngine>>();
+            return new WorkflowEngine(sp, registry, historyStore, dispatcher, serializer, timeProvider, logger, durableTimerStore: timerStore);
+        });
+
+        services.TryAddSingleton<DurableWorkflowTimerCoordinator>(sp =>
+        {
+            var timerStore = sp.GetRequiredService<IDurableWorkflowTimerStore>();
+            var engine = sp.GetRequiredService<IWorkflowEngine>();
+            var lockProvider = sp.GetService<IDistributedLockProvider>();
+            var centraOpt = sp.GetService<CentraOptions>();
+            var lockStore = centraOpt?.DefaultLockStore ?? "lockstore";
+            var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+            var logger = sp.GetService<ILogger<DurableWorkflowTimerCoordinator>>();
+            return new DurableWorkflowTimerCoordinator(
+                timerStore,
+                id => engine.FireTimerAsync(id),
+                lockProvider,
+                lockStore,
+                timeProvider,
+                logger);
         });
 
         services.TryAddSingleton<IWorkflowClient, WorkflowClient>();

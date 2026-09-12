@@ -29,4 +29,35 @@ public static class ControlPlaneServiceCollectionExtensions
 
         return services;
     }
+
+    public static IServiceCollection AddCentraControlPlaneStateStoreCatalogs(
+        this IServiceCollection services,
+        string stateStoreName = "default")
+    {
+        services.AddSingleton<StateStoreComponentCatalog>(sp =>
+        {
+            var stateStore = sp.GetRequiredService<Centra.State.IStateStore>();
+            var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+            return new StateStoreComponentCatalog(stateStore, stateStoreName, timeProvider);
+        });
+        services.AddSingleton<IComponentCatalog>(sp => sp.GetRequiredService<StateStoreComponentCatalog>());
+        services.AddSingleton<IComponentCatalogReader>(sp => sp.GetRequiredService<StateStoreComponentCatalog>());
+        services.AddSingleton<IComponentCatalogWriter>(sp => sp.GetRequiredService<StateStoreComponentCatalog>());
+
+        services.AddSingleton<IResiliencePolicyCatalog>(sp =>
+        {
+            var stateStore = sp.GetRequiredService<Centra.State.IStateStore>();
+            var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+            return new StateStoreResiliencePolicyCatalog(stateStore, stateStoreName, timeProvider);
+        });
+
+        services.AddSingleton<ITopologyTracker>(sp =>
+        {
+            var stateStore = sp.GetRequiredService<Centra.State.IStateStore>();
+            var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
+            return new StateStoreTopologyTracker(stateStore, stateStoreName, timeProvider);
+        });
+
+        return services;
+    }
 }
