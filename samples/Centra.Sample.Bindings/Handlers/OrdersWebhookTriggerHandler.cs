@@ -6,6 +6,19 @@ using Microsoft.Extensions.Logging;
 
 namespace Centra.Sample.Bindings.Handlers;
 
+/// <summary>
+/// Inbound webhook binding handler.
+/// <para>
+/// <b>Centra Inbound Binding Features:</b>
+/// <list type="bullet">
+///   <item><b>Declarative Routing</b>: Decorated with <see cref="BindingAttribute"/>("orders-webhook").</item>
+///   <item><b>Automatic Endpoint Mapping</b>: When <c>app.MapCentraEndpoints()</c> is called, Centra automatically
+///   mounts an HTTP endpoint at <c>POST /centra/bindings/{bindingName}</c>.</item>
+///   <item><b>Context &amp; Trace Propagation</b>: Distributed W3C trace context (<c>traceparent</c>) is propagated
+///   automatically into the handler.</item>
+/// </list>
+/// </para>
+/// </summary>
 public sealed class OrdersWebhookTriggerHandler : IBindingTriggerHandler
 {
     private readonly IStateStore<OrderState> _stateStore;
@@ -17,10 +30,13 @@ public sealed class OrdersWebhookTriggerHandler : IBindingTriggerHandler
         IStateStore<OrderState> stateStore,
         ILogger<OrdersWebhookTriggerHandler> logger)
     {
-        _stateStore = stateStore;
-        _logger = logger;
+        _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>
+    /// Invoked when an external caller submits an HTTP payload to /centra/bindings/orders-webhook.
+    /// </summary>
     [Binding("orders-webhook")]
     public async ValueTask<BindingResponse> HandleTriggerAsync(
         BindingData data,
@@ -37,8 +53,10 @@ public sealed class OrdersWebhookTriggerHandler : IBindingTriggerHandler
             return new BindingResponse(errBytes, new Dictionary<string, string> { ["status"] = "error" });
         }
 
+        // Persist order in the shared cluster state store
         var orderState = new OrderState(order.OrderId, order.Amount, "ProcessedViaWebhook");
-        await _stateStore.SetAsync($"order:{order.OrderId}", orderState, cancellationToken: cancellationToken);
+        await _stateStore.SetAsync($"order:{order.OrderId}", orderState, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
 
         _logger.LogInformation(
             "[INPUT BINDING] Webhook processed order '{OrderId}' for ${Amount}. Persisted in state store.",
