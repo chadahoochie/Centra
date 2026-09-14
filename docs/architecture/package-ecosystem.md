@@ -106,7 +106,7 @@ These packages contain zero third-party dependencies, zero heavy runtime logic, 
 | :--- | :--- | :--- |
 | `Centra.Events.Abstractions` | CNCF CloudEvents v1.0 specifications | `CloudEvent`, `EventContext`, `CentraAmbientContext` |
 | `Centra.Components.Abstractions` | Component definitions & registration metadata | `ComponentDefinition`, `ComponentType`, `IComponentRegistry` |
-| `Centra.PubSub.Abstractions` | Pub/Sub producer & consumer contracts | `IPubSubClient`, `IEventHandler<T>`, `[Topic]`, `IPubSubDriver` |
+| `Centra.PubSub.Abstractions` | Pub/Sub producer & consumer contracts | `IPubSubClient`, `IEventHandler<T>`, `[Topic]`, `IPubSubDriver`, `IRuleFilterEvaluator`, `ICompiledRuleFilter` |
 | `Centra.State.Abstractions` | Key/value state store, transactions & ETags | `IStateStore<T>`, `StateEntry<T>`, `ITransactionalStateStore`, `IStateStoreDriver` |
 | `Centra.Locks.Abstractions` | Distributed mutual exclusion & lease contracts | `IDistributedLockProvider`, `IDistributedLock`, `IDistributedLockDriver` |
 | `Centra.Invocation.Abstractions` | Declarative RPC interfaces & routing | `IServiceInvoker`, `[ServiceClient]`, `[ServiceMethod]`, `IServiceEndpointResolver` |
@@ -131,7 +131,7 @@ These packages implement the runtime execution pipelines, serialization, and coo
 | `Centra.Sync` | Client-side control plane sync client, topology polling, and real-time SSE stream reader. |
 | `Centra.Locks` | `CentraDistributedLockProvider` orchestrating driver leases and background heartbeats. |
 | `Centra.State` | `CentraStateStore` and generic `CentraStateStore<T>` with ETag CAS retries. |
-| `Centra.PubSub` | `CentraPubSubClient` packing domain models into CloudEvents with ambient W3C headers. |
+| `Centra.PubSub` | `CentraPubSubClient` packing domain models into CloudEvents, CEL-style `RuleFilterEvaluator`, tokenizer, and AST parser. |
 | `Centra.Bindings` | Bitmask 64-bit Cron scheduler (`CentraCronScheduler`), input trigger dispatcher, and resilient output binding. |
 | `Centra.Invocation` | Dynamic client proxy generation (`ServiceProxyFactory`), endpoint resolution, and HTTP dispatch. |
 | `Centra.Actors` | Turn-based mailbox (`ActorMailbox`), consistent hash ring (`ConsistentHashRing`), state dirty-tracking, reminders. |

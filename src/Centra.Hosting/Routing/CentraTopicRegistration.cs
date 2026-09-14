@@ -20,6 +20,10 @@ public sealed record CentraTopicRegistration
     public TimeSpan? MessageTimeToLive { get; init; }
     public bool AutoDelete { get; init; }
     public IReadOnlyDictionary<string, object?>? CustomArguments { get; init; }
+    public string? RuleFilter { get; init; }
+    public int Priority { get; init; }
+    public ICompiledRuleFilter? CompiledFilter { get; init; }
+    public Func<EventContext, ReadOnlyMemory<byte>, bool>? Predicate { get; init; }
     public Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>> Invoker { get; init; }
 
     public CentraTopicRegistration(
@@ -29,6 +33,43 @@ public sealed record CentraTopicRegistration
         Type handlerType,
         string? deadLetterTopic = null,
         Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>>? invoker = null,
+        ConsumerMode consumerMode = ConsumerMode.CompetingConsumer,
+        int? prefetchCount = null,
+        int? maxConcurrentCalls = null,
+        TimeSpan? messageTimeToLive = null,
+        bool autoDelete = false,
+        IReadOnlyDictionary<string, object?>? customArguments = null)
+        : this(
+            pubSubName,
+            topic,
+            eventType,
+            handlerType,
+            deadLetterTopic,
+            invoker,
+            ruleFilter: null,
+            priority: 0,
+            compiledFilter: null,
+            predicate: null,
+            consumerMode: consumerMode,
+            prefetchCount: prefetchCount,
+            maxConcurrentCalls: maxConcurrentCalls,
+            messageTimeToLive: messageTimeToLive,
+            autoDelete: autoDelete,
+            customArguments: customArguments)
+    {
+    }
+
+    public CentraTopicRegistration(
+        string pubSubName,
+        string topic,
+        Type eventType,
+        Type handlerType,
+        string? deadLetterTopic,
+        Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>>? invoker,
+        string? ruleFilter,
+        int priority,
+        ICompiledRuleFilter? compiledFilter = null,
+        Func<EventContext, ReadOnlyMemory<byte>, bool>? predicate = null,
         ConsumerMode consumerMode = ConsumerMode.CompetingConsumer,
         int? prefetchCount = null,
         int? maxConcurrentCalls = null,
@@ -47,6 +88,10 @@ public sealed record CentraTopicRegistration
         MessageTimeToLive = messageTimeToLive;
         AutoDelete = autoDelete;
         CustomArguments = customArguments;
+        RuleFilter = ruleFilter;
+        Priority = priority;
+        CompiledFilter = compiledFilter;
+        Predicate = predicate;
         Invoker = invoker ?? CreateInvoker(eventType);
     }
 

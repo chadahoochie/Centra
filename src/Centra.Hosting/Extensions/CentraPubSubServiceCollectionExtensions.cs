@@ -1,4 +1,5 @@
 using System.Reflection;
+using Centra.Events;
 using Centra.Hosting.HostedServices;
 using Centra.Hosting.Inbox;
 using Centra.Hosting.Options;
@@ -25,6 +26,8 @@ public static class CentraPubSubServiceCollectionExtensions
     {
         services.AddCentraCore(configure);
 
+        services.TryAddSingleton<IRuleFilterEvaluator, Centra.PubSub.Routing.Rules.RuleFilterEvaluator>();
+
         services.TryAddSingleton<IPubSubClient>(sp =>
         {
             var registry = sp.GetRequiredService<ComponentRegistry>();
@@ -46,23 +49,37 @@ public static class CentraPubSubServiceCollectionExtensions
         int? maxConcurrentCalls = null,
         TimeSpan? messageTimeToLive = null,
         bool? autoDelete = null,
-        IReadOnlyDictionary<string, object?>? customArguments = null)
+        IReadOnlyDictionary<string, object?>? customArguments = null,
+        string? ruleFilter = null,
+        int? priority = null)
         where THandler : class, IEventHandler<TEvent>
     {
         services.TryAddTransient<THandler>();
 
-        var topicAttr = typeof(THandler).GetCustomAttribute<TopicAttribute>();
+        var topicAttrs = typeof(THandler).GetCustomAttributes<TopicAttribute>().ToArray();
+        var topicAttr = topicAttrs.FirstOrDefault(a => (topic == null || a.Topic == topic) && (ruleFilter == null || a.RuleFilter == ruleFilter)) ?? topicAttrs.FirstOrDefault();
         var resolvedPubSub = pubSubName ?? topicAttr?.PubSubName ?? "pubsub";
         var resolvedTopic = topic ?? topicAttr?.Topic ?? typeof(TEvent).Name;
         var resolvedDlTopic = deadLetterTopic ?? topicAttr?.DeadLetterTopic;
+        var resolvedRuleFilter = ruleFilter ?? topicAttr?.RuleFilter;
+        var resolvedPriority = priority ?? topicAttr?.Priority ?? 0;
         var resolvedConsumerMode = consumerMode ?? topicAttr?.ConsumerMode ?? ConsumerMode.CompetingConsumer;
         var resolvedPrefetchCount = prefetchCount ?? (topicAttr?.PrefetchCount > 0 ? topicAttr.PrefetchCount : null);
         var resolvedMaxConcurrentCalls = maxConcurrentCalls ?? (topicAttr?.MaxConcurrentCalls > 0 ? topicAttr.MaxConcurrentCalls : null);
         var resolvedTtl = messageTimeToLive ?? (topicAttr?.MessageTtlSeconds > 0 ? TimeSpan.FromSeconds(topicAttr.MessageTtlSeconds) : null);
         var resolvedAutoDelete = autoDelete ?? topicAttr?.AutoDelete ?? false;
 
+        ICompiledRuleFilter? compiledFilter = null;
+        if (!string.IsNullOrWhiteSpace(resolvedRuleFilter))
+        {
+            var evaluator = new Centra.PubSub.Routing.Rules.RuleFilterEvaluator();
+            compiledFilter = evaluator.Compile(resolvedRuleFilter);
+        }
+
         services.ReplaceRegistrationFor<CentraTopicRegistration>(
-            r => r.HandlerType == typeof(THandler),
+            r => r.HandlerType == typeof(THandler) &&
+                 (r.Topic == resolvedTopic || (topicAttr != null && r.Topic == topicAttr.Topic)) &&
+                 r.RuleFilter == resolvedRuleFilter,
             new CentraTopicRegistration(
                 resolvedPubSub,
                 resolvedTopic,
@@ -70,6 +87,75 @@ public static class CentraPubSubServiceCollectionExtensions
                 typeof(THandler),
                 resolvedDlTopic,
                 CentraTopicRegistration.CreateTypedInvoker<TEvent>(),
+                resolvedRuleFilter,
+                resolvedPriority,
+                compiledFilter,
+                predicate: null,
+                resolvedConsumerMode,
+                resolvedPrefetchCount,
+                resolvedMaxConcurrentCalls,
+                resolvedTtl,
+                resolvedAutoDelete,
+                customArguments));
+
+        return services;
+    }
+
+    public static IServiceCollection AddCentraEventHandler<THandler, TEvent>(
+        this IServiceCollection services,
+        Func<TEvent, EventContext, bool> predicate,
+        string? pubSubName = null,
+        string? topic = null,
+        string? deadLetterTopic = null,
+        int? priority = null,
+        ConsumerMode? consumerMode = null,
+        int? prefetchCount = null,
+        int? maxConcurrentCalls = null,
+        TimeSpan? messageTimeToLive = null,
+        bool? autoDelete = null,
+        IReadOnlyDictionary<string, object?>? customArguments = null)
+        where THandler : class, IEventHandler<TEvent>
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        services.TryAddTransient<THandler>();
+
+        var topicAttrs = typeof(THandler).GetCustomAttributes<TopicAttribute>().ToArray();
+        var topicAttr = topicAttrs.FirstOrDefault(a => topic == null || a.Topic == topic) ?? topicAttrs.FirstOrDefault();
+        var resolvedPubSub = pubSubName ?? topicAttr?.PubSubName ?? "pubsub";
+        var resolvedTopic = topic ?? topicAttr?.Topic ?? typeof(TEvent).Name;
+        var resolvedDlTopic = deadLetterTopic ?? topicAttr?.DeadLetterTopic;
+        var resolvedPriority = priority ?? topicAttr?.Priority ?? 0;
+        var resolvedConsumerMode = consumerMode ?? topicAttr?.ConsumerMode ?? ConsumerMode.CompetingConsumer;
+        var resolvedPrefetchCount = prefetchCount ?? (topicAttr?.PrefetchCount > 0 ? topicAttr.PrefetchCount : null);
+        var resolvedMaxConcurrentCalls = maxConcurrentCalls ?? (topicAttr?.MaxConcurrentCalls > 0 ? topicAttr.MaxConcurrentCalls : null);
+        var resolvedTtl = messageTimeToLive ?? (topicAttr?.MessageTtlSeconds > 0 ? TimeSpan.FromSeconds(topicAttr.MessageTtlSeconds) : null);
+        var resolvedAutoDelete = autoDelete ?? topicAttr?.AutoDelete ?? false;
+
+        Func<EventContext, ReadOnlyMemory<byte>, bool> untypedPredicate = (ctx, payload) =>
+        {
+            var unpacked = Centra.Events.CloudEventUnpacker.Unpack<TEvent>(payload, ctx.Headers);
+            if (unpacked.Data is null)
+            {
+                return false;
+            }
+            return predicate(unpacked.Data, ctx);
+        };
+
+        services.ReplaceRegistrationFor<CentraTopicRegistration>(
+            r => r.HandlerType == typeof(THandler) &&
+                 (r.Topic == resolvedTopic || (topicAttr != null && r.Topic == topicAttr.Topic)) &&
+                 r.Predicate != null,
+            new CentraTopicRegistration(
+                resolvedPubSub,
+                resolvedTopic,
+                typeof(TEvent),
+                typeof(THandler),
+                resolvedDlTopic,
+                CentraTopicRegistration.CreateTypedInvoker<TEvent>(),
+                ruleFilter: null,
+                resolvedPriority,
+                compiledFilter: null,
+                predicate: untypedPredicate,
                 resolvedConsumerMode,
                 resolvedPrefetchCount,
                 resolvedMaxConcurrentCalls,
