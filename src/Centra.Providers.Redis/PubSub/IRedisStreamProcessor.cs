@@ -21,6 +21,15 @@ public interface IRedisStreamProcessor
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Publishes a batch of messages to a Redis Stream using pipelining.
+    /// </summary>
+    ValueTask PublishBatchToStreamAsync(
+        IDatabase db,
+        string streamKey,
+        IReadOnlyList<PubSubMessage> messages,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Runs the consumer group reading and dispatch loop for a Redis Stream subscription.
     /// </summary>
     Task RunStreamLoopAsync(
@@ -49,5 +58,6 @@ public interface IRedisStreamProcessor
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         StreamEntry entry,
         ILogger logger,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool autoAcknowledge = true);
 }

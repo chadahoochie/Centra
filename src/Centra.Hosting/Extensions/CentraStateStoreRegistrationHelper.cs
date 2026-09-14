@@ -17,6 +17,9 @@ internal sealed class CentraStateStoreRegistrationHelper<T> : IStateStore<T>
     public ValueTask<StateEntry<T>?> GetAsync(string key, StateOptions? options = null, CancellationToken cancellationToken = default) =>
         _inner.GetAsync(key, options, cancellationToken);
 
+    public ValueTask<IReadOnlyList<StateEntry<T>>> GetBatchAsync(IReadOnlyList<string> keys, StateOptions? options = null, CancellationToken cancellationToken = default) =>
+        _inner.GetBatchAsync(keys, options, cancellationToken);
+
     public ValueTask SetAsync(string key, T value, StateOptions? options = null, CancellationToken cancellationToken = default) =>
         _inner.SetAsync(key, value, options, cancellationToken);
 

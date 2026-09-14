@@ -68,6 +68,47 @@ public sealed class RedisStateStoreDriver : IStateStoreDriver
         return new StateEntry<byte[]>(key, data, etag, null);
     }
 
+    public async ValueTask<IReadOnlyList<StateEntry<byte[]>>> GetBatchAsync(
+        string storeName,
+        IReadOnlyList<string> keys,
+        StateOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeName);
+        ArgumentNullException.ThrowIfNull(keys);
+
+        if (keys.Count == 0)
+        {
+            return Array.Empty<StateEntry<byte[]>>();
+        }
+
+        var db = _connection.GetDatabase();
+        var batch = db.CreateBatch();
+        var tasks = new Task<RedisValue[]>[keys.Count];
+        for (int i = 0; i < keys.Count; i++)
+        {
+            var redisKey = BuildKey(storeName, keys[i]);
+            tasks[i] = batch.HashGetAsync(redisKey, [DataField, ETagField]);
+        }
+
+        batch.Execute();
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        var list = new List<StateEntry<byte[]>>(keys.Count);
+        for (int i = 0; i < keys.Count; i++)
+        {
+            var values = results[i];
+            if (!values[0].IsNullOrEmpty)
+            {
+                byte[] data = values[0]!;
+                string etag = values[1].HasValue ? values[1].ToString() : string.Empty;
+                list.Add(new StateEntry<byte[]>(keys[i], data, etag, null));
+            }
+        }
+
+        return list;
+    }
+
     public async ValueTask SetAsync(
         string storeName,
         string key,

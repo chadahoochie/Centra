@@ -7,4 +7,10 @@ public interface IStateStoreReader
         string key,
         StateOptions? options = null,
         CancellationToken cancellationToken = default);
+
+    ValueTask<IReadOnlyList<StateEntry<T>>> GetBatchAsync<T>(
+        string storeName,
+        IReadOnlyList<string> keys,
+        StateOptions? options = null,
+        CancellationToken cancellationToken = default);
 }
