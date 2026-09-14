@@ -34,7 +34,7 @@ docs/
 | Guide | Description |
 | :--- | :--- |
 | [**Architectural Overview**](architecture/overview.md) | The six core pillars, zero-sidecar in-process execution, and zero-allocation memory conventions. |
-| [**Package Ecosystem**](architecture/package-ecosystem.md) | Map of the 11 modular abstractions, 12 implementations, 7 providers, hosting, and control plane. |
+| [**Package Ecosystem**](architecture/package-ecosystem.md) | Map of the 11 modular abstractions, 12 implementations, Roslyn source generator, 7 providers, hosting, and control plane. |
 | [**Concurrency & State Invariants**](architecture/concurrency-and-state.md) | Actor mailbox turns, dirty tracking, ETag CAS state commits, and distributed lock lease renewals. |
 | [**Workflows & Sagas Engine**](architecture/workflows-and-sagas.md) | Deterministic event-sourced replay, durable timers, and automated LIFO saga compensations. |
 
