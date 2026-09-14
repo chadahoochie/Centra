@@ -22,6 +22,7 @@ public sealed class CentraRuntimeHostedService : IHostedService
     private readonly IServiceProvider _serviceProvider;
     private readonly IOptions<CentraOptions> _options;
     private readonly IReadOnlyList<CentraTopicRegistration> _registrations;
+    private readonly CentraTopicRouterRegistry _routerRegistry;
     private readonly ILogger<CentraRuntimeHostedService> _logger;
     private readonly CentraSubscriptionEventDispatcher _dispatcher;
 
@@ -35,7 +36,9 @@ public sealed class CentraRuntimeHostedService : IHostedService
         _registry = registry;
         _serviceProvider = serviceProvider;
         _options = options;
-        _registrations = registrations.ToArray();
+        var regs = registrations.ToArray();
+        _registrations = regs;
+        _routerRegistry = new CentraTopicRouterRegistry(regs);
         _logger = logger;
         _dispatcher = new CentraSubscriptionEventDispatcher(serviceProvider, logger);
     }
@@ -44,44 +47,36 @@ public sealed class CentraRuntimeHostedService : IHostedService
     {
         _logger.LogCentraInitialized(_options.Value.AppId);
 
-        foreach (var reg in _registrations)
+        foreach (var router in _routerRegistry.GetRouters())
         {
-            var driver = _registry.GetPubSubDriver(reg.PubSubName);
+            var driver = _registry.GetPubSubDriver(router.PubSubName);
             if (driver is null)
             {
                 continue;
             }
 
-            var localReg = reg;
+            var localRouter = router;
             await driver.SubscribeAsync(
-                localReg.PubSubName,
-                localReg.Topic,
+                localRouter.PubSubName,
+                localRouter.Topic,
                 async (payload, headers, ct) =>
                 {
-                    return await _dispatcher.DispatchEventAsync(localReg, payload, headers, ct).ConfigureAwait(false);
+                    return await _dispatcher.DispatchEventAsync(localRouter, payload, headers, ct).ConfigureAwait(false);
                 },
-                localReg.DeadLetterTopic,
+                localRouter.DeadLetterTopic,
                 cancellationToken,
-                new PubSubSubscribeOptions
-                {
-                    ConsumerMode = localReg.ConsumerMode,
-                    PrefetchCount = localReg.PrefetchCount,
-                    MaxConcurrentCalls = localReg.MaxConcurrentCalls,
-                    MessageTimeToLive = localReg.MessageTimeToLive,
-                    AutoDelete = localReg.AutoDelete,
-                    CustomArguments = localReg.CustomArguments
-                }).ConfigureAwait(false);
+                localRouter.SubscriptionOptions).ConfigureAwait(false);
         }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        foreach (var reg in _registrations)
+        foreach (var router in _routerRegistry.GetRouters())
         {
-            var driver = _registry.GetPubSubDriver(reg.PubSubName);
+            var driver = _registry.GetPubSubDriver(router.PubSubName);
             if (driver is not null)
             {
-                await driver.UnsubscribeAsync(reg.PubSubName, reg.Topic, cancellationToken).ConfigureAwait(false);
+                await driver.UnsubscribeAsync(router.PubSubName, router.Topic, cancellationToken).ConfigureAwait(false);
             }
         }
     }

@@ -18,10 +18,11 @@ public static class CentraEndpointRouteBuilderExtensions
     public static IEndpointRouteBuilder MapCentraEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var registrations = endpoints.ServiceProvider.GetServices<CentraTopicRegistration>();
+        var routerRegistry = new CentraTopicRouterRegistry(registrations);
 
-        foreach (var reg in registrations)
+        foreach (var router in routerRegistry.GetRouters())
         {
-            var routePattern = $"/centra/events/{reg.PubSubName}/{reg.Topic.TrimStart('/')}";
+            var routePattern = $"/centra/events/{router.PubSubName}/{router.Topic.TrimStart('/')}";
 
             endpoints.MapPost(routePattern, async (HttpContext context) =>
             {
@@ -33,6 +34,14 @@ public static class CentraEndpointRouteBuilderExtensions
                 foreach (var header in context.Request.Headers)
                 {
                     headers[header.Key] = header.Value.ToString();
+                }
+
+                var eventContext = CentraEventContextExtractor.Extract(router.PubSubName, router.Topic, headers);
+                var reg = router.SelectRoute(new ReadOnlyMemory<byte>(payload), headers, in eventContext);
+                if (reg is null)
+                {
+                    CentraMeters.RecordPubSubConsumed(router.PubSubName, router.Topic, "unrouted_drop", 0);
+                    return Results.Ok();
                 }
 
                 var parentContext = CentraTracePropagator.Extract(headers);

@@ -48,7 +48,13 @@ internal static class CentraAttributeScanner
 
     internal static void RegisterIfEventHandler(IServiceCollection services, Type type)
     {
-        if (type.IsAbstract || type.GetCustomAttribute<TopicAttribute>() is null)
+        if (type.IsAbstract)
+        {
+            return;
+        }
+
+        var topicAttrs = type.GetCustomAttributes<TopicAttribute>().ToArray();
+        if (topicAttrs.Length == 0)
         {
             return;
         }
@@ -62,12 +68,28 @@ internal static class CentraAttributeScanner
 
         var eventType = eventHandlerInterface.GetGenericArguments()[0];
         var method = typeof(Extensions.CentraPubSubServiceCollectionExtensions)
-            .GetMethod(nameof(Extensions.CentraPubSubServiceCollectionExtensions.AddCentraEventHandler))!
+            .GetMethods()
+            .First(m => m.Name == nameof(Extensions.CentraPubSubServiceCollectionExtensions.AddCentraEventHandler) &&
+                        m.GetParameters().Any(p => p.Name == "ruleFilter"))
             .MakeGenericMethod(type, eventType);
 
-        var parameters = new object?[method.GetParameters().Length];
-        parameters[0] = services;
-        method.Invoke(null, parameters);
+        foreach (var topicAttr in topicAttrs)
+        {
+            method.Invoke(null, [
+                services,
+                topicAttr.PubSubName,
+                topicAttr.Topic,
+                topicAttr.DeadLetterTopic,
+                topicAttr.ConsumerMode,
+                topicAttr.PrefetchCount > 0 ? topicAttr.PrefetchCount : null,
+                topicAttr.MaxConcurrentCalls > 0 ? topicAttr.MaxConcurrentCalls : null,
+                topicAttr.MessageTtlSeconds > 0 ? TimeSpan.FromSeconds(topicAttr.MessageTtlSeconds) : null,
+                topicAttr.AutoDelete,
+                null,
+                topicAttr.RuleFilter,
+                topicAttr.Priority
+            ]);
+        }
     }
 
     internal static void RegisterIfWorkflow(IServiceCollection services, Type type)

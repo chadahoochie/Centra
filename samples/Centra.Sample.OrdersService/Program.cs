@@ -49,11 +49,21 @@ if (string.IsNullOrWhiteSpace(redisConnectionString) || string.IsNullOrWhiteSpac
         defaultLockStore: "orders-lockstore");
 }
 
-// 3. Register typed service client proxy & event handlers
+// 3. Register typed service client proxy & dynamic event handlers
 builder.Services.AddCentraServiceClient<IInventoryClient>();
+
+// High-value orders (>= $500) routed with priority 10 via rule filter
+builder.Services.AddCentraEventHandler<HighValueOrderNotificationHandler, OrderCreatedEvent>(
+    pubSubName: "orders-pubsub",
+    topic: "orders.created",
+    ruleFilter: "data.totalAmount >= 500",
+    priority: 10);
+
+// Default order handler acts as fallback (priority 0)
 builder.Services.AddCentraEventHandler<PaymentNotificationHandler, OrderCreatedEvent>(
     pubSubName: "orders-pubsub",
-    topic: "orders.created");
+    topic: "orders.created",
+    priority: 0);
 
 var app = builder.Build();
 

@@ -70,13 +70,15 @@ Centra's DI registration system is strictly **idempotent** and adheres to the **
   // Handler has no attributes:
   public sealed class OrderCreatedHandler : IEventHandler<OrderCreatedEvent> { /* ... */ }
 
-  // In Program.cs - dynamically configured from appsettings:
+  // In Program.cs - dynamically configured from appsettings with optional rule filtering:
   builder.Services.AddCentraPubSub();
   builder.Services.AddCentraEventHandler<OrderCreatedHandler, OrderCreatedEvent>(
       pubSubName: builder.Configuration["Messaging:BrokerName"],
       topic: builder.Configuration["Messaging:OrdersTopic"],
       deadLetterTopic: "custom.dlq",
-      consumerMode: ConsumerMode.CompetingConsumer);
+      consumerMode: ConsumerMode.CompetingConsumer,
+      ruleFilter: "data.totalAmount >= 500",
+      priority: 10);
   ```
 
 #### 2. Typed RPC Clients

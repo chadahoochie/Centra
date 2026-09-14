@@ -23,6 +23,24 @@ internal sealed class CentraSubscriptionEventDispatcher
     }
 
     public async ValueTask<EventHandlingResult> DispatchEventAsync(
+        CentraTopicRouter router,
+        ReadOnlyMemory<byte> payload,
+        IReadOnlyDictionary<string, string> headers,
+        CancellationToken cancellationToken)
+    {
+        var context = CentraEventContextExtractor.Extract(router.PubSubName, router.Topic, headers);
+        var matchingRoute = router.SelectRoute(payload, headers, in context);
+
+        if (matchingRoute is null)
+        {
+            CentraMeters.RecordPubSubConsumed(router.PubSubName, router.Topic, "unrouted_drop", 0);
+            return EventHandlingResult.Success;
+        }
+
+        return await DispatchEventAsync(matchingRoute, payload, headers, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<EventHandlingResult> DispatchEventAsync(
         CentraTopicRegistration reg,
         ReadOnlyMemory<byte> payload,
         IReadOnlyDictionary<string, string> headers,

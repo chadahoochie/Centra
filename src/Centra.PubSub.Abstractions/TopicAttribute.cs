@@ -7,6 +7,7 @@ public sealed class TopicAttribute(string pubSubName, string topic, string? dead
     public string Topic { get; } = topic;
     public string? DeadLetterTopic { get; } = deadLetterTopic;
     public string? RuleFilter { get; init; }
+    public int Priority { get; init; } = 0;
     public ConsumerMode ConsumerMode { get; init; } = ConsumerMode.CompetingConsumer;
     public int PrefetchCount { get; init; } = 0;
     public int MaxConcurrentCalls { get; init; } = 0;
