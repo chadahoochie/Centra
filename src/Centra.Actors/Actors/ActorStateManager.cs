@@ -14,6 +14,7 @@ public sealed class ActorStateManager : IActorStateManager
     private readonly IActorStateKeyFormatter _keyFormatter;
     private readonly IActorStatePersister _persister;
     private readonly Dictionary<string, ActorStateEntry> _cache = new(StringComparer.Ordinal);
+    private bool _isDirty;
 
     public ActorStateManager(
         ActorIdentity identity,
@@ -92,6 +93,7 @@ public sealed class ActorStateManager : IActorStateManager
                 typeof(TState));
         }
 
+        _isDirty = true;
         return ValueTask.CompletedTask;
     }
 
@@ -115,11 +117,13 @@ public sealed class ActorStateManager : IActorStateManager
             if (entry.Status == ActorStateStatus.Added)
             {
                 _cache.Remove(stateName);
+                _isDirty = true;
                 return true;
             }
 
             entry.Status = ActorStateStatus.Deleted;
             entry.Value = null;
+            _isDirty = true;
             return true;
         }
 
@@ -134,6 +138,7 @@ public sealed class ActorStateManager : IActorStateManager
                 ActorStateStatus.Deleted,
                 typeof(object));
 
+            _isDirty = true;
             return true;
         }
 
@@ -156,10 +161,20 @@ public sealed class ActorStateManager : IActorStateManager
 
     public async ValueTask SaveStateAsync(CancellationToken cancellationToken = default)
     {
+        if (!_isDirty)
+        {
+            return;
+        }
+
         List<string>? keysToRemove = null;
 
         foreach (var (stateName, entry) in _cache)
         {
+            if (entry.Status == ActorStateStatus.Unchanged)
+            {
+                continue;
+            }
+
             var key = _keyFormatter.FormatStateKey(_identity, stateName);
 
             await _persister.PersistEntryAsync(
@@ -183,11 +198,14 @@ public sealed class ActorStateManager : IActorStateManager
                 _cache.Remove(key);
             }
         }
+
+        _isDirty = false;
     }
 
     public ValueTask ClearCacheAsync()
     {
         _cache.Clear();
+        _isDirty = false;
         return ValueTask.CompletedTask;
     }
 }

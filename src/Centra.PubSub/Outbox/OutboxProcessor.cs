@@ -38,6 +38,41 @@ public sealed class OutboxProcessor
             return 0;
         }
 
+        if (_options.MaxConcurrentPublishes > 1 && messages.Count > 1)
+        {
+            int publishedCounter = 0;
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = _options.MaxConcurrentPublishes,
+                CancellationToken = cancellationToken
+            };
+
+            await Parallel.ForEachAsync(messages, parallelOptions, async (message, ct) =>
+            {
+                try
+                {
+                    await _publisher.PublishAsync(
+                        message.PubSubName,
+                        message.Topic,
+                        message.Payload,
+                        message.Headers,
+                        ct).ConfigureAwait(false);
+
+                    await _outboxStore.MarkPublishedAsync(message.Id, ct).ConfigureAwait(false);
+                    Interlocked.Increment(ref publishedCounter);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to publish outbox message '{MessageId}' to topic '{Topic}' on pubsub '{PubSubName}'",
+                        message.Id, message.Topic, message.PubSubName);
+
+                    await _outboxStore.MarkFailedAsync(message.Id, ex.Message, ct).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
+            return publishedCounter;
+        }
+
         int publishedCount = 0;
         foreach (var message in messages)
         {

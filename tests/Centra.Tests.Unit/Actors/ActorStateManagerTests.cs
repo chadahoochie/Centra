@@ -256,4 +256,28 @@ public sealed class ActorStateManagerTests
             Arg.Any<StateOptions?>(),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task Should_Not_Persist_State_When_No_Mutations_Occurred()
+    {
+        // Arrange
+        var key = "actors:AccountActor:acc-101:balance";
+        _stateStore.GetAsync<decimal>(_storeName, key, Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(new StateEntry<decimal>("acc-101", 100m, "etag-1"));
+
+        var stateManager = new ActorStateManager(_identity, _stateStore, _storeName);
+
+        // Turn: Read only, no mutations
+        var balance = await stateManager.GetStateAsync<decimal>("balance");
+        balance.ShouldBe(100m);
+
+        // Act: Save state after read-only turn
+        await stateManager.SaveStateAsync();
+
+        // Assert: No mutations should have been dispatched to the state store
+        await _stateStore.DidNotReceiveWithAnyArgs().SetAsync<object>(default!, default!, default!, default, default);
+        await _stateStore.DidNotReceiveWithAnyArgs().TrySetAsync<object>(default!, default!, default!, default!, default, default);
+        await _stateStore.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default!, default, default);
+        await _stateStore.DidNotReceiveWithAnyArgs().TryDeleteAsync(default!, default!, default!, default, default);
+    }
 }
