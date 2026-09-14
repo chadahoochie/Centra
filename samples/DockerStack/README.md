@@ -8,7 +8,7 @@ in-memory single-process samples elsewhere in `samples/`.
 
 The stack also ships a full observability path (OpenTelemetry Collector -> Tempo/Loki/Prometheus ->
 Grafana) that showcases Centra's baked-in `ActivitySource`/`Meter` instrumentation
-(`Centra.Diagnostics.CentraDiagnostics`/`CentraMeters` in `Centra.Core`, plus
+(`Centra.Diagnostics.CentraDiagnostics`/`CentraMeters` in `Centra.Runtime`, plus
 `Centra.ControlPlane.Diagnostics.ControlPlaneMeters`) with zero bespoke tracing/metrics code in the
 sample itself - see [Observability](#observability).
 
@@ -187,7 +187,7 @@ denser traffic, or set `Simulation__ActorPoolSize` higher to spread actor placem
 Every node and the control-plane call `AddOpenTelemetry()` in `Program.cs` and export over OTLP to
 `otel-collector:4317` (no other code changes - Centra's `ActivitySource("Centra")` and
 `Meter("Centra")` / `Meter("Centra.ControlPlane")` are already instrumented deep inside
-`Centra.Core`/`Centra.ControlPlane` for pub/sub, state, locks, invocation, bindings, and control-plane
+`Centra.Runtime`/`Centra.ControlPlane` for pub/sub, state, locks, invocation, bindings, and control-plane
 sync/heartbeats). The collector fans traces out to Tempo, metrics to Prometheus, and logs to Loki.
 
 Open Grafana (anonymous admin access, no login needed) once the stack is up:

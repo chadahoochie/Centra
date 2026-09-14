@@ -9,6 +9,7 @@
 - **`[ServiceClient]`**: Decorates an interface with the logical target `AppId`.
 - **`[ServiceMethod]`**: Decorates interface methods with route template and HTTP verb.
 - **Dynamic Proxy Generation**: `ServiceProxyFactory` generates high-performance `DispatchProxy` implementations at runtime.
+- **Compile-Time Source Generation (`Centra.Generators`)**: Roslyn incremental source generator emits zero-reflection strongly-typed proxy classes (`*.g.cs`) at compile time.
 - **Client-Side Load Balancing**: `ControlPlaneServiceEndpointResolver` queries the Control Plane topology and round-robins across active replicas.
 
 ---
@@ -96,3 +97,15 @@ When `inventoryClient.CheckStockAsync(...)` is called:
 3. If multiple replicas exist (e.g. `http://inventory-1:5000` and `http://inventory-2:5000`), requests round-robin uniformly across replicas.
 4. If a node fails heartbeats, it is evicted from the topology pool automatically.
 5. All calls are wrapped in OpenTelemetry spans (`ActivityKind.Client`) propagating W3C context headers.
+
+---
+
+## ⚡ Compile-Time Source Generation (`Centra.Generators`)
+
+For environments that require Native AOT or zero-reflection performance, reference the `Centra.Generators` Roslyn incremental source generator:
+
+```xml
+<PackageReference Include="Centra.Generators" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+```
+
+`CentraProxyGenerator` automatically intercepts interfaces decorated with `[ServiceClient]` and emits concrete C# proxy implementations during compilation (`{InterfaceName}ClientProxy.g.cs`). Invocations bypass dynamic `DispatchProxy` reflection, achieving direct method calls into `IServiceInvoker` with maximum throughput.

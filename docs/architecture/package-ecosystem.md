@@ -1,6 +1,6 @@
 # Package Ecosystem & Layering Architecture
 
-> A complete map of Centra's 11 modular abstractions, 12 in-process implementations, 7 provider drivers, hosting integration, and control plane services.
+> A complete map of Centra's 11 modular abstractions, 12 in-process implementations, Roslyn source generator, 7 provider drivers, hosting integration, and control plane services.
 
 ---
 
@@ -51,6 +51,10 @@ graph TD
         IMPL_WORKFLOWS[Centra.Workflows]
     end
 
+    subgraph "Roslyn Source Generators"
+        GEN[Centra.Generators]
+    end
+
     subgraph "Physical Providers"
         P_MEM[Centra.Providers.InMemory]
         P_REDIS[Centra.Providers.Redis]
@@ -87,6 +91,9 @@ graph TD
     IMPL_ACTORS -.-> ABS_ACTORS
     IMPL_WORKFLOWS -.-> ABS_WORKFLOWS
 
+    GEN -.->|Emits RPC Proxies| ABS_INVOKE
+    GEN -.->|Emits Actor Proxies| ABS_ACTORS
+
     P_MEM --> ABS_STATE
     P_REDIS --> ABS_STATE
     P_PG --> ABS_STATE
@@ -95,6 +102,16 @@ graph TD
     P_ASB --> ABS_PUBSUB
     P_COSMOS --> ABS_STATE
 ```
+
+---
+
+## ⚡ Roslyn Incremental Source Generators
+
+Centra includes compile-time code generation for zero-reflection, high-performance proxy dispatch:
+
+| Package | Role | Key Generated Types |
+| :--- | :--- | :--- |
+| `Centra.Generators` | Incremental Roslyn C# Source Generator | Compile-time RPC client proxies for `[ServiceClient]` interfaces and actor client proxies for `IActor` interfaces, eliminating reflection overhead during dispatch. |
 
 ---
 
