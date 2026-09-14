@@ -14,4 +14,17 @@ public interface IPubSubClient
         T data,
         PubSubPublishOptions? options = null,
         CancellationToken cancellationToken = default);
+
+    ValueTask PublishBatchAsync<T>(
+        string topic,
+        IEnumerable<T> items,
+        PubSubPublishOptions? options = null,
+        CancellationToken cancellationToken = default);
+
+    ValueTask PublishBatchAsync<T>(
+        string pubSubName,
+        string topic,
+        IEnumerable<T> items,
+        PubSubPublishOptions? options = null,
+        CancellationToken cancellationToken = default);
 }

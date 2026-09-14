@@ -79,4 +79,73 @@ public sealed class CentraPubSubClient : IPubSubClient
             throw;
         }
     }
+
+    public ValueTask PublishBatchAsync<T>(
+        string topic,
+        IEnumerable<T> items,
+        PubSubPublishOptions? options = null,
+        CancellationToken cancellationToken = default) =>
+        PublishBatchAsync(_defaultPubSubName, topic, items, options, cancellationToken);
+
+    public async ValueTask PublishBatchAsync<T>(
+        string pubSubName,
+        string topic,
+        IEnumerable<T> items,
+        PubSubPublishOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(topic);
+        ArgumentNullException.ThrowIfNull(items);
+
+        var driver = _registry.GetPubSubDriver(pubSubName);
+        if (driver is null)
+        {
+            throw new InvalidOperationException($"No PubSub driver registered for pubsub '{pubSubName}'");
+        }
+
+        if (items is IReadOnlyCollection<T> { Count: 0 })
+        {
+            return;
+        }
+
+        var startTime = Stopwatch.GetTimestamp();
+        using var activity = CentraDiagnostics.StartPublishActivity(pubSubName, topic);
+
+        var mode = options?.Mode ?? CloudEventMode.Binary;
+        var messages = items is IReadOnlyCollection<T> col ? new List<PubSubMessage>(col.Count) : new List<PubSubMessage>();
+        foreach (var item in items)
+        {
+            var packed = CloudEventPacker.Pack(item, _appId, mode, subject: null, additionalMetadata: options?.Metadata);
+            messages.Add(new PubSubMessage(packed.Payload, packed.Headers));
+        }
+
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_resilienceProvider is not null && options?.DisableResilience != true)
+            {
+                var pipeline = _resilienceProvider.GetPubSubPipeline(pubSubName);
+                await pipeline.ExecuteAsync(async ct => await driver.PublishBatchAsync(pubSubName, topic, messages, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await driver.PublishBatchAsync(pubSubName, topic, messages, cancellationToken).ConfigureAwait(false);
+            }
+
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordPubSubPublished(pubSubName, topic, "success", durationMs, messages.Count);
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordPubSubPublished(pubSubName, topic, "error", durationMs, messages.Count);
+            throw;
+        }
+    }
 }

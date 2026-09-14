@@ -19,12 +19,15 @@ public static class CloudEventPacker
     {
         var eventId = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
-        var attr = typeof(T).GetCustomAttribute<EventContractAttribute>();
-        var (eventType, schemaVersion, dataSchema) = attr is not null
-            ? (attr.Type, attr.Version, attr.Schema)
-            : (typeof(T).Name, null, null);
+        var eventType = EventContractMetadataCache<T>.EventType;
+        var schemaVersion = EventContractMetadataCache<T>.SchemaVersion;
+        var dataSchema = EventContractMetadataCache<T>.DataSchema;
 
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var headerCapacity = 8 + (additionalMetadata?.Count ?? 0)
+            + (subject is not null ? 1 : 0)
+            + (schemaVersion is not null ? 1 : 0)
+            + (dataSchema is not null ? 1 : 0);
+        var headers = new Dictionary<string, string>(headerCapacity, StringComparer.OrdinalIgnoreCase)
         {
             [CloudEventConstants.IdHeader] = eventId,
             [CloudEventConstants.SourceHeader] = source,

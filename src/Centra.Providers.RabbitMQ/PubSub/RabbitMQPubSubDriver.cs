@@ -117,6 +117,50 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask PublishBatchAsync(
+        string pubSubName,
+        string topic,
+        IReadOnlyList<PubSubMessage> messages,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(topic);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        var channel = await GetPublishChannelAsync(cancellationToken).ConfigureAwait(false);
+
+        foreach (var message in messages)
+        {
+            var props = new BasicProperties
+            {
+                DeliveryMode = DeliveryModes.Persistent
+            };
+
+            if (message.Metadata is not null && message.Metadata.Count > 0)
+            {
+                var headers = new Dictionary<string, object?>();
+                foreach (var (k, v) in message.Metadata)
+                {
+                    headers[k] = Encoding.UTF8.GetBytes(v);
+                }
+                props.Headers = headers;
+            }
+
+            await channel.BasicPublishAsync(
+                exchange: _options.ExchangeName,
+                routingKey: topic,
+                mandatory: false,
+                basicProperties: props,
+                body: message.Payload,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async ValueTask SubscribeAsync(
         string pubSubName,
         string topic,

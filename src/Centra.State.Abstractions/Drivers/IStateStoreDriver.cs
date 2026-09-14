@@ -5,6 +5,7 @@ namespace Centra.Drivers;
 public interface IStateStoreDriver
 {
     ValueTask<StateEntry<byte[]>?> GetAsync(string storeName, string key, StateOptions? options = null, CancellationToken cancellationToken = default);
+    ValueTask<IReadOnlyList<StateEntry<byte[]>>> GetBatchAsync(string storeName, IReadOnlyList<string> keys, StateOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask SetAsync(string storeName, string key, ReadOnlyMemory<byte> value, StateOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask<bool> TrySetAsync(string storeName, string key, ReadOnlyMemory<byte> value, string expectedETag, StateOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask DeleteAsync(string storeName, string key, StateOptions? options = null, CancellationToken cancellationToken = default);

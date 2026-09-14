@@ -72,6 +72,66 @@ public sealed class CentraStateStore : IStateStore
         }
     }
 
+    public async ValueTask<IReadOnlyList<StateEntry<T>>> GetBatchAsync<T>(
+        string storeName,
+        IReadOnlyList<string> keys,
+        StateOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeName);
+        ArgumentNullException.ThrowIfNull(keys);
+
+        if (keys.Count == 0)
+        {
+            return Array.Empty<StateEntry<T>>();
+        }
+
+        var driver = _registry.GetStateStoreDriver(storeName) ?? throw new InvalidOperationException($"No StateStore driver registered for store '{storeName}'");
+        var startTime = Stopwatch.GetTimestamp();
+        using var activity = CentraDiagnostics.StartStateActivity("GetBatch", storeName, "batch");
+
+        try
+        {
+            IReadOnlyList<StateEntry<byte[]>> rawEntries;
+            if (_resilienceProvider is not null && options?.DisableResilience != true)
+            {
+                var pipeline = _resilienceProvider.GetStateStorePipeline(storeName);
+                rawEntries = await pipeline.ExecuteAsync(async ct => await driver.GetBatchAsync(storeName, keys, options, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                rawEntries = await driver.GetBatchAsync(storeName, keys, options, cancellationToken).ConfigureAwait(false);
+            }
+
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordStateOperation(storeName, "GetBatch", "success", durationMs);
+
+            if (rawEntries.Count == 0)
+            {
+                return Array.Empty<StateEntry<T>>();
+            }
+
+            var result = new List<StateEntry<T>>(rawEntries.Count);
+            foreach (var rawEntry in rawEntries)
+            {
+                var deserialized = _serializer.Deserialize<T>(rawEntry.Value);
+                if (deserialized is not null)
+                {
+                    result.Add(new StateEntry<T>(rawEntry.Key, deserialized, rawEntry.ETag, rawEntry.Metadata));
+                }
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordStateOperation(storeName, "GetBatch", "error", durationMs);
+            throw;
+        }
+    }
+
     public async ValueTask SetAsync<T>(
         string storeName,
         string key,

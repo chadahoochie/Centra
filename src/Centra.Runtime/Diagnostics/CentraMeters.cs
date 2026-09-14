@@ -60,9 +60,9 @@ public static class CentraMeters
             new KeyValuePair<string, object?>("status", status));
     }
 
-    public static void RecordPubSubPublished(string pubsub, string topic, string status, double durationMs)
+    public static void RecordPubSubPublished(string pubsub, string topic, string status, double durationMs, int count = 1)
     {
-        PubSubPublishedCounter.Add(1,
+        PubSubPublishedCounter.Add(count,
             new KeyValuePair<string, object?>("centra.pubsub.name", pubsub),
             new KeyValuePair<string, object?>("centra.topic", topic),
             new KeyValuePair<string, object?>("status", status));

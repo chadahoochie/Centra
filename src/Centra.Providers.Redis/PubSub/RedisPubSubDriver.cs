@@ -60,10 +60,47 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
         var sub = _connection.GetSubscriber();
         var channel = _keyFormatter.BuildChannel(_options.KeyPrefix, pubSubName, topic);
 
-        var envelope = new RedisMessageEnvelope(metadata, payload.ToArray());
-        var envelopeBytes = JsonSerializer.SerializeToUtf8Bytes(envelope);
+        var framedBytes = RedisMessagePayloadCodec.Encode(payload, metadata);
 
-        await sub.PublishAsync(RedisChannel.Literal(channel), envelopeBytes).ConfigureAwait(false);
+        await sub.PublishAsync(RedisChannel.Literal(channel), framedBytes).ConfigureAwait(false);
+    }
+
+    public async ValueTask PublishBatchAsync(
+        string pubSubName,
+        string topic,
+        IReadOnlyList<PubSubMessage> messages,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(topic);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        if (_options.EnableConsumerGroups)
+        {
+            var db = _connection.GetDatabase();
+            var streamKey = _keyFormatter.BuildStreamKey(_options.KeyPrefix, pubSubName, topic);
+            await _streamProcessor.PublishBatchToStreamAsync(db, streamKey, messages, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var sub = _connection.GetSubscriber();
+        var channel = _keyFormatter.BuildChannel(_options.KeyPrefix, pubSubName, topic);
+        var literalChannel = RedisChannel.Literal(channel);
+
+        var tasks = new Task[messages.Count];
+        for (int i = 0; i < messages.Count; i++)
+        {
+            var msg = messages[i];
+            var framedBytes = RedisMessagePayloadCodec.Encode(msg.Payload, msg.Metadata);
+            tasks[i] = sub.PublishAsync(literalChannel, framedBytes);
+        }
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     public async ValueTask SubscribeAsync(
@@ -106,14 +143,10 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
                 }
 
                 byte[] raw = val!;
-                var envelope = JsonSerializer.Deserialize<RedisMessageEnvelope>(raw);
-                if (envelope is null)
+                if (!RedisMessagePayloadCodec.TryDecode(raw, out var payload, out var headers))
                 {
                     return;
                 }
-
-                var payload = (ReadOnlyMemory<byte>)(envelope.Payload ?? Array.Empty<byte>());
-                var headers = envelope.Headers ?? new Dictionary<string, string>();
 
                 var result = await handler(payload, headers, CancellationToken.None).ConfigureAwait(false);
 

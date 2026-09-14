@@ -15,11 +15,15 @@ internal sealed class CentraSubscriptionEventDispatcher
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger _logger;
+    private readonly IInboxStore? _inboxStore;
+    private readonly IResiliencePipelineProvider? _resilienceProvider;
 
     public CentraSubscriptionEventDispatcher(IServiceProvider serviceProvider, ILogger logger)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _inboxStore = serviceProvider.GetService<IInboxStore>();
+        _resilienceProvider = serviceProvider.GetService<IResiliencePipelineProvider>();
     }
 
     public async ValueTask<EventHandlingResult> DispatchEventAsync(
@@ -67,13 +71,12 @@ internal sealed class CentraSubscriptionEventDispatcher
 
         try
         {
-            var inboxStore = _serviceProvider.GetService<IInboxStore>();
             var messageId = causeId ?? (headers.TryGetValue(CloudEventConstants.IdHeader, out var id) ? id : null);
             var consumerId = reg.HandlerType.FullName ?? reg.HandlerType.Name;
 
-            if (inboxStore is not null && !string.IsNullOrWhiteSpace(messageId))
+            if (_inboxStore is not null && !string.IsNullOrWhiteSpace(messageId))
             {
-                if (await inboxStore.HasBeenProcessedAsync(messageId, consumerId, cancellationToken).ConfigureAwait(false))
+                if (await _inboxStore.HasBeenProcessedAsync(messageId, consumerId, cancellationToken).ConfigureAwait(false))
                 {
                     CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, "duplicate_skipped", 0);
                     return EventHandlingResult.Success;
@@ -87,11 +90,10 @@ internal sealed class CentraSubscriptionEventDispatcher
                 return EventHandlingResult.Drop;
             }
 
-            var resilienceProvider = _serviceProvider.GetService<IResiliencePipelineProvider>();
             EventHandlingResult result;
-            if (resilienceProvider is not null)
+            if (_resilienceProvider is not null)
             {
-                var pipeline = resilienceProvider.GetPubSubPipeline(reg.PubSubName);
+                var pipeline = _resilienceProvider.GetPubSubPipeline(reg.PubSubName);
                 result = await pipeline.ExecuteAsync(async ct =>
                 {
                     return await reg.Invoker(handler, payload, headers, ct).ConfigureAwait(false);
@@ -102,9 +104,9 @@ internal sealed class CentraSubscriptionEventDispatcher
                 result = await reg.Invoker(handler, payload, headers, cancellationToken).ConfigureAwait(false);
             }
 
-            if (inboxStore is not null && !string.IsNullOrWhiteSpace(messageId) && result == EventHandlingResult.Success)
+            if (_inboxStore is not null && !string.IsNullOrWhiteSpace(messageId) && result == EventHandlingResult.Success)
             {
-                await inboxStore.MarkProcessedAsync(messageId, consumerId, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _inboxStore.MarkProcessedAsync(messageId, consumerId, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
 
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;

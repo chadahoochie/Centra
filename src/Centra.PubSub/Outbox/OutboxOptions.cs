@@ -27,4 +27,10 @@ public sealed record OutboxOptions
     /// Defaults to 5.
     /// </summary>
     public int MaxDeliveryAttempts { get; init; } = 5;
+
+    /// <summary>
+    /// Gets or sets the maximum number of concurrent message publish operations.
+    /// Defaults to 1 (sequential publish). Set > 1 for high-throughput parallel drain.
+    /// </summary>
+    public int MaxConcurrentPublishes { get; init; } = 1;
 }
