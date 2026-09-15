@@ -49,6 +49,12 @@
    - Durable timers for reliable, crash-resilient asynchronous delays without holding open worker threads.
    - External event awaits via CloudEvents for human-in-the-loop approvals and asynchronous inter-service coordination.
    - In-process execution with zero sidecars and zero-allocation performance conventions.
+10. **Dynamic Noisy Neighbor Tenant Offloading & Fair Scheduling**:
+   - Real-time sliding window tracking for tenant message rates, traffic shares, and execution durations (`ITenantMetricsTracker`).
+   - Dynamic anomaly detection triggering automated state transitions (`ITenantOffloadCoordinator`).
+   - Pluggable offload strategies: In-process isolated worker lanes (`InProcessFairScheduler`), deterministic broker topic sharding (`BoundedShardBrokerTopic`), and ephemeral dedicated broker topics (`EphemeralBrokerTopic`).
+   - Outbound publish-side topic redirection (`ResolvePublishTopic`) and inbound subscriber-side interception (`HandleOffloadAsync`).
+   - Automated cooldown recovery and background idle lane reclamation (`TenantOffloadReaperHostedService`).
 
 ---
 
@@ -312,6 +318,9 @@ dotnet run --project samples/Centra.Sample.Actors -- --demo
 
 # Run interactive distributed workflows & sagas simulation (deterministic replay, LIFO compensations, timers, CloudEvents await)
 dotnet run --project samples/Centra.Sample.Workflows -- --demo
+
+# Run interactive dynamic noisy neighbor tenant offloading & fair scheduling simulation
+dotnet run --project samples/Centra.Sample.TenantOffload -- --demo
 ```
 
 ---
@@ -616,6 +625,7 @@ Centra.slnx
 │   ├── Centra.Sample.Bindings/        # Bindings simulation: distributed cron, HTTP webhooks, and state persistence
 │   ├── Centra.Sample.Actors/          # Virtual actors simulation: turn-based concurrency, state persistence, durable reminders
 │   ├── Centra.Sample.Workflows/       # Workflows simulation: deterministic replay, distributed sagas, timers, CloudEvents await
+│   ├── Centra.Sample.TenantOffload/   # Tenant offload simulation: rolling metrics, fair scheduling, broker topic sharding
 │   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator (multi-replica orchestration)
 └── tests/
     ├── Centra.Tests.Unit/             # Core, runtime, state, pubsub, bindings, resilience, actors & workflows tests (264 tests)

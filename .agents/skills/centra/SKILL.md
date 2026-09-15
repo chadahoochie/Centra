@@ -229,6 +229,15 @@ dotnet test Centra.slnx --logger "console;verbosity=normal"
 # Run the 3-node in-process simulation
 dotnet run --project samples/Centra.Sample.MultiInstance -- --demo
 
+# Run the virtual actors simulation
+dotnet run --project samples/Centra.Sample.Actors -- --demo
+
+# Run the workflows and distributed sagas simulation
+dotnet run --project samples/Centra.Sample.Workflows -- --demo
+
+# Run the dynamic noisy neighbor tenant offloading simulation
+dotnet run --project samples/Centra.Sample.TenantOffload -- --demo
+
 # Run with .NET Aspire orchestration
 dotnet run --project samples/Centra.AppHost
 ```

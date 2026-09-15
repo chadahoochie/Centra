@@ -1,6 +1,6 @@
 namespace Centra.PubSub.Tenancy;
 
-internal static class TenantDeterministicHash
+public static class TenantDeterministicHash
 {
     public static int GetShardId(string tenantId, int shardCount)
     {

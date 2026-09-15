@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>Sample showcasing dynamic noisy neighbor tenant offloading, metrics tracking, and fair scheduling with Centra.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.InMemory\Centra.Providers.InMemory.csproj" />
+  </ItemGroup>
+</Project>

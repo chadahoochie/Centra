@@ -78,6 +78,11 @@ builder.Services.AddOpenTelemetry()
 | `centra.resilience.circuit_state_transitions_total` | Counter | `ea` | Total circuit breaker state transitions |
 | `centra.resilience.timeouts_total`| Counter | `ea` | Total resilience timeout expirations |
 | `centra.resilience.rejections_total` | Counter | `ea` | Total executions rejected by rate limiter or bulkhead |
+| `centra.tenant.messages.offloaded` | Counter | `ea` | Total messages offloaded for noisy tenants (tags: `centra.tenant.id`, `centra.topic`, `centra.strategy`, `centra.reason`) |
+| `centra.tenant.state.transitions` | Counter | `ea` | Total tenant offload state transitions (tags: `centra.tenant.id`, `centra.topic`, `centra.old_state`, `centra.new_state`, `centra.reason`) |
+| `centra.tenant.traffic.share` | Histogram | `%` | Traffic share ratio of tenant within sliding evaluation window |
+| `centra.tenant.operation.duration` | Histogram | `ms` | Execution duration of tenant operations |
+| `centra.tenant.reaped.lanes` | Counter | `ea` | Total idle tenant worker lanes reaped after inactivity timeout |
 
 ---
 
