@@ -309,3 +309,103 @@ When the subscriber handler runs, Centra automatically:
 1. Extracts `traceparent` and `tracestate`.
 2. Starts an OpenTelemetry activity (`ActivityKind.Consumer`) with the publisher as parent.
 3. Propagates the ambient context into your ASP.NET Core `HttpContext` and downstream service calls.
+
+---
+
+## 🏢 Dynamic Noisy Neighbor Tenant Offloading & Fair Scheduling
+
+In multi-tenant systems sharing a single pub/sub broker topic, an unconstrained burst from one tenant ("noisy neighbor") can saturate consumer thread pools, exhaust worker mailboxes, and starve other well-behaved tenants of processing capacity.
+
+Centra solves this natively through **Dynamic Tenant Offloading and Fair Scheduling**:
+
+```mermaid
+graph TD
+    Inbound["Inbound CloudEvents<br/>(ce-tenantid header)"] --> Dispatcher["CentraSubscriptionEventDispatcher"]
+    Dispatcher --> Tracker["RollingWindowTenantMetricsTracker<br/>(Rate & Latency Buckets)"]
+    Dispatcher --> Coordinator{"ITenantOffloadCoordinator<br/>Is Tenant Offloaded?"}
+    
+    Coordinator -->|"Normal State (<= 50% share)"| StandardPipeline["Standard Subscription Pipeline<br/>(Immediate Execution)"]
+    Coordinator -->|"Offloaded (Surge / High Latency)"| StrategyRouter{"Offload Strategy"}
+    
+    StrategyRouter -->|"InProcessFairScheduler"| WorkerLane["Isolated TenantWorkerLane<br/>(MaxConcurrency = 2, Bounded Queue)"]
+    StrategyRouter -->|"BoundedShardBrokerTopic"| ShardTopic["Broker Shard Topic<br/>({topic}.offload.{shardId})"]
+    StrategyRouter -->|"EphemeralBrokerTopic"| EphemeralTopic["Dedicated Ephemeral Topic<br/>({topic}.dedicated.{tenantId})"]
+
+    WorkerLane --> Consumer["Target IEventHandler&lt;T&gt;"]
+    ShardTopic --> Consumer
+    EphemeralTopic --> Consumer
+
+    Reaper["TenantOffloadReaperHostedService<br/>(Background Cooldown Evaluation)"] -.->|"Cooldown Expired & Idle"| Coordinator
+```
+
+### 1. Rolling Window Metrics Tracking
+
+Centra tracks per-tenant traffic across sliding evaluation windows using [`RollingWindowTenantMetricsTracker`](../../src/Centra.PubSub/Tenancy/RollingWindowTenantMetricsTracker.cs).
+- **Time-Bucketed Rings**: Buckets are indexed by UNIX epoch seconds, eliminating memory leaks and avoiding GC overhead.
+- **Dual Tracking**: Automatically aggregates both per-tenant stats and overall topic stats (`TenantTopicKey.OverallTenantId`).
+- **Zero Heap Allocations**: Pure value-type accumulators (`TenantWindowBucket`) for message counts and duration sums.
+
+### 2. Anomaly Detection & Triggers
+
+[`ITenantOffloadCoordinator`](../../src/Centra.PubSub.Abstractions/Tenancy/ITenantOffloadCoordinator.cs) monitors tenants against configurable thresholds:
+
+- **`TrafficShareThreshold`**: Maximum fraction of topic traffic a single tenant may consume within the window (e.g., `0.50` = 50%).
+- **`DurationMultiplierThreshold`**: Relative execution latency compared to the topic-wide average (e.g., `3.0` = 3x slower).
+- **`DurationAbsoluteThresholdMs`**: Optional hard upper bound for average processing latency.
+- **`MinSampleCount`**: Minimum event sample size required before an offload evaluation triggers, avoiding false positives on sparse traffic.
+
+When a trigger fires, the tenant transitions from `Normal` to `Offloaded` state, emitting `centra.tenant.state.transitions`.
+
+### 3. Pluggable Offload Strategies
+
+| Strategy | `TenantOffloadStrategyType` | Behavior | Best Used For |
+| :--- | :--- | :--- | :--- |
+| **In-Process Fair Scheduler** | `InProcessFairScheduler` | Queues messages into an isolated, per-tenant [`TenantWorkerLane`](../../src/Centra.PubSub/Tenancy/TenantWorkerLane.cs) with bounded concurrency (`MaxConcurrencyPerTenant`) and capacity (`PerTenantQueueCapacity`). Well-behaved tenants execute immediately without starvation. | Applications processing multi-tenant events on standard broker topologies without provisioning separate broker queues. |
+| **Bounded Shard Broker Topic** | `BoundedShardBrokerTopic` | Outbound publisher traffic and re-routed subscriber events are steered to a deterministic pool of physical broker topics (`{topic}.offload.{shardId}`) using 32-bit FNV-1a hashing via [`TenantDeterministicHash`](../../src/Centra.PubSub/Tenancy/TenantDeterministicHash.cs). | High-scale Kafka, RabbitMQ, or Azure Service Bus workloads that need physical partition isolation. |
+| **Ephemeral Broker Topic** | `EphemeralBrokerTopic` | Creates dynamic, dedicated broker topics per noisy tenant (`{topic}.offload.{tenantId}`) with auto-delete and TTL. | Workloads requiring strict physical queue isolation during long-running tenant bursts. |
+
+### 4. Publisher Steering & Subscriber Interception
+
+- **Publisher Side**: When `EnablePublisherBypassing = true`, [`CentraPubSubClient.PublishAsync`](../../src/Centra.PubSub/PubSub/CentraPubSubClient.cs) queries `ResolvePublishTopic`. If the tenant is offloaded, outgoing traffic is routed directly to the offload topic shard, bypassing the primary broker topic entirely.
+- **Subscriber Side**: [`CentraSubscriptionEventDispatcher`](../../src/Centra.Hosting/HostedServices/CentraSubscriptionEventDispatcher.cs) intercepts incoming events tagged with `ce-tenantid`. If the tenant is offloaded, it delegates to `ITenantOffloadCoordinator.HandleOffloadAsync(...)`.
+
+### 5. Cooldown, State Recovery & Lane Reaping
+
+- **Cooldown Grace Period**: Once a tenant's burst drops below the thresholds, the coordinator observes a configurable `CooldownPeriod` (e.g., 30s) before restoring the tenant to `Normal` state.
+- **Idle Lane Reclamation**: [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) periodically inspects worker lanes and reaps idle resources when inactive past `LaneIdleTimeout`, recording `centra.tenant.reaped.lanes`.
+
+### 6. Configuration Example
+
+```csharp
+// 1. Enable Pub/Sub and scan for handlers
+builder.Services.AddCentra();
+builder.Services.AddCentraInMemory();
+
+// 2. Configure dynamic tenant offload engine
+builder.Services.AddCentraTenantOffload(options =>
+{
+    options.WindowDuration = TimeSpan.FromSeconds(60);
+    options.MinSampleCount = 20;
+    options.TrafficShareThreshold = 0.40;          // 40% topic share limit
+    options.DurationMultiplierThreshold = 3.0;     // 3x average latency limit
+    options.CooldownPeriod = TimeSpan.FromSeconds(30);
+    options.OffloadStrategy = TenantOffloadStrategyType.InProcessFairScheduler;
+    options.MaxConcurrencyPerTenant = 2;          // Concurrency limit per offloaded lane
+    options.PerTenantQueueCapacity = 500;
+    options.LaneIdleTimeout = TimeSpan.FromMinutes(2);
+});
+```
+
+To enable offload routing declaratively on your handler:
+
+```csharp
+[Topic("pubsub", "tenant.orders", EnableTenantOffload = true)]
+public sealed class OrderProcessorHandler : IEventHandler<TenantOrderEvent>
+{
+    public async Task<EventHandlingResult> HandleAsync(TenantOrderEvent @event, EventContext context, CancellationToken ct)
+    {
+        await ProcessOrderAsync(@event, ct);
+        return EventHandlingResult.Success;
+    }
+}
+```

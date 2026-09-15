@@ -45,7 +45,7 @@ docs/
 | Guide | Description | Key Interfaces |
 | :--- | :--- | :--- |
 | [**State Management**](building-blocks/state-management.md) | Key/value persistence, optimistic concurrency (ETags), TTL, and transactional batches. | `IStateStore<T>`, `IStateStore`, `ITransactionalStateStore` |
-| [**Pub/Sub & CloudEvents**](building-blocks/pubsub.md) | At-least-once messaging wrapped in CNCF CloudEvents v1.0, consumer groups, and dead lettering. | `IPubSubClient`, `IEventHandler<T>`, `[Topic]` |
+| [**Pub/Sub & CloudEvents**](building-blocks/pubsub.md) | At-least-once messaging wrapped in CNCF CloudEvents v1.0, consumer groups, dead lettering, rule routing, and noisy neighbor tenant offload. | `IPubSubClient`, `IEventHandler<T>`, `[Topic]`, `ITenantOffloadCoordinator` |
 | [**Distributed Locks**](building-blocks/distributed-locks.md) | Mutex coordination, lease heartbeats, and leader election across cluster replicas. | `IDistributedLockProvider`, `IDistributedLock` |
 | [**Service Invocation**](building-blocks/service-invocation.md) | Strongly typed client RPC proxies, discovery, and client-side round-robin load balancing. | `IServiceInvoker`, `[ServiceClient]`, `[ServiceMethod]` |
 | [**Schedulers & Bindings**](building-blocks/schedulers-and-bindings.md) | Bitmask cron scheduler, distributed single-execution jobs, inbound webhooks, and output bindings. | `IScheduler`, `[CronBinding]`, `IBindingTriggerHandler`, `IOutputBinding` |
@@ -103,9 +103,12 @@ dotnet run --project samples/Centra.Sample.Resilience -- --demo
 # 5. Distributed bindings & schedulers simulation (Distributed cron, webhooks, output bindings)
 dotnet run --project samples/Centra.Sample.Bindings -- --demo
 
-# 6. Aspire multi-replica cloud orchestrator (Web dashboard, tracing, metrics)
+# 6. Dynamic noisy neighbor tenant offload simulation (Rolling metrics, fair scheduling, broker sharding)
+dotnet run --project samples/Centra.Sample.TenantOffload -- --demo
+
+# 7. Aspire multi-replica cloud orchestrator (Web dashboard, tracing, metrics)
 dotnet run --project samples/Centra.AppHost
 
-# 7. Full Docker Compose 3-node cluster with Redis, RabbitMQ, Control Plane, OTel, Grafana
+# 8. Full Docker Compose 3-node cluster with Redis, RabbitMQ, Control Plane, OTel, Grafana
 docker compose -f samples/DockerStack/docker-compose.yml up --build
 ```

@@ -4,8 +4,6 @@ using Centra.Drivers;
 using Centra.Events;
 using Centra.Hosting.Routing;
 using Centra.PubSub;
-using Centra.PubSub.Inbox;
-using Centra.Resilience;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -54,70 +52,68 @@ internal sealed class CentraSubscriptionEventDispatcher
         var startTime = Stopwatch.GetTimestamp();
         using var activity = CentraDiagnostics.StartProcessActivity(reg.PubSubName, reg.Topic, parentContext);
 
+        string? causeId = null;
+        string? tenantId = null;
+
         if (headers.TryGetValue(CloudEventConstants.CorrelationIdHeader, out var corrId))
         {
             CentraAmbientContext.CorrelationId = corrId;
         }
 
-        if (headers.TryGetValue(CloudEventConstants.IdHeader, out var causeId))
+        if (headers.TryGetValue(CloudEventConstants.IdHeader, out causeId))
         {
             CentraAmbientContext.CausationId = causeId;
         }
 
-        if (headers.TryGetValue(CloudEventConstants.TenantIdHeader, out var tenantId))
+        if (headers.TryGetValue(CloudEventConstants.TenantIdHeader, out tenantId))
         {
             CentraAmbientContext.TenantId = tenantId;
         }
 
+        var offloadCoordinator = _serviceProvider.GetService<Centra.PubSub.Tenancy.ITenantOffloadCoordinator>();
+
         try
         {
-            var messageId = causeId ?? (headers.TryGetValue(CloudEventConstants.IdHeader, out var id) ? id : null);
-            var consumerId = reg.HandlerType.FullName ?? reg.HandlerType.Name;
-
-            if (_inboxStore is not null && !string.IsNullOrWhiteSpace(messageId))
+            if (offloadCoordinator is not null && !string.IsNullOrWhiteSpace(tenantId) && !headers.ContainsKey("ce-offloaded"))
             {
-                if (await _inboxStore.HasBeenProcessedAsync(messageId, consumerId, cancellationToken).ConfigureAwait(false))
+                if (offloadCoordinator.IsTenantOffloaded(tenantId, reg.Topic, out _))
                 {
-                    CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, "duplicate_skipped", 0);
-                    return EventHandlingResult.Success;
+                    var workItem = new Centra.PubSub.Tenancy.TenantOffloadWorkItem(
+                        tenantId,
+                        reg.PubSubName,
+                        reg.Topic,
+                        payload,
+                        headers,
+                        ct => CentraSubscriptionPipelineExecutor.ExecuteAsync(_serviceProvider, reg, payload, headers, causeId, ct),
+                        DateTimeOffset.UtcNow);
+
+                    var offloadResult = await offloadCoordinator.HandleOffloadAsync(workItem, cancellationToken).ConfigureAwait(false);
+                    var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+                    CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, offloadResult.ToString(), durationMs);
+                    return offloadResult;
                 }
             }
 
-            using var scope = _serviceProvider.CreateScope();
-            var handler = scope.ServiceProvider.GetService(reg.HandlerType);
-            if (handler is null)
+            var result = await CentraSubscriptionPipelineExecutor.ExecuteAsync(_serviceProvider, reg, payload, headers, causeId, cancellationToken).ConfigureAwait(false);
+
+            var elapsedMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            if (offloadCoordinator is not null && !string.IsNullOrWhiteSpace(tenantId))
             {
-                return EventHandlingResult.Drop;
+                offloadCoordinator.RecordExecution(tenantId, reg.Topic, elapsedMs);
             }
 
-            EventHandlingResult result;
-            if (_resilienceProvider is not null)
-            {
-                var pipeline = _resilienceProvider.GetPubSubPipeline(reg.PubSubName);
-                result = await pipeline.ExecuteAsync(async ct =>
-                {
-                    return await reg.Invoker(handler, payload, headers, ct).ConfigureAwait(false);
-                }, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                result = await reg.Invoker(handler, payload, headers, cancellationToken).ConfigureAwait(false);
-            }
-
-            if (_inboxStore is not null && !string.IsNullOrWhiteSpace(messageId) && result == EventHandlingResult.Success)
-            {
-                await _inboxStore.MarkProcessedAsync(messageId, consumerId, cancellationToken: cancellationToken).ConfigureAwait(false);
-            }
-
-            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-            CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, result.ToString(), durationMs);
-
+            CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, result.ToString(), elapsedMs);
             return result;
         }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            if (offloadCoordinator is not null && !string.IsNullOrWhiteSpace(tenantId))
+            {
+                offloadCoordinator.RecordExecution(tenantId, reg.Topic, durationMs);
+            }
+
             CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, "error", durationMs);
             _logger.LogEventProcessingFailed(ex, reg.EventType.Name, reg.PubSubName, reg.Topic, causeId ?? "unknown");
             return EventHandlingResult.DeadLetter;

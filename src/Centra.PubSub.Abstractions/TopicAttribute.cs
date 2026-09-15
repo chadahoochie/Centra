@@ -13,4 +13,6 @@ public sealed class TopicAttribute(string pubSubName, string topic, string? dead
     public int MaxConcurrentCalls { get; init; } = 0;
     public int MessageTtlSeconds { get; init; } = 0;
     public bool AutoDelete { get; init; } = false;
+    public bool EnableTenantOffload { get; init; } = false;
+    public string? OffloadTopicPattern { get; init; }
 }

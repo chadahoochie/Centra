@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
 namespace Centra.Diagnostics;
@@ -173,5 +174,64 @@ public static class CentraMeters
         BindingTriggerDuration.Record(durationMs,
             new KeyValuePair<string, object?>("centra.binding.name", bindingName),
             new KeyValuePair<string, object?>("status", status));
+    }
+
+    // Tenant offload instruments
+    private static readonly Counter<long> TenantOffloadedMessagesCounter =
+        Meter.CreateCounter<long>("centra.tenant.messages.offloaded", "ea", "Total messages offloaded for noisy tenants");
+    private static readonly Counter<long> TenantStateTransitionsCounter =
+        Meter.CreateCounter<long>("centra.tenant.state.transitions", "ea", "Total tenant offload state transitions");
+    private static readonly Histogram<double> TenantTrafficShareHistogram =
+        Meter.CreateHistogram<double>("centra.tenant.traffic.share", "%", "Traffic share ratio of tenant");
+    private static readonly Histogram<double> TenantOperationDurationHistogram =
+        Meter.CreateHistogram<double>("centra.tenant.operation.duration", "ms", "Execution duration of tenant operations");
+    private static readonly Counter<long> TenantReapedLanesCounter =
+        Meter.CreateCounter<long>("centra.tenant.reaped.lanes", "ea", "Total idle tenant offload lanes reaped");
+
+    public static void RecordTenantOffloaded(string tenantId, string topic, string strategy, string reason)
+    {
+        var tags = new TagList
+        {
+            { "centra.tenant.id", tenantId },
+            { "centra.topic", topic },
+            { "centra.strategy", strategy },
+            { "centra.reason", reason }
+        };
+        TenantOffloadedMessagesCounter.Add(1, tags);
+    }
+
+    public static void RecordTenantStateTransition(string tenantId, string topic, string oldState, string newState, string reason)
+    {
+        var tags = new TagList
+        {
+            { "centra.tenant.id", tenantId },
+            { "centra.topic", topic },
+            { "centra.old_state", oldState },
+            { "centra.new_state", newState },
+            { "centra.reason", reason }
+        };
+        TenantStateTransitionsCounter.Add(1, tags);
+    }
+
+    public static void RecordTenantMetrics(string tenantId, string topic, double trafficShare, double durationMs)
+    {
+        var tags = new TagList
+        {
+            { "centra.tenant.id", tenantId },
+            { "centra.topic", topic }
+        };
+
+        TenantTrafficShareHistogram.Record(trafficShare, tags);
+        TenantOperationDurationHistogram.Record(durationMs, tags);
+    }
+
+    public static void RecordTenantLaneReaped(string tenantId, string topic)
+    {
+        var tags = new TagList
+        {
+            { "centra.tenant.id", tenantId },
+            { "centra.topic", topic }
+        };
+        TenantReapedLanesCounter.Add(1, tags);
     }
 }

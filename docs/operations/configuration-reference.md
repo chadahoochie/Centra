@@ -310,6 +310,49 @@ builder.Services.AddCentraResilience(options =>
 
 ---
 
+## 🏢 Multi-Tenant Pub/Sub Offload Options (`TenantOffloadOptions`)
+
+Governs real-time noisy neighbor tenant detection, fair scheduling, and broker topic partitioning:
+
+```csharp
+builder.Services.AddCentraTenantOffload(options =>
+{
+    options.WindowDuration = TimeSpan.FromSeconds(60);
+    options.MinSampleCount = 20;
+    options.TrafficShareThreshold = 0.30;
+    options.DurationMultiplierThreshold = 3.0;
+    options.DurationAbsoluteThresholdMs = 2500;
+    options.CooldownPeriod = TimeSpan.FromSeconds(30);
+    options.OffloadStrategy = TenantOffloadStrategyType.InProcessFairScheduler;
+    options.MaxConcurrencyPerTenant = 2;
+    options.PerTenantQueueCapacity = 500;
+    options.OffloadShardCount = 4;
+    options.LaneIdleTimeout = TimeSpan.FromSeconds(60);
+    options.OffloadTopicIdleTtl = TimeSpan.FromMinutes(5);
+    options.EnablePublisherBypassing = true;
+    options.OffloadTopicPattern = "{topic}.offload.{tenantId}";
+});
+```
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `WindowDuration` | `TimeSpan` | `60s` | Duration of the sliding evaluation window for rate and duration metrics. |
+| `MinSampleCount` | `int` | `20` | Minimum event samples required in window before offload triggers can fire. |
+| `TrafficShareThreshold` | `double` | `0.30` | Maximum fraction of topic traffic (0.0 to 1.0) allowed for one tenant before offload. |
+| `DurationMultiplierThreshold` | `double` | `3.0` | Factor of average processing duration that marks a tenant's operations as disproportionately slow. |
+| `DurationAbsoluteThresholdMs` | `double?` | `null` | Optional absolute processing duration cap in milliseconds. |
+| `CooldownPeriod` | `TimeSpan` | `30s` | Minimum duration a tenant remains offloaded before evaluating recovery back to normal. |
+| `OffloadStrategy` | `TenantOffloadStrategyType` | `InProcessFairScheduler` | Strategy: `InProcessFairScheduler`, `BoundedShardBrokerTopic`, or `EphemeralBrokerTopic`. |
+| `MaxConcurrencyPerTenant` | `int` | `2` | Maximum concurrent invocations in a tenant's isolated worker lane. |
+| `PerTenantQueueCapacity` | `int` | `500` | Maximum pending work items in a tenant worker lane before applying backpressure. |
+| `OffloadShardCount` | `int` | `4` | Number of physical broker topic shards when using `BoundedShardBrokerTopic`. |
+| `LaneIdleTimeout` | `TimeSpan` | `60s` | Inactivity threshold before the reaper drains and disposes an idle tenant worker lane. |
+| `OffloadTopicIdleTtl` | `TimeSpan` | `5m` | Auto-delete TTL applied to ephemeral broker topics. |
+| `EnablePublisherBypassing` | `bool` | `true` | Allows `CentraPubSubClient` to steer outgoing messages directly to offload topic partitions. |
+| `OffloadTopicPattern` | `string` | `"{topic}.offload.{tenantId}"` | Formatting template for ephemeral or dedicated broker topics. |
+
+---
+
 ## 🔌 Provider Options Reference
 
 ### Redis (`RedisProviderOptions`)

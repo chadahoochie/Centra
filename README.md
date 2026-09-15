@@ -24,7 +24,51 @@ Traditional distributed runtimes (such as Dapr) mandate a separate sidecar proce
 - **Pure Domain Ergonomics**: Interact with clean interfaces (`IStateStore<T>`, `IPubSubClient`, `IDistributedLockProvider`, `IActorProxyFactory`, `IWorkflowClient`) with zero infrastructure boilerplate.
 - **Centralized Governance**: Real-time component hot-reloading over Server-Sent Events (SSE) via the Centra Control Plane.
 
-> 📖 *Learn more in the [Architectural Overview & Design Principles](docs/architecture/overview.md).*
+1. **Native In-Process Performance (Zero Sidecars)**:
+   - Eliminates sidecar loopback HTTP/gRPC serialization hops and process overhead.
+   - High-throughput in-process pipeline using `ValueTask`, `readonly record struct`, `ReadOnlyMemory<byte>`, and `ArrayPool<byte>`.
+2. **Modular & Pluggable Abstractions (Zero Dependency Drag)**:
+   - Fine-grained, decoupled contracts following Interface Segregation Principle (ISP).
+   - Consume *only* what you need (e.g. `Centra.PubSub.Abstractions` or `Centra.Resilience.Abstractions` without dragging State Store or Distributed Locks).
+   - Composable DI registrations (`AddCentraPubSub`, `AddCentraState`, `AddCentraLocks`, `AddCentraInvocation`, `AddCentraBindings`, `AddCentraResilience`, `AddCentraActors`, `AddCentraWorkflows`, or full-stack `AddCentra`).
+3. **Distributed Resilience & Fault Tolerance Pipeline**:
+   - Zero-allocation execution engine wrapping **Polly Core v8** with composite pipelines: **Timeout -> Bulkhead / Concurrency Limiter -> Rate Limiter -> Circuit Breaker -> Retry**.
+   - Exponential, linear, or constant backoff with jitter and cancellation token propagation.
+   - Automatic circuit state machine transitions (`Closed` -> `Open` -> `HalfOpen` -> `Closed`) with microsecond fast-fail rejection under sustained outages.
+   - Live, zero-downtime policy hot-reloading pushed centrally from the Centra Control Plane over Server-Sent Events (SSE).
+4. **Centralized Component Management**:
+   - Eliminates fragmented, desynchronized YAML component files and Kubernetes CRD drift.
+   - Components (State Stores, Pub/Sub Brokers, Distributed Locks, Bindings, Resilience Policies, and Workflows) are managed, versioned, and monitored centrally with real-time SSE hot-reloading.
+5. **Observability as a Core Tenant**:
+   - **Distributed Tracing**: Built directly on `System.Diagnostics.ActivitySource("Centra", "1.0.0")` with W3C `DistributedContextPropagator` context propagation (`traceparent`, `tracestate`).
+   - **Semantic Span Roles**: Proper `ActivityKind` assignment (`Producer` on pub, `Consumer` on sub, `Client` on RPC invoke, `Server` on RPC handle, `Internal` on state/locks/workflows).
+   - **Standard Metrics**: Built on `System.Diagnostics.Metrics.Meter("Centra", "1.0.0")` reporting operation counters, latency histograms, resilience retry/circuit breaker instruments, and active gauges.
+   - **Zero-Allocation Logging**: High-performance `[LoggerMessage]` source generators.
+6. **CNCF CloudEvents v1.0 Standard**:
+   - Transparently wraps and unwraps domain records into CloudEvents v1.0.
+   - Supports **Binary Mode** (default zero-allocation: raw body + `ce-*` headers) and **Structured Mode** (single JSON document).
+   - Automatically tracks enterprise extensions: `ce-correlationid`, `ce-causationid`, `ce-tenantid`, `ce-schemaversion`.
+7. **Code Focused on Code**:
+   - Domain developers interact with clean, strongly typed interfaces (`IStateStore<T>`, `IPubSubClient`, `IDistributedLockProvider`, `IResiliencePipelineProvider`, typed RPC clients, `IActorProxyFactory`, `IWorkflowClient`) without vendor plumbing.
+8. **Distributed Virtual Actors Runtime**:
+   - High-throughput virtual actors with turn-based sequential single-threaded execution (zero race conditions).
+   - Consistent hash ring partition placement (`ConsistentHashRing`) across cluster nodes with virtual vnodes.
+   - Dynamic client RPC proxy generation (`IActorProxyFactory`, `DispatchProxy`).
+   - Optimistic concurrency state management (`IActorStateManager`, ETag CAS) with dirty-tracking and automatic turn-based commits.
+   - Ephemeral timers (`IActorTimerManager`) and durable reminders (`IActorReminderManager`, `IRemindable`) with distributed lock coordination across cluster replicas.
+   - Automatic activation lifecycle with async deduplication, idle timeout passivation, and clean shutdown.
+9. **Distributed Workflows & Sagas (Durable Task Orchestration Engine)**:
+   - Durable multi-step workflow orchestrations with deterministic event-sourced replay.
+   - First-class distributed sagas with automated LIFO compensation rollbacks on activity failures or cancellations.
+   - Durable timers for reliable, crash-resilient asynchronous delays without holding open worker threads.
+   - External event awaits via CloudEvents for human-in-the-loop approvals and asynchronous inter-service coordination.
+   - In-process execution with zero sidecars and zero-allocation performance conventions.
+10. **Dynamic Noisy Neighbor Tenant Offloading & Fair Scheduling**:
+   - Real-time sliding window tracking for tenant message rates, traffic shares, and execution durations (`ITenantMetricsTracker`).
+   - Dynamic anomaly detection triggering automated state transitions (`ITenantOffloadCoordinator`).
+   - Pluggable offload strategies: In-process isolated worker lanes (`InProcessFairScheduler`), deterministic broker topic sharding (`BoundedShardBrokerTopic`), and ephemeral dedicated broker topics (`EphemeralBrokerTopic`).
+   - Outbound publish-side topic redirection (`ResolvePublishTopic`) and inbound subscriber-side interception (`HandleOffloadAsync`).
+   - Automated cooldown recovery and background idle lane reclamation (`TenantOffloadReaperHostedService`).
 
 ---
 
@@ -204,6 +248,14 @@ dotnet run --project samples/Centra.Sample.Actors -- --demo
 # 3. Workflows & sagas simulation (Deterministic replay, LIFO compensations, durable timers)
 dotnet run --project samples/Centra.Sample.Workflows -- --demo
 
+# Run interactive dynamic noisy neighbor tenant offloading & fair scheduling simulation
+dotnet run --project samples/Centra.Sample.TenantOffload -- --demo
+```
+
+---
+
+## ⏰ Distributed Schedulers & Bindings Engine
+
 # 4. Resilience & chaos simulation (Retries, circuit breaker trip/recovery, dynamic hot-reload)
 dotnet run --project samples/Centra.Sample.Resilience -- --demo
 
@@ -275,15 +327,52 @@ dotnet test Centra.slnx --logger "console;verbosity=normal"
 
 ## 📜 Engineering Invariants
 
-- **SOLID Principles**: Strict adherence to the Interface Segregation Principle (ISP) and Dependency Inversion Principle (DIP).
-- **Single Responsibility (File per Type)**: Exactly one type per `.cs` file.
-- **Zero Allocation**: `ValueTask`, `readonly record struct`, `ReadOnlyMemory<byte>`, and `ArrayPool<byte>.Shared` across hot execution paths.
-- **Standards Compliant**: CNCF CloudEvents v1.0 (binary mode default) and W3C TraceContext propagation (`traceparent`, `tracestate`).
-- **No Blind Overwrites**: State mutations use ETags and optimistic concurrency (`TrySetAsync`).
-- **Actor Concurrency Safety**: Single-threaded FIFO turn execution via `ActorMailbox` with optimistic concurrency ETag commits.
-- **Durable Reminders Mutual Exclusion**: Distributed lock coordination across cluster nodes preventing duplicate ticks.
-- **Workflow Determinism & Saga Rollback**: Replay turns are strictly deterministic; activity failures trigger automated reverse (LIFO) compensations.
-- **No Private Instance or Static Methods**: Types remain cohesive with logic inlined or factored into dedicated collaborator types.
+```
+Centra.slnx
+├── src/
+│   ├── Centra.Abstractions/           # Umbrella metapackage referencing all modular abstractions
+│   ├── Centra.Events.Abstractions/    # CNCF CloudEvents v1.0 contracts & ambient context
+│   ├── Centra.PubSub.Abstractions/    # IPubSubClient, IEventHandler, Topic contracts
+│   ├── Centra.State.Abstractions/     # IStateStore, StateEntry, transactions, optimistic concurrency
+│   ├── Centra.Locks.Abstractions/     # IDistributedLockProvider & IDistributedLock contracts
+│   ├── Centra.Invocation.Abstractions/# IServiceInvoker, IServiceEndpointResolver & typed RPC client attributes
+│   ├── Centra.Bindings.Abstractions/  # IInputBinding, IOutputBinding, IScheduler, IJobHandler & Cron contracts
+│   ├── Centra.Components.Abstractions/# ComponentDefinition, ComponentType, IComponentRegistry
+│   ├── Centra.Sync.Abstractions/      # IControlPlaneClient & live streaming sync event DTOs
+│   ├── Centra.Resilience.Abstractions/# Resilience pipelines, retry, circuit breaker, timeout & bulkhead contracts
+│   ├── Centra.Actors.Abstractions/    # IActor, Actor, ActorId, IActorStateManager, IActorReminderManager contracts
+│   ├── Centra.Workflows.Abstractions/ # IWorkflow, IWorkflowActivity, IWorkflowContext, IWorkflowSaga, IWorkflowClient
+│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, cron, RPC proxies, Polly v8, actors & workflows
+│   ├── Centra.Providers.InMemory/     # Zero-dependency in-memory driver implementations
+│   ├── Centra.Providers.Redis/        # Redis State (Lua CAS/Tx), Pub/Sub (CloudEvents v1.0 binary), Locks (Lease/Renewal)
+│   ├── Centra.Providers.PostgreSql/   # PostgreSQL State (ACID table, ETags, Tx, TTL) & Locks (Lease table heartbeat)
+│   ├── Centra.Providers.RabbitMQ/     # RabbitMQ Pub/Sub (AMQP topic exchange, CloudEvents headers, consumer groups, DLX)
+│   ├── Centra.Providers.SqlServer/    # SQL Server State (MERGE, ETags, Tx, TTL) & Locks (Lease table renewal)
+│   ├── Centra.Providers.AzureServiceBus/# Azure Service Bus Pub/Sub (Topics, Subscriptions, CloudEvents headers, Dead-lettering)
+│   ├── Centra.Providers.CosmosDb/     # Azure Cosmos DB State (Point reads, TransactionalBatch, ETags, TTL) & Locks
+│   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, actor endpoints, workflow endpoints, hosted services
+│   ├── Centra.ControlPlane/           # Central component catalog, resilience, topology, actor & workflow inspection, SSE
+│   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
+├── samples/
+│   ├── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
+│   ├── Centra.Sample.MultiInstance/   # Multi-instance cluster: native service discovery, locks, shared state, pub/sub
+│   ├── Centra.Sample.Resilience/      # Resilience & Chaos simulation: retries, circuit breaker trip/recover, timeouts, hot-reload
+│   ├── Centra.Sample.Bindings/        # Bindings simulation: distributed cron, HTTP webhooks, and state persistence
+│   ├── Centra.Sample.Actors/          # Virtual actors simulation: turn-based concurrency, state persistence, durable reminders
+│   ├── Centra.Sample.Workflows/       # Workflows simulation: deterministic replay, distributed sagas, timers, CloudEvents await
+│   ├── Centra.Sample.TenantOffload/   # Tenant offload simulation: rolling metrics, fair scheduling, broker topic sharding
+│   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator (multi-replica orchestration)
+└── tests/
+    ├── Centra.Tests.Unit/             # Core, runtime, state, pubsub, bindings, resilience, actors & workflows tests (264 tests)
+    ├── Centra.ControlPlane.Tests.Unit/# Control Plane catalog, resilience, topology, actors & workflows tests (26 tests)
+    ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (17 tests)
+    ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (7 tests)
+    ├── Centra.Providers.SqlServer.Tests.Unit/   # SQL Server State and Locks unit tests (5 tests)
+    ├── Centra.Providers.AzureServiceBus.Tests.Unit/ # Azure Service Bus Pub/Sub unit tests (4 tests)
+    ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (2 tests)
+    ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
+    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster, bindings, actors, sagas & Testcontainers (24 tests)
+```
 
 ---
 
