@@ -16,7 +16,7 @@ public sealed class RedisStreamProcessor : IRedisStreamProcessor
     /// </summary>
     public static readonly RedisStreamProcessor Instance = new();
 
-    private const string EnvelopeField = "envelope";
+    public const string EnvelopeField = "envelope";
 
     public async ValueTask PublishToStreamAsync(
         IDatabase db,
@@ -28,10 +28,36 @@ public sealed class RedisStreamProcessor : IRedisStreamProcessor
         ArgumentNullException.ThrowIfNull(db);
         ArgumentException.ThrowIfNullOrWhiteSpace(streamKey);
 
-        var envelope = new RedisMessageEnvelope(metadata, payload.ToArray());
-        var envelopeBytes = JsonSerializer.SerializeToUtf8Bytes(envelope);
+        var framedBytes = RedisMessagePayloadCodec.Encode(payload, metadata);
+        await db.StreamAddAsync(streamKey, EnvelopeField, framedBytes).ConfigureAwait(false);
+    }
 
-        await db.StreamAddAsync(streamKey, EnvelopeField, envelopeBytes).ConfigureAwait(false);
+    public async ValueTask PublishBatchToStreamAsync(
+        IDatabase db,
+        string streamKey,
+        IReadOnlyList<PubSubMessage> messages,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamKey);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        var batch = db.CreateBatch();
+        var tasks = new Task[messages.Count];
+        for (int i = 0; i < messages.Count; i++)
+        {
+            var msg = messages[i];
+            var framedBytes = RedisMessagePayloadCodec.Encode(msg.Payload, msg.Metadata);
+            tasks[i] = batch.StreamAddAsync(streamKey, EnvelopeField, framedBytes);
+        }
+
+        batch.Execute();
+        await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     public async Task RunStreamLoopAsync(
@@ -86,9 +112,23 @@ public sealed class RedisStreamProcessor : IRedisStreamProcessor
                     continue;
                 }
 
-                foreach (var entry in entries)
+                var ackIds = new List<RedisValue>(entries.Length);
+                try
                 {
-                    await ProcessStreamEntryAsync(db, streamKey, groupName, pubSubName, deadLetterTopic, handler, entry, logger, cancellationToken).ConfigureAwait(false);
+                    for (int i = 0; i < entries.Length; i++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var entry = entries[i];
+                        await ProcessStreamEntryAsync(db, streamKey, groupName, pubSubName, deadLetterTopic, handler, entry, logger, cancellationToken, autoAcknowledge: false).ConfigureAwait(false);
+                        ackIds.Add(entry.Id);
+                    }
+                }
+                finally
+                {
+                    if (ackIds.Count > 0)
+                    {
+                        await db.StreamAcknowledgeAsync(streamKey, groupName, ackIds.ToArray()).ConfigureAwait(false);
+                    }
                 }
             }
         }
@@ -114,16 +154,34 @@ public sealed class RedisStreamProcessor : IRedisStreamProcessor
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         StreamEntry entry,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool autoAcknowledge = true)
     {
         try
         {
-            var envelopeField = entry.Values.FirstOrDefault(v => v.Name == EnvelopeField);
-            byte[] raw = envelopeField.Value.IsNullOrEmpty ? Array.Empty<byte>() : (byte[])envelopeField.Value!;
-            var envelope = raw.Length > 0 ? JsonSerializer.Deserialize<RedisMessageEnvelope>(raw) : null;
+            ReadOnlyMemory<byte> payload = ReadOnlyMemory<byte>.Empty;
+            IReadOnlyDictionary<string, string> headers = new Dictionary<string, string>();
 
-            var payload = (ReadOnlyMemory<byte>)(envelope?.Payload ?? Array.Empty<byte>());
-            var headers = envelope?.Headers ?? new Dictionary<string, string>();
+            var envelopeField = entry.Values.FirstOrDefault(v => v.Name == EnvelopeField);
+            if (!envelopeField.Value.IsNullOrEmpty)
+            {
+                byte[] raw = (byte[])envelopeField.Value!;
+                RedisMessagePayloadCodec.TryDecode(raw, out payload, out headers);
+            }
+            else
+            {
+                var payloadField = entry.Values.FirstOrDefault(v => v.Name == "payload");
+                if (!payloadField.Value.IsNullOrEmpty)
+                {
+                    payload = (byte[])payloadField.Value!;
+                    var metadataField = entry.Values.FirstOrDefault(v => v.Name == "metadata" || v.Name == "headers");
+                    if (!metadataField.Value.IsNullOrEmpty)
+                    {
+                        headers = JsonSerializer.Deserialize<Dictionary<string, string>>((byte[])metadataField.Value!)
+                            ?? (IReadOnlyDictionary<string, string>)new Dictionary<string, string>();
+                    }
+                }
+            }
 
             var result = await handler(payload, headers, cancellationToken).ConfigureAwait(false);
 
@@ -132,13 +190,20 @@ public sealed class RedisStreamProcessor : IRedisStreamProcessor
                 await PublishToStreamAsync(db, deadLetterTopic, payload, headers, cancellationToken).ConfigureAwait(false);
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error processing Redis stream entry {EntryId} on {Stream}", entry.Id, streamKey);
         }
         finally
         {
-            await db.StreamAcknowledgeAsync(streamKey, groupName, entry.Id).ConfigureAwait(false);
+            if (autoAcknowledge)
+            {
+                await db.StreamAcknowledgeAsync(streamKey, groupName, entry.Id).ConfigureAwait(false);
+            }
         }
     }
 }

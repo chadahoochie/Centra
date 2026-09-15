@@ -84,13 +84,10 @@ public sealed class CentraServiceInvoker : IServiceInvoker
             }
 
             // Trace Context & Ambient IDs
-            var traceHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            CentraTracePropagator.Inject(Activity.Current, traceHeaders);
-
-            foreach (var kvp in traceHeaders)
+            CentraTracePropagator.Inject(Activity.Current, requestMessage, static (req, key, value) =>
             {
-                requestMessage.Headers.TryAddWithoutValidation(kvp.Key, kvp.Value);
-            }
+                req.Headers.TryAddWithoutValidation(key, value);
+            });
 
             if (CentraAmbientContext.CorrelationId is not null)
             {

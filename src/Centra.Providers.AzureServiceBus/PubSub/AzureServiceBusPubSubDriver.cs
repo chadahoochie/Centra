@@ -97,6 +97,63 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
         await sender.SendMessageAsync(message, cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask PublishBatchAsync(
+        string pubSubName,
+        string topic,
+        IReadOnlyList<PubSubMessage> messages,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(topic);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        var sender = GetSender(topic);
+        var sbMessages = new List<ServiceBusMessage>(messages.Count);
+
+        foreach (var msg in messages)
+        {
+            var message = new ServiceBusMessage(new BinaryData(msg.Payload));
+
+            if (msg.Metadata is not null && msg.Metadata.Count > 0)
+            {
+                foreach (var (k, v) in msg.Metadata)
+                {
+                    message.ApplicationProperties[k] = v;
+
+                    if (string.Equals(k, CloudEventConstants.IdHeader, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(k, CloudEventConstants.IdAttribute, StringComparison.OrdinalIgnoreCase))
+                    {
+                        message.MessageId = v;
+                    }
+                    else if (string.Equals(k, CloudEventConstants.SubjectHeader, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(k, CloudEventConstants.SubjectAttribute, StringComparison.OrdinalIgnoreCase))
+                    {
+                        message.Subject = v;
+                    }
+                    else if (string.Equals(k, CloudEventConstants.CorrelationIdHeader, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(k, CloudEventConstants.CorrelationIdAttribute, StringComparison.OrdinalIgnoreCase))
+                    {
+                        message.CorrelationId = v;
+                    }
+                    else if (string.Equals(k, CloudEventConstants.DataContentTypeHeader, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(k, CloudEventConstants.DataContentTypeAttribute, StringComparison.OrdinalIgnoreCase))
+                    {
+                        message.ContentType = v;
+                    }
+                }
+            }
+
+            sbMessages.Add(message);
+        }
+
+        await sender.SendMessagesAsync(sbMessages, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask SubscribeAsync(
         string pubSubName,
         string topic,

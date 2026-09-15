@@ -42,6 +42,27 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
         }
     }
 
+    public async ValueTask PublishBatchAsync(
+        string pubSubName,
+        string topic,
+        IReadOnlyList<PubSubMessage> messages,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(topic);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var message in messages)
+        {
+            await PublishAsync(pubSubName, topic, message.Payload, message.Metadata ?? new Dictionary<string, string>(), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public ValueTask SubscribeAsync(
         string pubSubName,
         string topic,

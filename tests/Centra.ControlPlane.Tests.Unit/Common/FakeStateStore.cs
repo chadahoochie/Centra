@@ -24,6 +24,25 @@ public sealed class FakeStateStore : IStateStore
         return ValueTask.FromResult<StateEntry<T>?>(null);
     }
 
+    public ValueTask<IReadOnlyList<StateEntry<T>>> GetBatchAsync<T>(
+        string storeName,
+        IReadOnlyList<string> keys,
+        StateOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var results = new List<StateEntry<T>>(keys.Count);
+        foreach (var key in keys)
+        {
+            var fullKey = $"{storeName}:{key}";
+            if (_data.TryGetValue(fullKey, out var entry) && entry.Value is T typedValue)
+            {
+                results.Add(new StateEntry<T>(key, typedValue, entry.ETag));
+            }
+        }
+
+        return ValueTask.FromResult<IReadOnlyList<StateEntry<T>>>(results);
+    }
+
     public ValueTask SetAsync<T>(
         string storeName,
         string key,

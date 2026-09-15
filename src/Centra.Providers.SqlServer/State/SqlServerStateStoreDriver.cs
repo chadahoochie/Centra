@@ -84,6 +84,58 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
         return null;
     }
 
+    public async ValueTask<IReadOnlyList<StateEntry<byte[]>>> GetBatchAsync(
+        string storeName,
+        IReadOnlyList<string> keys,
+        StateOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeName);
+        ArgumentNullException.ThrowIfNull(keys);
+
+        if (keys.Count == 0)
+        {
+            return Array.Empty<StateEntry<byte[]>>();
+        }
+
+        await EnsureTableCreatedAsync(cancellationToken).ConfigureAwait(false);
+
+        var now = DateTimeOffset.UtcNow;
+        var paramNames = new string[keys.Count];
+        for (int i = 0; i < keys.Count; i++)
+        {
+            paramNames[i] = $"@k{i}";
+        }
+
+        var inClause = string.Join(",", paramNames);
+        var sql = $"""
+            SELECT [key], [value], [etag] FROM {_fullTableName}
+            WHERE [store_name] = @store_name AND [key] IN ({inClause}) AND ([expire_at_utc] IS NULL OR [expire_at_utc] > @now);
+            """;
+
+        await using var conn = new SqlConnection(_options.ConnectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new SqlCommand(sql, conn);
+        cmd.Parameters.Add(new SqlParameter("@store_name", SqlDbType.NVarChar, 128) { Value = storeName });
+        cmd.Parameters.Add(new SqlParameter("@now", SqlDbType.DateTimeOffset) { Value = now });
+        for (int i = 0; i < keys.Count; i++)
+        {
+            cmd.Parameters.Add(new SqlParameter(paramNames[i], SqlDbType.NVarChar, 256) { Value = keys[i] });
+        }
+
+        var results = new List<StateEntry<byte[]>>(keys.Count);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var key = reader.GetString(0);
+            var value = (byte[])reader[1];
+            var etag = reader.GetString(2);
+            results.Add(new StateEntry<byte[]>(key, value, etag, null));
+        }
+
+        return results;
+    }
+
     public async ValueTask SetAsync(
         string storeName,
         string key,

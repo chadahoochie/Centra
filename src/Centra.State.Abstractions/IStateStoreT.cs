@@ -3,6 +3,7 @@ namespace Centra.State;
 public interface IStateStore<T>
 {
     ValueTask<StateEntry<T>?> GetAsync(string key, StateOptions? options = null, CancellationToken cancellationToken = default);
+    ValueTask<IReadOnlyList<StateEntry<T>>> GetBatchAsync(IReadOnlyList<string> keys, StateOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask SetAsync(string key, T value, StateOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask<bool> TrySetAsync(string key, T value, string expectedETag, StateOptions? options = null, CancellationToken cancellationToken = default);
     ValueTask DeleteAsync(string key, StateOptions? options = null, CancellationToken cancellationToken = default);

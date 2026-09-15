@@ -13,11 +13,15 @@ internal sealed class CentraSubscriptionEventDispatcher
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger _logger;
+    private readonly IInboxStore? _inboxStore;
+    private readonly IResiliencePipelineProvider? _resilienceProvider;
 
     public CentraSubscriptionEventDispatcher(IServiceProvider serviceProvider, ILogger logger)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _inboxStore = serviceProvider.GetService<IInboxStore>();
+        _resilienceProvider = serviceProvider.GetService<IResiliencePipelineProvider>();
     }
 
     public async ValueTask<EventHandlingResult> DispatchEventAsync(

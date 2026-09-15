@@ -71,6 +71,39 @@ public sealed class CosmosDbStateStoreDriver : IStateStoreDriver
         }
     }
 
+    public async ValueTask<IReadOnlyList<StateEntry<byte[]>>> GetBatchAsync(
+        string storeName,
+        IReadOnlyList<string> keys,
+        StateOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeName);
+        ArgumentNullException.ThrowIfNull(keys);
+
+        if (keys.Count == 0)
+        {
+            return Array.Empty<StateEntry<byte[]>>();
+        }
+
+        var tasks = new Task<StateEntry<byte[]>?>[keys.Count];
+        for (int i = 0; i < keys.Count; i++)
+        {
+            tasks[i] = GetAsync(storeName, keys[i], options, cancellationToken).AsTask();
+        }
+
+        var entries = await Task.WhenAll(tasks).ConfigureAwait(false);
+        var results = new List<StateEntry<byte[]>>(entries.Length);
+        foreach (var entry in entries)
+        {
+            if (entry.HasValue)
+            {
+                results.Add(entry.Value);
+            }
+        }
+
+        return results;
+    }
+
     public async ValueTask SetAsync(
         string storeName,
         string key,

@@ -23,6 +23,24 @@ public static class CentraTracePropagator
         });
     }
 
+    public static void Inject<TCarrier>(Activity? activity, TCarrier carrier, Action<TCarrier, string, string> setter)
+    {
+        if (activity is null)
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(setter);
+
+        Propagator.Inject(activity, carrier, (c, key, value) =>
+        {
+            if (c is TCarrier typed)
+            {
+                setter(typed, key, value);
+            }
+        });
+    }
+
     public static ActivityContext Extract(IReadOnlyDictionary<string, string> carrier)
     {
         Propagator.ExtractTraceIdAndState(

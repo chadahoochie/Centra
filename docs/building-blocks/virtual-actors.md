@@ -166,6 +166,9 @@ app.MapPost("/accounts/{id}/deposit", async (
 });
 ```
 
+### Compile-Time Actor Proxies via `Centra.Generators`
+For Native AOT or zero-reflection scenarios, the `Centra.Generators` Roslyn incremental source generator emits strongly typed actor client implementations at compile time, eliminating `DispatchProxy` reflection during actor invocations.
+
 ---
 
 ## ⏰ Ephemeral Timers vs Durable Reminders

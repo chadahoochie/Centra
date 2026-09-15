@@ -16,6 +16,9 @@ public sealed class CentraStateStore<T> : IStateStore<T>
     public ValueTask<StateEntry<T>?> GetAsync(string key, StateOptions? options = null, CancellationToken cancellationToken = default) =>
         _innerStore.GetAsync<T>(_storeName, key, options, cancellationToken);
 
+    public ValueTask<IReadOnlyList<StateEntry<T>>> GetBatchAsync(IReadOnlyList<string> keys, StateOptions? options = null, CancellationToken cancellationToken = default) =>
+        _innerStore.GetBatchAsync<T>(_storeName, keys, options, cancellationToken);
+
     public ValueTask SetAsync(string key, T value, StateOptions? options = null, CancellationToken cancellationToken = default) =>
         _innerStore.SetAsync<T>(_storeName, key, value, options, cancellationToken);
 

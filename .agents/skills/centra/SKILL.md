@@ -17,13 +17,13 @@ This skill defines the mandatory architectural invariants, implementation patter
 2. **Modular & Pluggable Abstractions (Zero Dependency Drag)**:
    - Fine-grained, decoupled contracts adhering strictly to the Interface Segregation Principle (ISP).
    - Consume only what is needed (e.g. `Centra.PubSub.Abstractions` without dragging state stores or locks).
-   - Composable DI registrations (`AddCentraPubSub`, `AddCentraState`, `AddCentraLocks`, `AddCentraInvocation`, `AddCentraBindings`, or full-stack `AddCentra`).
+    - Composable DI registrations (`AddCentraPubSub`, `AddCentraState`, `AddCentraLocks`, `AddCentraInvocation`, `AddCentraBindings`, `AddCentraResilience`, `AddCentraActors`, `AddCentraWorkflows`, or full-stack `AddCentra`).
 3. **Centralized Component Management**:
    - Eliminates fragmented YAML component manifests and Kubernetes CRD drift.
-   - Components (State Stores, Pub/Sub Brokers, Distributed Locks, Bindings) are versioned and monitored centrally via [`Centra.ControlPlane`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.ControlPlane) with real-time SSE hot-reloading.
+   - Components (State Stores, Pub/Sub Brokers, Distributed Locks, Bindings, Resilience Policies, Workflows) are versioned and monitored centrally via `Centra.ControlPlane` with real-time SSE hot-reloading.
 4. **Observability as a Core Tenant**:
    - **Distributed Tracing**: Built on `System.Diagnostics.ActivitySource("Centra", "1.0.0")` with W3C `DistributedContextPropagator` context propagation (`traceparent`, `tracestate`).
-   - **Semantic Span Roles**: Correct `ActivityKind` assignment (`Producer` on publish, `Consumer` on subscribe, `Client` on RPC invocation, `Server` on RPC handler, `Internal` on state/locks).
+   - **Semantic Span Roles**: Correct `ActivityKind` assignment (`Producer` on publish, `Consumer` on subscribe, `Client` on RPC invocation, `Server` on RPC handler, `Internal` on state/locks/workflows).
    - **Metrics**: Built on `System.Diagnostics.Metrics.Meter("Centra", "1.0.0")` reporting operation counters, latency histograms, and active gauges.
    - **High-Performance Logging**: Zero-allocation `[LoggerMessage]` source generators.
 5. **CNCF CloudEvents v1.0 Standard**:
@@ -31,7 +31,7 @@ This skill defines the mandatory architectural invariants, implementation patter
    - Supports **Binary Mode** (default zero-allocation: raw body + `ce-*` headers) and **Structured Mode** (single JSON payload).
    - Automatically tracks enterprise extensions: `ce-correlationid`, `ce-causationid`, `ce-tenantid`, `ce-schemaversion`.
 6. **Code Focused on Code**:
-   - Domain developers interact with clean, strongly typed interfaces ([`IStateStore<T>`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.State.Abstractions/IStateStoreT.cs), [`IPubSubClient`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.PubSub.Abstractions/IPubSubClient.cs), [`IDistributedLockProvider`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.Locks.Abstractions/IDistributedLockProvider.cs), typed RPC proxies) without vendor plumbing.
+   - Domain developers interact with clean, strongly typed interfaces (`IStateStore<T>`, `IPubSubClient`, `IDistributedLockProvider`, `IActorProxyFactory`, `IWorkflowClient`, typed RPC proxies) without vendor plumbing.
 
 ---
 
@@ -40,16 +40,31 @@ This skill defines the mandatory architectural invariants, implementation patter
 ```
 Centra.slnx
 ├── src/
-│   ├── Centra.Abstractions/           # Umbrella metapackage referencing all 8 modular abstractions
+│   ├── Centra.Abstractions/           # Umbrella metapackage referencing all modular abstractions
 │   ├── Centra.Events.Abstractions/    # CNCF CloudEvents v1.0 contracts & ambient context
-│   ├── Centra.PubSub.Abstractions/    # IPubSubClient, IEventHandler, Topic contracts
-│   ├── Centra.State.Abstractions/     # IStateStore<T>, StateEntry<T>, transactions, optimistic concurrency
-│   ├── Centra.Locks.Abstractions/     # IDistributedLockProvider & IDistributedLock contracts
+│   ├── Centra.PubSub.Abstractions/    # IPubSubClient, IEventHandler, Topic contracts, IPubSubDriver
+│   ├── Centra.State.Abstractions/     # IStateStore<T>, StateEntry<T>, transactions, IStateStoreDriver
+│   ├── Centra.Locks.Abstractions/     # IDistributedLockProvider & IDistributedLock contracts, IDistributedLockDriver
 │   ├── Centra.Invocation.Abstractions/# IServiceInvoker, IServiceEndpointResolver & typed RPC attributes
-│   ├── Centra.Bindings.Abstractions/  # IOutputBinding & Cron trigger contracts
+│   ├── Centra.Bindings.Abstractions/  # IInputBinding, IOutputBinding, IScheduler, IJobHandler, IBindingDriver
 │   ├── Centra.Components.Abstractions/# ComponentDefinition, ComponentType, IComponentRegistry
 │   ├── Centra.Sync.Abstractions/      # IControlPlaneClient & live streaming sync event DTOs
-│   ├── Centra.Core/                   # In-process runtime, zero-alloc serialization, diagnostics, RPC proxies
+│   ├── Centra.Resilience.Abstractions/# Resilience pipelines, retry, circuit breaker, timeout & rate limiter contracts
+│   ├── Centra.Actors.Abstractions/    # IActor, Actor, ActorIdentity, IActorStateManager, IActorReminderManager
+│   ├── Centra.Workflows.Abstractions/ # IWorkflow, Workflow<TIn, TOut>, IWorkflowActivity, IWorkflowSaga
+│   ├── Centra.Runtime/                # Core in-process runtime, OTel tracing/metrics, PooledByteBufferWriter
+│   ├── Centra.Serialization/          # High-performance System.Text.Json serialization
+│   ├── Centra.Events/                 # CloudEvent packing and unpacking (Binary & Structured)
+│   ├── Centra.Resilience/             # Polly Core v8 composite pipelines & hot-reloading
+│   ├── Centra.Sync/                   # Client-side control plane sync client, topology polling & SSE reader
+│   ├── Centra.Locks/                  # Lock lease coordinator and background renewal
+│   ├── Centra.State/                  # State store with ETag CAS retries
+│   ├── Centra.PubSub/                 # Topic routing, CEL-style rule filter evaluator
+│   ├── Centra.Bindings/               # Bitmask 64-bit Cron scheduler & input/output dispatchers
+│   ├── Centra.Invocation/             # Dynamic client proxy generation & endpoint resolution
+│   ├── Centra.Actors/                 # Turn-based mailbox, consistent hash ring, dirty-tracking state
+│   ├── Centra.Workflows/              # Deterministic replay context, saga runner, durable timers
+│   ├── Centra.Generators/             # Roslyn incremental source generators for compile-time proxies
 │   ├── Centra.Providers.InMemory/     # Zero-dependency in-memory driver implementations
 │   ├── Centra.Providers.Redis/        # Redis State (Lua CAS/Tx), Pub/Sub (CloudEvents binary), Locks (Lease renewal)
 │   ├── Centra.Providers.PostgreSql/   # PostgreSQL State (ACID table, ETags, Tx, TTL) & Locks (Lease table)
@@ -63,24 +78,32 @@ Centra.slnx
 ├── samples/
 │   ├── Centra.Sample.OrdersService/   # Real-world ASP.NET Core sample microservice
 │   ├── Centra.Sample.MultiInstance/   # Multi-instance cluster: discovery, distributed locks, shared state, pub/sub
+│   ├── Centra.Sample.Resilience/      # Resilience & chaos simulation: retries, circuit breaker, timeouts
+│   ├── Centra.Sample.Bindings/        # Bindings simulation: distributed cron, webhooks, output bindings
+│   ├── Centra.Sample.Actors/          # Virtual actors simulation: turn-based concurrency, state, reminders
+│   ├── Centra.Sample.Workflows/       # Workflows simulation: deterministic replay, sagas, durable timers
+│   ├── Centra.Sample.DockerStack/     # 3-node cluster replica for Docker Compose
+│   ├── Centra.Sample.DockerStack.Simulator/ # Background traffic simulator
+│   ├── RabbitSimulation/              # Standalone RabbitMQ + Service Invocation simulation
 │   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator
 └── tests/
-    ├── Centra.Tests.Unit/             # Core, runtime & composable DI unit tests
-    ├── Centra.ControlPlane.Tests.Unit/# Control Plane unit tests
+    ├── Centra.Tests.Unit/             # Core, runtime, state, pubsub, bindings, resilience, actors & workflows
+    ├── Centra.ControlPlane.Tests.Unit/# Control Plane catalog, resilience, topology, actors & workflows
+    ├── Centra.Generators.Tests.Unit/  # Roslyn incremental source generator unit tests
     ├── Centra.Providers.*.Tests.Unit/ # Provider-specific unit test suites
-    └── Centra.Tests.Integration/      # End-to-end workflows & Testcontainers integration tests
+    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance, Testcontainers integration tests
 ```
 
 ---
 
 ## 🔌 3. Driver SPI Contracts
 
-Centra decouples domain APIs from physical infrastructure via clean Driver SPI contracts defined in [`Centra.Core/Drivers`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.Core/Drivers):
+Centra decouples domain APIs from physical infrastructure via clean Driver SPI contracts defined in the respective modular abstraction packages:
 
-- [`IStateStoreDriver`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.Core/Drivers/IStateStoreDriver.cs): Read, write, delete, and atomic transaction batches with optimistic concurrency (ETags) and TTL.
-- [`IPubSubDriver`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.Core/Drivers/IPubSubDriver.cs): Topic publishing and subscription dispatch with CloudEvents binary/structured packing.
-- [`IDistributedLockDriver`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.Core/Drivers/IDistributedLockDriver.cs): Lease acquisition, heartbeats, and atomic release.
-- [`IBindingDriver`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.Core/Drivers/IBindingDriver.cs): Input/output external system bindings.
+- `IStateStoreDriver` (in `Centra.State.Abstractions`): Read, write, delete, and atomic transaction batches with optimistic concurrency (ETags) and TTL.
+- `IPubSubDriver` (in `Centra.PubSub.Abstractions`): Topic publishing and subscription dispatch with CloudEvents binary/structured packing.
+- `IDistributedLockDriver` (in `Centra.Locks.Abstractions`): Lease acquisition, heartbeats, and atomic release.
+- `IBindingDriver` (in `Centra.Bindings.Abstractions`): Input/output external system bindings.
 
 ---
 
@@ -197,7 +220,7 @@ if (!@lock.Success)
 
 1. **Prefer `ValueTask` / `ValueTask<T>`** for high-frequency runtime contracts that frequently complete synchronously (e.g. cache hits, in-memory buffers).
 2. **Use `readonly record struct`** for immutable data carriers and event DTOs where heap allocations must be minimized.
-3. **Buffer Management**: Always use `ArrayPool<byte>.Shared` or [`PooledByteBufferWriter`](file:///home/chad/source/dotnet/distributed-framework/src/Centra.Core/Memory/PooledByteBufferWriter.cs) when serializing or framing CloudEvents and network payloads.
+3. **Buffer Management**: Always use `ArrayPool<byte>.Shared` or `PooledByteBufferWriter` (in `Centra.Runtime`) when serializing or framing CloudEvents and network payloads.
 4. **ETags & Optimistic Concurrency**: Never perform blind overwrites on concurrent state. Use `TrySetAsync` with the acquired ETag.
 5. **Context Propagation**: Always propagate W3C `traceparent` and `tracestate` across message headers and HTTP calls using `CentraTracePropagator`.
 
@@ -209,7 +232,7 @@ if (!@lock.Success)
 - **Single Responsibility (File per Type)**: Exactly one type (class, struct, interface, enum) per `.cs` file.
 - **Nullability & Warnings**: `<Nullable>enable</Nullable>` and `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` are globally enforced. Do not suppress warnings without explicit rationale.
 - **No Private Instance or Static Methods**: Do not use private instance or static methods in classes or structs. Factor distinct sub-operations into dedicated, single-purpose collaborator types (internal or public, strictly 1 type per file) or inline simple logic directly at the call site.
-- **Central Package Management**: Never add `<PackageReference Version="...">` directly to project files. Add versions to [`Directory.Packages.props`](file:///home/chad/source/dotnet/distributed-framework/Directory.Packages.props).
+- **Central Package Management**: Never add `<PackageReference Version="...">` directly to project files. Add versions to `Directory.Packages.props`.
 - **TDD (Test-Driven Development)**: All driver implementations and abstractions must be accompanied by unit tests and, where appropriate, Testcontainers integration tests.
 
 ---

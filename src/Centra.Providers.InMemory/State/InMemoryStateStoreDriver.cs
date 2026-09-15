@@ -37,6 +37,41 @@ public sealed class InMemoryStateStoreDriver : IStateStoreDriver
         return new ValueTask<StateEntry<byte[]>?>((StateEntry<byte[]>?)null);
     }
 
+    public ValueTask<IReadOnlyList<StateEntry<byte[]>>> GetBatchAsync(
+        string storeName,
+        IReadOnlyList<string> keys,
+        StateOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeName);
+        ArgumentNullException.ThrowIfNull(keys);
+
+        if (keys.Count == 0)
+        {
+            return new ValueTask<IReadOnlyList<StateEntry<byte[]>>>(Array.Empty<StateEntry<byte[]>>());
+        }
+
+        var store = _stores.GetOrAdd(storeName, static _ => new ConcurrentDictionary<string, InMemoryStateRecord>(StringComparer.OrdinalIgnoreCase));
+        var now = _timeProvider.GetUtcNow();
+        var results = new List<StateEntry<byte[]>>(keys.Count);
+
+        foreach (var key in keys)
+        {
+            if (store.TryGetValue(key, out var record))
+            {
+                if (record.ExpiresAt.HasValue && record.ExpiresAt.Value <= now)
+                {
+                    store.TryRemove(key, out _);
+                    continue;
+                }
+
+                results.Add(new StateEntry<byte[]>(key, record.Value, record.ETag, record.Metadata));
+            }
+        }
+
+        return new ValueTask<IReadOnlyList<StateEntry<byte[]>>>(results);
+    }
+
     public ValueTask SetAsync(
         string storeName,
         string key,

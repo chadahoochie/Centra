@@ -79,6 +79,46 @@ public sealed class PostgreSqlStateStoreDriver : IStateStoreDriver
         return null;
     }
 
+    public async ValueTask<IReadOnlyList<StateEntry<byte[]>>> GetBatchAsync(
+        string storeName,
+        IReadOnlyList<string> keys,
+        StateOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeName);
+        ArgumentNullException.ThrowIfNull(keys);
+
+        if (keys.Count == 0)
+        {
+            return Array.Empty<StateEntry<byte[]>>();
+        }
+
+        await EnsureTableCreatedAsync(cancellationToken).ConfigureAwait(false);
+
+        var now = DateTimeOffset.UtcNow;
+        var sql = $"""
+            SELECT key, value, etag FROM {_fullTableName}
+            WHERE store_name = $1 AND key = ANY($2) AND (expire_at_utc IS NULL OR expire_at_utc > $3);
+            """;
+
+        await using var cmd = _dataSource.CreateCommand(sql);
+        cmd.Parameters.AddWithValue(storeName);
+        cmd.Parameters.AddWithValue(keys.ToArray());
+        cmd.Parameters.AddWithValue(now);
+
+        var results = new List<StateEntry<byte[]>>(keys.Count);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            string key = reader.GetString(0);
+            byte[] value = (byte[])reader[1];
+            string etag = reader.GetString(2);
+            results.Add(new StateEntry<byte[]>(key, value, etag, null));
+        }
+
+        return results;
+    }
+
     public async ValueTask SetAsync(
         string storeName,
         string key,
