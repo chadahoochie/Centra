@@ -14,17 +14,29 @@ public sealed class CentraPubSubClient : IPubSubClient
     private readonly string _appId;
     private readonly string _defaultPubSubName;
     private readonly IResiliencePipelineProvider? _resilienceProvider;
+    private readonly Tenancy.ITenantOffloadCoordinator? _offloadCoordinator;
 
     public CentraPubSubClient(
         ComponentRegistry registry,
         string appId,
         string defaultPubSubName = "pubsub",
         IResiliencePipelineProvider? resilienceProvider = null)
+        : this(registry, appId, defaultPubSubName, resilienceProvider, offloadCoordinator: null)
+    {
+    }
+
+    public CentraPubSubClient(
+        ComponentRegistry registry,
+        string appId,
+        string defaultPubSubName,
+        IResiliencePipelineProvider? resilienceProvider,
+        Tenancy.ITenantOffloadCoordinator? offloadCoordinator)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _appId = !string.IsNullOrWhiteSpace(appId) ? appId : "centra-app";
         _defaultPubSubName = !string.IsNullOrWhiteSpace(defaultPubSubName) ? defaultPubSubName : "pubsub";
         _resilienceProvider = resilienceProvider;
+        _offloadCoordinator = offloadCoordinator;
     }
 
     public ValueTask PublishAsync<T>(
@@ -50,8 +62,16 @@ public sealed class CentraPubSubClient : IPubSubClient
             throw new InvalidOperationException($"No PubSub driver registered for pubsub '{pubSubName}'");
         }
 
+        var tenantId = CentraAmbientContext.TenantId;
+        if (options?.Metadata != null && options.Metadata.TryGetValue(CloudEventConstants.TenantIdHeader, out var customTenantId))
+        {
+            tenantId = customTenantId;
+        }
+
+        var targetTopic = _offloadCoordinator?.ResolvePublishTopic(pubSubName, topic, tenantId) ?? topic;
+
         var startTime = Stopwatch.GetTimestamp();
-        using var activity = CentraDiagnostics.StartPublishActivity(pubSubName, topic);
+        using var activity = CentraDiagnostics.StartPublishActivity(pubSubName, targetTopic);
 
         var mode = options?.Mode ?? CloudEventMode.Binary;
         var packed = CloudEventPacker.Pack(data, _appId, mode, subject: null, additionalMetadata: options?.Metadata);
@@ -61,21 +81,21 @@ public sealed class CentraPubSubClient : IPubSubClient
             if (_resilienceProvider is not null && options?.DisableResilience != true)
             {
                 var pipeline = _resilienceProvider.GetPubSubPipeline(pubSubName);
-                await pipeline.ExecuteAsync(async ct => await driver.PublishAsync(pubSubName, topic, packed.Payload, packed.Headers, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+                await pipeline.ExecuteAsync(async ct => await driver.PublishAsync(pubSubName, targetTopic, packed.Payload, packed.Headers, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                await driver.PublishAsync(pubSubName, topic, packed.Payload, packed.Headers, cancellationToken).ConfigureAwait(false);
+                await driver.PublishAsync(pubSubName, targetTopic, packed.Payload, packed.Headers, cancellationToken).ConfigureAwait(false);
             }
 
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-            CentraMeters.RecordPubSubPublished(pubSubName, topic, "success", durationMs);
+            CentraMeters.RecordPubSubPublished(pubSubName, targetTopic, "success", durationMs);
         }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-            CentraMeters.RecordPubSubPublished(pubSubName, topic, "error", durationMs);
+            CentraMeters.RecordPubSubPublished(pubSubName, targetTopic, "error", durationMs);
             throw;
         }
     }

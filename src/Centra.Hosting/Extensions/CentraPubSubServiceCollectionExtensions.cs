@@ -33,7 +33,8 @@ public static class CentraPubSubServiceCollectionExtensions
             var registry = sp.GetRequiredService<ComponentRegistry>();
             var options = sp.GetRequiredService<IOptions<CentraOptions>>().Value;
             var resilience = sp.GetService<IResiliencePipelineProvider>();
-            return new CentraPubSubClient(registry, options.AppId, options.DefaultPubSub, resilience);
+            var offloadCoordinator = sp.GetService<Centra.PubSub.Tenancy.ITenantOffloadCoordinator>();
+            return new CentraPubSubClient(registry, options.AppId, options.DefaultPubSub, resilience, offloadCoordinator);
         });
 
         return services;
@@ -78,7 +79,7 @@ public static class CentraPubSubServiceCollectionExtensions
 
         services.ReplaceRegistrationFor<CentraTopicRegistration>(
             r => r.HandlerType == typeof(THandler) &&
-                 (r.Topic == resolvedTopic || (topicAttr != null && r.Topic == topicAttr.Topic)) &&
+                 (r.Topic == resolvedTopic || (topic == null && topicAttr != null && r.Topic == topicAttr.Topic)) &&
                  r.RuleFilter == resolvedRuleFilter,
             new CentraTopicRegistration(
                 resolvedPubSub,
@@ -143,7 +144,7 @@ public static class CentraPubSubServiceCollectionExtensions
 
         services.ReplaceRegistrationFor<CentraTopicRegistration>(
             r => r.HandlerType == typeof(THandler) &&
-                 (r.Topic == resolvedTopic || (topicAttr != null && r.Topic == topicAttr.Topic)) &&
+                 (r.Topic == resolvedTopic || (topic == null && topicAttr != null && r.Topic == topicAttr.Topic)) &&
                  r.Predicate != null,
             new CentraTopicRegistration(
                 resolvedPubSub,

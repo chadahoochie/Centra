@@ -89,6 +89,29 @@ internal static class CentraAttributeScanner
                 topicAttr.RuleFilter,
                 topicAttr.Priority
             ]);
+
+            if (topicAttr.EnableTenantOffload)
+            {
+                var shardCount = 4;
+                for (var shard = 0; shard < shardCount; shard++)
+                {
+                    var shardTopic = $"{topicAttr.Topic}.offload.{shard}";
+                    method.Invoke(null, [
+                        services,
+                        topicAttr.PubSubName,
+                        shardTopic,
+                        topicAttr.DeadLetterTopic,
+                        topicAttr.ConsumerMode,
+                        topicAttr.PrefetchCount > 0 ? topicAttr.PrefetchCount : null,
+                        topicAttr.MaxConcurrentCalls > 0 ? topicAttr.MaxConcurrentCalls : null,
+                        topicAttr.MessageTtlSeconds > 0 ? TimeSpan.FromSeconds(topicAttr.MessageTtlSeconds) : null,
+                        topicAttr.AutoDelete,
+                        null,
+                        topicAttr.RuleFilter,
+                        topicAttr.Priority
+                    ]);
+                }
+            }
         }
     }
 
