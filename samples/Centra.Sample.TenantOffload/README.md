@@ -25,8 +25,8 @@ Centra solves this architecturally through **Dynamic Tenant Offloading**:
    - Multiple replicas of `Centra.Sample.TenantOffload` subscribe to `tenant.orders` using RabbitMQ.
    - Consumers form a competing-consumer group on `centra.pubsub.tenant.orders`, load-balancing event consumption across instances.
    - Each consumer instance tracks handled metrics independently via [`ITenantConsumerNodeState`](Domain/ITenantConsumerNodeState.cs) while enforcing local noisy neighbor rate limits and lane isolation.
-6. **Cooldown & Lifecycle Reaping**:
-   - Once the burst subsides, [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) drains idle worker lanes and restores the tenant back to `Normal` state.
+6. **Cooldown & Ephemeral Reaper**:
+   - Once the burst subsides, the background [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) automatically drains idle resources, unregisters and deletes ephemeral broker queues (`AutoDelete=true`), and restores the tenant back to `Normal` state.
 
 ---
 
@@ -89,7 +89,7 @@ Each service replica exposes REST endpoints for runtime inspection and traffic g
 | `GET` | `/tenants` | Real-time sliding window stats and offload status from `ITenantMetricsTracker` and `ITenantOffloadCoordinator`. |
 | `POST` | `/orders` | Submit a single order (`TenantId`, `Amount`, `Description`) published as a CloudEvent to `tenant.orders`. |
 | `POST` | `/orders/batch` | Dispatch a burst of orders across honest and noisy tenants to test multi-instance distribution. |
-| `POST` | `/simulate` | Run the in-process simulation runner via HTTP and return the structured result. |
+| `GET/POST` | `/simulate` | Run the simulation runner via HTTP and return the structured result. Pass `?hold=15` to keep the ephemeral broker queue active for inspection before background reaping. |
 | `GET` | `/health` | Health check endpoint returning `{ status: "Healthy" }`. |
 
 ### Dispatching Test Traffic via cURL
@@ -133,7 +133,7 @@ The simulation orchestrates 6 progressive scenarios:
    - While `tenant-mega`'s backlog is queued in a dedicated worker lane (`MaxConcurrencyPerTenant = 2`), `tenant-alpha`'s concurrent orders process immediately on the primary subscription pipeline without starvation.
 4. **Broker Topic Sharding Demonstration**:
    - Shows how `BoundedShardBrokerTopicOffloadStrategy` and `EphemeralBrokerTopicOffloadStrategy` deterministically hash tenants to isolated broker topics (`tenant.orders.offload.0`, etc.).
-5. **Cooldown, State Recovery & Lane Reaping**:
-   - After the noisy surge stops, the cooldown window elapses, returning `tenant-mega` to `Normal` state and reaping idle worker lane resources.
+5. **Cooldown, State Recovery & Ephemeral Reaper**:
+   - After the noisy surge stops, the cooldown window elapses, returning `tenant-mega` to `Normal` state, while the background [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) automatically reaps and unregisters idle ephemeral broker queues (`centra.pubsub.tenant.orders.offload.tenant-mega`).
 6. **Multi-Instance Distributed Consumption**:
    - Simulates multi-replica consumer nodes (`replica-1`, `replica-2`) receiving distributed traffic, tracking independent node metrics while isolating noisy tenant lanes.

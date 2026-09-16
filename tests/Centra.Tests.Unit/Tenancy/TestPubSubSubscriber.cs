@@ -4,7 +4,7 @@ namespace Centra.Tests.Unit.Tenancy;
 
 public sealed class TestPubSubSubscriber : IPubSubSubscriber
 {
-    public List<(string PubSubName, string Topic, Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> Handler)> Subscriptions { get; } = new();
+    public List<(string PubSubName, string Topic, Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> Handler, PubSubSubscribeOptions? Options)> Subscriptions { get; } = new();
     public List<(string PubSubName, string Topic)> Unsubscriptions { get; } = new();
 
     public ValueTask SubscribeAsync(
@@ -15,7 +15,7 @@ public sealed class TestPubSubSubscriber : IPubSubSubscriber
         CancellationToken cancellationToken = default,
         PubSubSubscribeOptions? options = null)
     {
-        Subscriptions.Add((pubSubName, topic, handler));
+        Subscriptions.Add((pubSubName, topic, handler, options));
         return ValueTask.CompletedTask;
     }
 

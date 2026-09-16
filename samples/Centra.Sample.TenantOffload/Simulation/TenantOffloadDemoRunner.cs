@@ -14,7 +14,8 @@ public static class TenantOffloadDemoRunner
 {
     public static async Task<TenantOffloadSimulationResult> RunWithServicesAsync(
         IServiceProvider sp,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int holdSeconds = 0)
     {
         SimulationLogger.Header("CENTRA DISTRIBUTED FRAMEWORK - DYNAMIC NOISY NEIGHBOR TENANT OFFLOADING SIMULATION");
 
@@ -44,17 +45,22 @@ public static class TenantOffloadDemoRunner
         notes.Add($"Step 2 Noisy Neighbor Detection: {(step2Success ? "PASSED" : "FAILED")}");
         notes.Add($"Step 3 Fair Scheduling / Offload Isolation: {(step3Success ? "PASSED" : "FAILED")}");
 
+        var diStrategy = (coordinator as TenantOffloadCoordinator)?.Strategy as EphemeralBrokerTopicOffloadStrategy
+            ?? sp.GetService<ITenantOffloadStrategy>() as EphemeralBrokerTopicOffloadStrategy;
+
         // 4. Broker Sharding & Ephemeral Topic Resolution (Spins up tenant queue on broker!)
-        var step4Success = await BrokerShardingSimulationStep.ExecuteAsync(
+        var (step4Success, ephemeralStrategy) = await BrokerShardingSimulationStep.ExecuteWithStrategyAsync(
             publisher ?? new TestPublisherStub(),
             subscriber,
             options,
+            diStrategy,
+            holdSeconds,
             cancellationToken).ConfigureAwait(false);
         notes.Add($"Step 4 Broker Topic Sharding: {(step4Success ? "PASSED" : "FAILED")}");
 
-        // 5. Cooldown Recovery & Lane Reaping
-        var step5Success = await RecoveryReapingSimulationStep.ExecuteAsync(coordinator, cancellationToken).ConfigureAwait(false);
-        notes.Add($"Step 5 Cooldown & Recovery: {(step5Success ? "PASSED" : "FAILED")}");
+        // 5. Cooldown Recovery & Ephemeral Reaper
+        var step5Success = await RecoveryReapingSimulationStep.ExecuteAsync(coordinator, ephemeralStrategy, cancellationToken).ConfigureAwait(false);
+        notes.Add($"Step 5 Cooldown & Ephemeral Reaper: {(step5Success ? "PASSED" : "FAILED")}");
 
         // 6. Multi-Instance Distributed Consumption
         var step6Success = await MultiInstanceConsumptionSimulationStep.ExecuteAsync(cancellationToken).ConfigureAwait(false);
@@ -82,9 +88,28 @@ public static class TenantOffloadDemoRunner
 
     public static async Task<TenantOffloadSimulationResult> RunAsync(
         string[]? args = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int holdSeconds = 0)
     {
+        if (holdSeconds <= 0 && args != null)
+        {
+            var holdArg = args.FirstOrDefault(static a => a.StartsWith("--hold", StringComparison.OrdinalIgnoreCase));
+            if (holdArg != null)
+            {
+                var parts = holdArg.Split('=', ':');
+                if (parts.Length > 1 && int.TryParse(parts[1], out var parsed))
+                {
+                    holdSeconds = parsed;
+                }
+                else
+                {
+                    holdSeconds = 10;
+                }
+            }
+        }
+
         var rabbitConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__rabbitmq")
+            ?? Environment.GetEnvironmentVariable("Centra__RabbitMQ__ConnectionString")
             ?? Environment.GetEnvironmentVariable("CENTRA_RABBITMQ_CONNECTIONSTRING");
         var rabbitHostName = Environment.GetEnvironmentVariable("RABBITMQ_HOSTNAME");
 
@@ -107,11 +132,15 @@ public static class TenantOffloadDemoRunner
                     options.DefaultPubSub = "pubsub";
                 }, typeof(TenantOrderEventHandler).Assembly);
 
+                services.AddCentraInMemory();
+
+                var simPrefix = $"centra-sim-{Guid.NewGuid():N}"[..18];
                 if (!string.IsNullOrWhiteSpace(rabbitConnectionString))
                 {
                     services.AddCentraRabbitMQPubSub("pubsub", options =>
                     {
                         options.ConnectionString = rabbitConnectionString;
+                        options.QueuePrefix = simPrefix;
                     });
                 }
                 else if (!string.IsNullOrWhiteSpace(rabbitHostName))
@@ -121,11 +150,8 @@ public static class TenantOffloadDemoRunner
                         options.HostName = rabbitHostName;
                         options.UserName = "guest";
                         options.Password = "guest";
+                        options.QueuePrefix = simPrefix;
                     });
-                }
-                else
-                {
-                    services.AddCentraInMemory();
                 }
 
                 services.AddCentraTenantOffload(options =>
@@ -135,13 +161,12 @@ public static class TenantOffloadDemoRunner
                     options.TrafficShareThreshold = 0.55;
                     options.DurationMultiplierThreshold = 2.5;
                     options.CooldownPeriod = TimeSpan.FromSeconds(2);
-                    options.OffloadStrategy = useRabbit
-                        ? TenantOffloadStrategyType.EphemeralBrokerTopic
-                        : TenantOffloadStrategyType.InProcessFairScheduler;
+                    options.OffloadStrategy = TenantOffloadStrategyType.EphemeralBrokerTopic;
                     options.MaxConcurrencyPerTenant = 2;
                     options.PerTenantQueueCapacity = 200;
                     options.LaneIdleTimeout = TimeSpan.FromSeconds(1);
                     options.OffloadTopicPattern = "{topic}.offload.{tenantId}";
+                    options.EnablePublisherBypassing = false;
                 });
             })
             .Build();
@@ -150,7 +175,7 @@ public static class TenantOffloadDemoRunner
 
         try
         {
-            return await RunWithServicesAsync(host.Services, cancellationToken).ConfigureAwait(false);
+            return await RunWithServicesAsync(host.Services, cancellationToken, holdSeconds).ConfigureAwait(false);
         }
         finally
         {

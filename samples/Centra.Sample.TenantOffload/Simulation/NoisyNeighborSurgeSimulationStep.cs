@@ -61,7 +61,19 @@ public static class NoisyNeighborSurgeSimulationStep
         }
 
         // Allow worker lanes and primary dispatcher to finish processing
-        await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var alphaHandled = 0;
+        var megaHandled = 0;
+        while (sw.ElapsedMilliseconds < 3500 && !cancellationToken.IsCancellationRequested)
+        {
+            TenantOrderEventHandler.HandledCounts.TryGetValue(honestTenant, out alphaHandled);
+            TenantOrderEventHandler.HandledCounts.TryGetValue(noisyTenant, out megaHandled);
+            if (alphaHandled >= 15 && megaHandled >= 50)
+            {
+                break;
+            }
+            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        }
 
         var statsMega = tracker.GetTenantStats(noisyTenant, "tenant.orders");
         var isMegaOffloaded = coordinator.IsTenantOffloaded(noisyTenant, "tenant.orders", out var megaReason);
@@ -79,9 +91,6 @@ public static class NoisyNeighborSurgeSimulationStep
 
         var offloadDetected = isMegaOffloaded && (megaReason & TenantOffloadReason.HighTrafficShare) != 0;
         var honestProtected = !isAlphaOffloaded;
-
-        TenantOrderEventHandler.HandledCounts.TryGetValue(honestTenant, out var alphaHandled);
-        TenantOrderEventHandler.HandledCounts.TryGetValue(noisyTenant, out var megaHandled);
 
         SimulationLogger.Log(
             $"Handled events: [tenant-alpha]={alphaHandled} (processed without delay), [tenant-mega]={megaHandled} (isolated in worker lane)",

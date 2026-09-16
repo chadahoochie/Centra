@@ -137,7 +137,7 @@ public sealed class RabbitMQPubSubDriverTests
 
         await _channel.Received(1).QueueDeclareAsync(
             queue: Arg.Any<string>(),
-            durable: false,
+            durable: true,
             exclusive: false,
             autoDelete: true,
             arguments: Arg.Any<IDictionary<string, object?>?>(),

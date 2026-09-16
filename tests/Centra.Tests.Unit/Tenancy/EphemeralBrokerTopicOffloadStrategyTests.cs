@@ -95,6 +95,8 @@ public sealed class EphemeralBrokerTopicOffloadStrategyTests
         Assert.Single(subscriber.Subscriptions);
         Assert.Equal("pubsub", subscriber.Subscriptions[0].PubSubName);
         Assert.Equal("orders.events.offload.tenant-XYZ", subscriber.Subscriptions[0].Topic);
+        Assert.NotNull(subscriber.Subscriptions[0].Options);
+        Assert.True(subscriber.Subscriptions[0].Options!.AutoDelete);
 
         // Invoke the handler that the subscriber registered
         var handler = subscriber.Subscriptions[0].Handler;
@@ -110,13 +112,14 @@ public sealed class EphemeralBrokerTopicOffloadStrategyTests
     {
         var publisher = new TestPubSubPublisher();
         var subscriber = new TestPubSubSubscriber();
+        var fakeTime = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
         var options = new TenantOffloadOptions
         {
             OffloadTopicPattern = "{topic}.offload.{tenantId}",
-            LaneIdleTimeout = TimeSpan.FromMilliseconds(1)
+            LaneIdleTimeout = TimeSpan.FromSeconds(1)
         };
 
-        var strategy = new EphemeralBrokerTopicOffloadStrategy(publisher, subscriber, options);
+        var strategy = new EphemeralBrokerTopicOffloadStrategy(publisher, subscriber, options, fakeTime);
 
         var workItem = new TenantOffloadWorkItem(
             TenantId: "tenant-reap",
@@ -125,13 +128,13 @@ public sealed class EphemeralBrokerTopicOffloadStrategyTests
             Payload: new byte[] { 1 },
             Headers: new Dictionary<string, string>(),
             HandlerInvoker: _ => ValueTask.FromResult(EventHandlingResult.Success),
-            CreatedAt: DateTimeOffset.UtcNow);
+            CreatedAt: fakeTime.GetUtcNow());
 
         await strategy.ExecuteOffloadAsync(workItem, CancellationToken.None);
         Assert.Single(strategy.ActiveOffloadTopics);
 
-        // Wait past idle timeout
-        await Task.Delay(10);
+        // Advance past idle timeout
+        fakeTime.Advance(TimeSpan.FromSeconds(2));
 
         await strategy.CleanupIdleResourcesAsync(CancellationToken.None);
 

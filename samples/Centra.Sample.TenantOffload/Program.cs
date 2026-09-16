@@ -72,13 +72,12 @@ builder.Services.AddCentraTenantOffload(options =>
     options.TrafficShareThreshold = 0.50;
     options.DurationMultiplierThreshold = 2.5;
     options.CooldownPeriod = TimeSpan.FromSeconds(5);
-    options.OffloadStrategy = brokerType == "RabbitMQ"
-        ? TenantOffloadStrategyType.EphemeralBrokerTopic
-        : TenantOffloadStrategyType.InProcessFairScheduler;
+    options.OffloadStrategy = TenantOffloadStrategyType.EphemeralBrokerTopic;
     options.MaxConcurrencyPerTenant = 2;
     options.PerTenantQueueCapacity = 200;
     options.LaneIdleTimeout = TimeSpan.FromSeconds(30);
     options.OffloadTopicPattern = "{topic}.offload.{tenantId}";
+    options.EnablePublisherBypassing = false;
 });
 
 // 4. Multi-Instance Consumer Node State Tracker
@@ -87,24 +86,32 @@ builder.Services.AddSingleton<ITenantConsumerNodeState>(new TenantConsumerNodeSt
 var app = builder.Build();
 
 // 5. REST Endpoints for Multi-Instance Monitoring and Load Generation
-app.MapGet("/", (ITenantConsumerNodeState nodeState) => Results.Ok(new
+app.MapGet("/", (HttpContext context, ITenantConsumerNodeState nodeState) =>
 {
-    Application = "Centra.Sample.TenantOffload",
-    InstanceId = nodeState.InstanceId,
-    Broker = nodeState.BrokerType,
-    Status = "Running",
-    TotalHandledOnNode = nodeState.TotalHandled,
-    TenantHandledCounts = nodeState.TenantHandledCounts,
-    Endpoints = new[]
+    if (context.Request.Headers.Accept.ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase))
     {
-        "GET /instance",
-        "GET /tenants",
-        "POST /orders",
-        "POST /orders/batch",
-        "POST /simulate",
-        "GET /health"
+        return Results.Content(TenantOffloadDashboardHtml.Render(nodeState), "text/html");
     }
-}));
+
+    return Results.Ok(new
+    {
+        Application = "Centra.Sample.TenantOffload",
+        InstanceId = nodeState.InstanceId,
+        Broker = nodeState.BrokerType,
+        Status = "Running",
+        TotalHandledOnNode = nodeState.TotalHandled,
+        TenantHandledCounts = nodeState.TenantHandledCounts,
+        Endpoints = new[]
+        {
+            "GET /instance",
+            "GET /tenants",
+            "POST /orders",
+            "POST /orders/batch",
+            "GET/POST /simulate[?hold={seconds}]",
+            "GET /health"
+        }
+    });
+});
 
 app.MapGet("/instance", (ITenantConsumerNodeState nodeState) => Results.Ok(new
 {
@@ -202,9 +209,10 @@ app.MapPost("/orders/batch", async (
 
 app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }));
 
-app.MapPost("/simulate", async (CancellationToken ct) =>
+app.MapMethods("/simulate", ["GET", "POST"], async (int? hold, CancellationToken ct) =>
 {
-    var result = await TenantOffloadDemoRunner.RunAsync(args, ct);
+    var holdSeconds = hold ?? 0;
+    var result = await TenantOffloadDemoRunner.RunWithServicesAsync(app.Services, ct, holdSeconds);
     return Results.Ok(result);
 });
 

@@ -236,7 +236,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
 
         await channel.QueueDeclareAsync(
             queue: queueName,
-            durable: !autoDelete,
+            durable: true,
             exclusive: false,
             autoDelete: autoDelete,
             arguments: queueArgs,
