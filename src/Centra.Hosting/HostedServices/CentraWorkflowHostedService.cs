@@ -50,8 +50,6 @@ public sealed class CentraWorkflowHostedService : BackgroundService
                 {
                     await _timerCoordinator.ProcessDueTimersAsync(stoppingToken).ConfigureAwait(false);
                 }
-
-                await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -60,6 +58,15 @@ public sealed class CentraWorkflowHostedService : BackgroundService
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error occurred in Centra workflow background loop.");
+            }
+
+            try
+            {
+                await Task.Delay(_options.PollingInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
             }
         }
 

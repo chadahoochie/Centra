@@ -13,4 +13,13 @@ public sealed class TestPublisherStub : IPubSubPublisher
     {
         return ValueTask.CompletedTask;
     }
+
+    public ValueTask PublishBatchAsync(
+        string pubSubName,
+        string topic,
+        IReadOnlyList<PubSubMessage> messages,
+        CancellationToken cancellationToken = default)
+    {
+        return ValueTask.CompletedTask;
+    }
 }

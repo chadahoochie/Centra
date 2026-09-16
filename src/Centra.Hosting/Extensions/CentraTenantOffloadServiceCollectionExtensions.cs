@@ -30,19 +30,49 @@ public static class CentraTenantOffloadServiceCollectionExtensions
             return new RollingWindowTenantMetricsTracker(options, timeProvider);
         });
 
+        services.TryAddTransient<IPubSubPublisher>(sp =>
+        {
+            var registry = sp.GetService<ComponentRegistry>();
+            var centraOptions = sp.GetService<IOptions<Centra.Hosting.Options.CentraOptions>>()?.Value;
+            var defaultPubSub = centraOptions?.DefaultPubSub ?? "pubsub";
+            return (IPubSubPublisher?)registry?.GetPubSubDriver(defaultPubSub)
+                ?? sp.GetService<Centra.Drivers.IPubSubDriver>()
+                ?? (IPubSubPublisher?)sp.GetService<IPubSub>()
+                ?? throw new InvalidOperationException("No PubSub driver or publisher registered.");
+        });
+
+        services.TryAddTransient<IPubSubSubscriber>(sp =>
+        {
+            var registry = sp.GetService<ComponentRegistry>();
+            var centraOptions = sp.GetService<IOptions<Centra.Hosting.Options.CentraOptions>>()?.Value;
+            var defaultPubSub = centraOptions?.DefaultPubSub ?? "pubsub";
+            return (IPubSubSubscriber?)registry?.GetPubSubDriver(defaultPubSub)
+                ?? sp.GetService<Centra.Drivers.IPubSubDriver>()
+                ?? (IPubSubSubscriber?)sp.GetService<IPubSub>()
+                ?? throw new InvalidOperationException("No PubSub driver or subscriber registered.");
+        });
+
         services.TryAddSingleton<ITenantOffloadStrategy>(sp =>
         {
             var options = sp.GetRequiredService<IOptions<TenantOffloadOptions>>().Value;
+            var registry = sp.GetService<ComponentRegistry>();
+            var centraOptions = sp.GetService<IOptions<Centra.Hosting.Options.CentraOptions>>()?.Value;
+            var defaultPubSub = centraOptions?.DefaultPubSub ?? "pubsub";
+            var driver = registry?.GetPubSubDriver(defaultPubSub) ?? sp.GetService<Centra.Drivers.IPubSubDriver>();
+
+            var publisher = sp.GetService<IPubSubPublisher>() ?? (IPubSubPublisher?)driver;
+            var subscriber = sp.GetService<IPubSubSubscriber>() ?? (IPubSubSubscriber?)driver;
+
             return options.OffloadStrategy switch
             {
                 TenantOffloadStrategyType.EphemeralBrokerTopic =>
                     new EphemeralBrokerTopicOffloadStrategy(
-                        sp.GetRequiredService<IPubSubPublisher>(),
-                        sp.GetService<IPubSubSubscriber>(),
+                        publisher ?? throw new InvalidOperationException($"No PubSub driver or publisher registered for tenant offload strategy '{options.OffloadStrategy}'."),
+                        subscriber,
                         options),
                 TenantOffloadStrategyType.BoundedShardBrokerTopic =>
                     new BoundedShardBrokerTopicOffloadStrategy(
-                        sp.GetRequiredService<IPubSubPublisher>(),
+                        publisher ?? throw new InvalidOperationException($"No PubSub driver or publisher registered for tenant offload strategy '{options.OffloadStrategy}'."),
                         options),
                 _ => new InProcessFairSchedulerOffloadStrategy(options)
             };

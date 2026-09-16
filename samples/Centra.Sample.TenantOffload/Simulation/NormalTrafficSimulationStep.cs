@@ -41,8 +41,25 @@ public static class NormalTrafficSimulationStep
             }
         }
 
-        // Give in-memory broker a moment to dispatch
-        await Task.Delay(200, cancellationToken).ConfigureAwait(false);
+        // Give broker time to dispatch across instances
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < 3000 && !cancellationToken.IsCancellationRequested)
+        {
+            var allDone = true;
+            foreach (var t in tenants)
+            {
+                if (tracker.GetTenantStats(t, "tenant.orders").MessageCount < messagesPerTenant)
+                {
+                    allDone = false;
+                    break;
+                }
+            }
+            if (allDone)
+            {
+                break;
+            }
+            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        }
 
         var allNormal = true;
         foreach (var tenant in tenants)

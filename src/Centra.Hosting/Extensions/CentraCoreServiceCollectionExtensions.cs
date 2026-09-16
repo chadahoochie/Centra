@@ -6,6 +6,7 @@ using Centra.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace Centra.Hosting.Extensions;
 
@@ -28,6 +29,8 @@ public static class CentraCoreServiceCollectionExtensions
         {
             services.Configure(configure);
         }
+
+        services.TryAddSingleton(sp => sp.GetRequiredService<IOptions<CentraOptions>>().Value);
 
         // Component Registry & Serializer
         services.TryAddSingleton<ComponentRegistry>(sp =>

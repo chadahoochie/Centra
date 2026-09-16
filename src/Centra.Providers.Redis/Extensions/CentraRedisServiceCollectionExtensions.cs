@@ -6,6 +6,7 @@ using Centra.Providers.Redis.State;
 using Centra.Registry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
@@ -29,13 +30,17 @@ public static class CentraRedisServiceCollectionExtensions
         services.TryAddSingleton<IConnectionMultiplexer>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<RedisProviderOptions>>().Value;
-            return opts.ConfigurationOptions is not null
-                ? ConnectionMultiplexer.Connect(opts.ConfigurationOptions)
-                : ConnectionMultiplexer.Connect(opts.ConnectionString);
+            return RedisConnectionMultiplexerFactory.Create(opts);
         });
 
         services.TryAddSingleton<RedisStateStoreDriver>();
-        services.TryAddSingleton<RedisPubSubDriver>();
+        services.TryAddSingleton<RedisPubSubDriver>(sp =>
+        {
+            var conn = sp.GetRequiredService<IConnectionMultiplexer>();
+            var opts = sp.GetRequiredService<IOptions<RedisProviderOptions>>();
+            var logger = sp.GetService<ILogger<RedisPubSubDriver>>();
+            return new RedisPubSubDriver(conn, opts, logger);
+        });
         services.TryAddSingleton<RedisDistributedLockDriver>();
 
         services.AddSingleton<IStateStoreDriver>(sp => sp.GetRequiredService<RedisStateStoreDriver>());
@@ -64,9 +69,7 @@ public static class CentraRedisServiceCollectionExtensions
         services.TryAddSingleton<IConnectionMultiplexer>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<RedisProviderOptions>>().Value;
-            return opts.ConfigurationOptions is not null
-                ? ConnectionMultiplexer.Connect(opts.ConfigurationOptions)
-                : ConnectionMultiplexer.Connect(opts.ConnectionString);
+            return RedisConnectionMultiplexerFactory.Create(opts);
         });
 
         services.TryAddSingleton<RedisStateStoreDriver>();
@@ -105,12 +108,16 @@ public static class CentraRedisServiceCollectionExtensions
         services.TryAddSingleton<IConnectionMultiplexer>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<RedisProviderOptions>>().Value;
-            return opts.ConfigurationOptions is not null
-                ? ConnectionMultiplexer.Connect(opts.ConfigurationOptions)
-                : ConnectionMultiplexer.Connect(opts.ConnectionString);
+            return RedisConnectionMultiplexerFactory.Create(opts);
         });
 
-        services.TryAddSingleton<RedisPubSubDriver>();
+        services.TryAddSingleton<RedisPubSubDriver>(sp =>
+        {
+            var conn = sp.GetRequiredService<IConnectionMultiplexer>();
+            var opts = sp.GetRequiredService<IOptions<RedisProviderOptions>>();
+            var logger = sp.GetService<ILogger<RedisPubSubDriver>>();
+            return new RedisPubSubDriver(conn, opts, logger);
+        });
         services.AddSingleton<IComponentInitializer>(sp =>
         {
             var driver = sp.GetRequiredService<RedisPubSubDriver>();
@@ -146,9 +153,7 @@ public static class CentraRedisServiceCollectionExtensions
         services.TryAddSingleton<IConnectionMultiplexer>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<RedisProviderOptions>>().Value;
-            return opts.ConfigurationOptions is not null
-                ? ConnectionMultiplexer.Connect(opts.ConfigurationOptions)
-                : ConnectionMultiplexer.Connect(opts.ConnectionString);
+            return RedisConnectionMultiplexerFactory.Create(opts);
         });
 
         services.TryAddSingleton<RedisDistributedLockDriver>();

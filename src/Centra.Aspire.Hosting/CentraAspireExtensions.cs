@@ -67,7 +67,8 @@ public static class CentraAspireExtensions
         ArgumentNullException.ThrowIfNull(rabbitmq);
 
         return builder
-            .WithReference(rabbitmq, "rabbitmq");
+            .WithReference(rabbitmq, "rabbitmq")
+            .WithEnvironment("Centra__RabbitMQ__ConnectionString", rabbitmq.Resource.ConnectionStringExpression);
     }
 
     public static IResourceBuilder<T> WithCentraPostgreSql<T>(

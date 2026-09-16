@@ -236,7 +236,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
 
         await channel.QueueDeclareAsync(
             queue: queueName,
-            durable: !autoDelete,
+            durable: true,
             exclusive: false,
             autoDelete: autoDelete,
             arguments: queueArgs,
@@ -370,14 +370,28 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
 
         if (_publishChannel is not null)
         {
-            await _publishChannel.CloseAsync().ConfigureAwait(false);
-            _publishChannel.Dispose();
+            try
+            {
+                await _publishChannel.CloseAsync().ConfigureAwait(false);
+                _publishChannel.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error closing publish channel during disposal");
+            }
         }
 
         if (_connection is not null)
         {
-            await _connection.CloseAsync().ConfigureAwait(false);
-            _connection.Dispose();
+            try
+            {
+                await _connection.CloseAsync().ConfigureAwait(false);
+                _connection.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error closing connection during disposal");
+            }
         }
 
         _connectionLock.Dispose();

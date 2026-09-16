@@ -46,6 +46,9 @@ if (!string.IsNullOrWhiteSpace(redisConnectionString))
     builder.Services.AddCentraRedis(options =>
     {
         options.ConnectionString = redisConnectionString;
+        options.DefaultStateStoreName = "cluster-statestore";
+        options.DefaultPubSubName = "cluster-pubsub";
+        options.DefaultLockStoreName = "cluster-lockstore";
     });
 }
 else

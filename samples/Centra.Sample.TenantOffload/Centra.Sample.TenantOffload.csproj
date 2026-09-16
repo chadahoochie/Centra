@@ -7,5 +7,6 @@
     <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.InMemory\Centra.Providers.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
   </ItemGroup>
 </Project>

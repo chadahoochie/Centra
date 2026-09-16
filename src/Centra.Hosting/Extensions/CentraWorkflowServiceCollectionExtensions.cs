@@ -50,7 +50,7 @@ public static class CentraWorkflowServiceCollectionExtensions
         {
             var stateStore = sp.GetRequiredService<IStateStore>();
             var opt = sp.GetRequiredService<WorkflowOptions>();
-            var centraOpt = sp.GetService<CentraOptions>();
+            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
             var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
                 ? opt.DefaultStateStore
                 : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
@@ -69,7 +69,7 @@ public static class CentraWorkflowServiceCollectionExtensions
         {
             var stateStore = sp.GetRequiredService<IStateStore>();
             var opt = sp.GetRequiredService<WorkflowOptions>();
-            var centraOpt = sp.GetService<CentraOptions>();
+            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
             var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
                 ? opt.DefaultStateStore
                 : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
@@ -93,7 +93,7 @@ public static class CentraWorkflowServiceCollectionExtensions
             var timerStore = sp.GetRequiredService<IDurableWorkflowTimerStore>();
             var engine = sp.GetRequiredService<IWorkflowEngine>();
             var lockProvider = sp.GetService<IDistributedLockProvider>();
-            var centraOpt = sp.GetService<CentraOptions>();
+            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
             var lockStore = centraOpt?.DefaultLockStore ?? "lockstore";
             var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
             var logger = sp.GetService<ILogger<DurableWorkflowTimerCoordinator>>();

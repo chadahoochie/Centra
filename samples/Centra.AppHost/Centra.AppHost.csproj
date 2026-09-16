@@ -22,6 +22,7 @@
     <ProjectReference Include="..\Centra.Sample.Workflows\Centra.Sample.Workflows.csproj" />
     <ProjectReference Include="..\Centra.Sample.Bindings\Centra.Sample.Bindings.csproj" />
     <ProjectReference Include="..\Centra.Sample.Resilience\Centra.Sample.Resilience.csproj" />
+    <ProjectReference Include="..\Centra.Sample.TenantOffload\Centra.Sample.TenantOffload.csproj" />
   </ItemGroup>
 
 </Project>
