@@ -16,4 +16,17 @@ public sealed class TestPubSubPublisher : IPubSubPublisher
         PublishedMessages.Add((pubSubName, topic, payload, metadata));
         return ValueTask.CompletedTask;
     }
+
+    public ValueTask PublishBatchAsync(
+        string pubSubName,
+        string topic,
+        IReadOnlyList<PubSubMessage> messages,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var msg in messages)
+        {
+            PublishedMessages.Add((pubSubName, topic, msg.Payload, msg.Metadata ?? new Dictionary<string, string>()));
+        }
+        return ValueTask.CompletedTask;
+    }
 }

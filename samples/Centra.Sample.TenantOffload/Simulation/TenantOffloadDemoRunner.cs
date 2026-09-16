@@ -76,6 +76,10 @@ public static class TenantOffloadDemoRunner
             var step5Success = await RecoveryReapingSimulationStep.ExecuteAsync(coordinator, cancellationToken).ConfigureAwait(false);
             notes.Add($"Step 5 Cooldown & Recovery: {(step5Success ? "PASSED" : "FAILED")}");
 
+            // 6. Multi-Instance Distributed Consumption
+            var step6Success = await MultiInstanceConsumptionSimulationStep.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+            notes.Add($"Step 6 Multi-Instance Consumption: {(step6Success ? "PASSED" : "FAILED")}");
+
             stopwatch.Stop();
 
             var result = new TenantOffloadSimulationResult(
@@ -85,11 +89,12 @@ public static class TenantOffloadDemoRunner
                 BrokerTopicShardingSuccess: step4Success,
                 CooldownAndRecoverySuccess: step5Success,
                 TotalElapsedMs: stopwatch.ElapsedMilliseconds,
-                SummaryNotes: notes);
+                SummaryNotes: notes,
+                MultiInstanceConsumptionSuccess: step6Success);
 
             SimulationLogger.Header(
                 result.AllStepsSucceeded
-                    ? "✓ SIMULATION COMPLETED SUCCESSFULLY: ALL 5 STEPS PASSED"
+                    ? "✓ SIMULATION COMPLETED SUCCESSFULLY: ALL 6 STEPS PASSED"
                     : "✗ SIMULATION COMPLETED WITH WARNINGS OR FAILURES");
 
             return result;

@@ -60,4 +60,11 @@ var resilience = builder.AddProject<Projects.Centra_Sample_Resilience>("resilien
     .WithCentra(controlPlane)
     .WaitFor(controlPlane);
 
+var tenantOffload = builder.AddProject<Projects.Centra_Sample_TenantOffload>("tenant-offload-service")
+    .WithCentra(controlPlane)
+    .WithCentraRabbitMQ(rabbitmq)
+    .WithReplicas(3)
+    .WaitFor(rabbitmq)
+    .WaitFor(controlPlane);
+
 builder.Build().Run();

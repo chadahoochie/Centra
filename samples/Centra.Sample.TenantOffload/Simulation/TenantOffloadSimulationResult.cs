@@ -7,12 +7,14 @@ public sealed record TenantOffloadSimulationResult(
     bool BrokerTopicShardingSuccess,
     bool CooldownAndRecoverySuccess,
     long TotalElapsedMs,
-    IReadOnlyList<string> SummaryNotes)
+    IReadOnlyList<string> SummaryNotes,
+    bool MultiInstanceConsumptionSuccess = true)
 {
     public bool AllStepsSucceeded =>
         BaselineNormalSuccess &&
         NoisyNeighborDetectedAndOffloaded &&
         FairSchedulingIsolationSuccess &&
         BrokerTopicShardingSuccess &&
-        CooldownAndRecoverySuccess;
+        CooldownAndRecoverySuccess &&
+        MultiInstanceConsumptionSuccess;
 }
