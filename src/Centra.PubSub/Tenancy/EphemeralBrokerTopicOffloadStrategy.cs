@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Centra.PubSub;
 
 namespace Centra.PubSub.Tenancy;
@@ -7,10 +8,12 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
     private readonly IPubSubPublisher _publisher;
     private readonly IPubSubSubscriber? _subscriber;
     private readonly TenantOffloadOptions _options;
-    private readonly HashSet<(string PubSubName, string Topic)> _activeOffloadTopics = new();
-    private readonly object _lock = new();
+    private readonly ConcurrentDictionary<(string PubSubName, string Topic), Task> _topicSubscriptions = new();
+    private readonly ConcurrentDictionary<(string PubSubName, string Topic), DateTimeOffset> _lastActivityTimes = new();
 
     public TenantOffloadStrategyType StrategyType => TenantOffloadStrategyType.EphemeralBrokerTopic;
+
+    public IReadOnlyCollection<(string PubSubName, string Topic)> ActiveOffloadTopics => _topicSubscriptions.Keys.ToArray();
 
     public EphemeralBrokerTopicOffloadStrategy(
         IPubSubPublisher publisher,
@@ -25,23 +28,32 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
     public async ValueTask<EventHandlingResult> ExecuteOffloadAsync(TenantOffloadWorkItem workItem, CancellationToken cancellationToken)
     {
         var targetTopic = ResolveTopic(workItem.Topic, workItem.TenantId);
+        var topicKey = (workItem.PubSubName, targetTopic);
+        _lastActivityTimes[topicKey] = DateTimeOffset.UtcNow;
 
-        var isNewTopic = false;
-        lock (_lock)
+        if (_subscriber is not null)
         {
-            isNewTopic = _activeOffloadTopics.Add((workItem.PubSubName, targetTopic));
-        }
+            var invoker = workItem.DynamicInvoker;
+            var fallback = workItem.HandlerInvoker;
 
-        if (isNewTopic && _subscriber is not null)
-        {
-            await _subscriber.SubscribeAsync(
-                workItem.PubSubName,
-                targetTopic,
-                async (payload, headers, ct) =>
-                {
-                    return await workItem.HandlerInvoker(ct).ConfigureAwait(false);
-                },
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+            var subscriptionTask = _topicSubscriptions.GetOrAdd(topicKey, key =>
+            {
+                return _subscriber.SubscribeAsync(
+                    key.PubSubName,
+                    key.Topic,
+                    async (payload, headers, ct) =>
+                    {
+                        _lastActivityTimes[key] = DateTimeOffset.UtcNow;
+                        if (invoker is not null)
+                        {
+                            return await invoker(payload, headers, ct).ConfigureAwait(false);
+                        }
+                        return await fallback(ct).ConfigureAwait(false);
+                    },
+                    cancellationToken: cancellationToken).AsTask();
+            });
+
+            await subscriptionTask.ConfigureAwait(false);
         }
 
         var headers = new Dictionary<string, string>(workItem.Headers, StringComparer.OrdinalIgnoreCase)
@@ -59,6 +71,22 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
         return EventHandlingResult.Success;
     }
 
+    public async ValueTask EnsureSubscribedAsync(
+        string pubSubName,
+        string targetTopic,
+        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
+        CancellationToken cancellationToken = default)
+    {
+        if (_subscriber is null)
+        {
+            return;
+        }
+
+        var key = (pubSubName, targetTopic);
+        var task = _topicSubscriptions.GetOrAdd(key, k => _subscriber.SubscribeAsync(k.PubSubName, k.Topic, handler, cancellationToken: cancellationToken).AsTask());
+        await task.ConfigureAwait(false);
+    }
+
     public string ResolvePublishTopic(string baseTopic, string tenantId)
     {
         return ResolveTopic(baseTopic, tenantId);
@@ -71,22 +99,25 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
             return;
         }
 
-        (string PubSubName, string Topic)[] topicsToClean;
-        lock (_lock)
-        {
-            topicsToClean = _activeOffloadTopics.ToArray();
-            _activeOffloadTopics.Clear();
-        }
+        var now = DateTimeOffset.UtcNow;
+        var idleTimeout = _options.LaneIdleTimeout > TimeSpan.Zero ? _options.LaneIdleTimeout : TimeSpan.FromSeconds(30);
 
-        foreach (var (pubSubName, topic) in topicsToClean)
+        foreach (var kvp in _lastActivityTimes)
         {
-            try
+            if (now - kvp.Value >= idleTimeout)
             {
-                await _subscriber.UnsubscribeAsync(pubSubName, topic, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                // Suppress broker unsubscribe errors during cleanup
+                if (_lastActivityTimes.TryRemove(kvp.Key, out _) &&
+                    _topicSubscriptions.TryRemove(kvp.Key, out _))
+                {
+                    try
+                    {
+                        await _subscriber.UnsubscribeAsync(kvp.Key.PubSubName, kvp.Key.Topic, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Suppress broker unsubscribe errors during cleanup
+                    }
+                }
             }
         }
     }

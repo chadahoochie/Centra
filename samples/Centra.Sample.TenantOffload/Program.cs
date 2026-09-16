@@ -72,10 +72,13 @@ builder.Services.AddCentraTenantOffload(options =>
     options.TrafficShareThreshold = 0.50;
     options.DurationMultiplierThreshold = 2.5;
     options.CooldownPeriod = TimeSpan.FromSeconds(5);
-    options.OffloadStrategy = TenantOffloadStrategyType.InProcessFairScheduler;
+    options.OffloadStrategy = brokerType == "RabbitMQ"
+        ? TenantOffloadStrategyType.EphemeralBrokerTopic
+        : TenantOffloadStrategyType.InProcessFairScheduler;
     options.MaxConcurrencyPerTenant = 2;
     options.PerTenantQueueCapacity = 200;
-    options.LaneIdleTimeout = TimeSpan.FromSeconds(5);
+    options.LaneIdleTimeout = TimeSpan.FromSeconds(30);
+    options.OffloadTopicPattern = "{topic}.offload.{tenantId}";
 });
 
 // 4. Multi-Instance Consumer Node State Tracker
@@ -199,9 +202,9 @@ app.MapPost("/orders/batch", async (
 
 app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }));
 
-app.MapPost("/simulate", async () =>
+app.MapPost("/simulate", async (CancellationToken ct) =>
 {
-    var result = await TenantOffloadDemoRunner.RunAsync();
+    var result = await TenantOffloadDemoRunner.RunAsync(args, ct);
     return Results.Ok(result);
 });
 

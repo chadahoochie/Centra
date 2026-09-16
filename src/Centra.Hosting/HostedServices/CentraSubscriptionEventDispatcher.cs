@@ -81,7 +81,9 @@ internal sealed class CentraSubscriptionEventDispatcher
                         payload,
                         headers,
                         ct => CentraSubscriptionPipelineExecutor.ExecuteAsync(_serviceProvider, reg, payload, headers, causeId, ct),
-                        DateTimeOffset.UtcNow);
+                        DateTimeOffset.UtcNow,
+                        CompletionSource: null,
+                        DynamicInvoker: (p, h, ct) => CentraSubscriptionPipelineExecutor.ExecuteAsync(_serviceProvider, reg, p, h, null, ct));
 
                     var offloadResult = await offloadCoordinator.HandleOffloadAsync(workItem, cancellationToken).ConfigureAwait(false);
                     var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;

@@ -10,4 +10,6 @@ public readonly record struct TenantOffloadWorkItem(
     IReadOnlyDictionary<string, string> Headers,
     Func<CancellationToken, ValueTask<EventHandlingResult>> HandlerInvoker,
     DateTimeOffset CreatedAt,
-    TaskCompletionSource<EventHandlingResult>? CompletionSource = null);
+    TaskCompletionSource<EventHandlingResult>? CompletionSource = null,
+    Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>>? DynamicInvoker = null);
+
