@@ -22,8 +22,9 @@ builder.Services.AddCentra(options =>
 
 var redisConnectionString = builder.Configuration.GetConnectionString("redis")
     ?? builder.Configuration["Centra:Redis:ConnectionString"];
-var rabbitHostName = builder.Configuration["RabbitMQ:HostName"]
-    ?? (builder.Configuration.GetConnectionString("rabbitmq") is not null ? "localhost" : null);
+var rabbitConnectionString = builder.Configuration.GetConnectionString("rabbitmq")
+    ?? builder.Configuration["Centra:RabbitMQ:ConnectionString"];
+var rabbitHostName = builder.Configuration["RabbitMQ:HostName"];
 
 if (!string.IsNullOrWhiteSpace(redisConnectionString))
 {
@@ -31,7 +32,14 @@ if (!string.IsNullOrWhiteSpace(redisConnectionString))
     builder.Services.AddCentraRedisLocks("orders-lockstore", o => o.ConnectionString = redisConnectionString);
 }
 
-if (!string.IsNullOrWhiteSpace(rabbitHostName))
+if (!string.IsNullOrWhiteSpace(rabbitConnectionString))
+{
+    builder.Services.AddCentraRabbitMQPubSub("orders-pubsub", o =>
+    {
+        o.ConnectionString = rabbitConnectionString;
+    });
+}
+else if (!string.IsNullOrWhiteSpace(rabbitHostName))
 {
     builder.Services.AddCentraRabbitMQPubSub("orders-pubsub", o =>
     {
@@ -41,7 +49,7 @@ if (!string.IsNullOrWhiteSpace(rabbitHostName))
     });
 }
 
-if (string.IsNullOrWhiteSpace(redisConnectionString) || string.IsNullOrWhiteSpace(rabbitHostName))
+if (string.IsNullOrWhiteSpace(redisConnectionString) || (string.IsNullOrWhiteSpace(rabbitConnectionString) && string.IsNullOrWhiteSpace(rabbitHostName)))
 {
     builder.Services.AddCentraInMemory(
         defaultStateStore: "orders-statestore",

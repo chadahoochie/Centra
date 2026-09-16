@@ -2,6 +2,7 @@ using Centra.Hosting.Extensions;
 using Centra.Providers.InMemory.Extensions;
 using Centra.Providers.Redis.Extensions;
 using Centra.Sample.Bindings.Jobs;
+using Centra.Sample.Bindings.Services;
 using Centra.Sample.Bindings.Simulation;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -14,6 +15,9 @@ if (args.Contains("--demo", StringComparer.OrdinalIgnoreCase))
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<INodeContext>(new NodeContext(builder.Configuration["instance-id"] ?? "bindings-node"));
+builder.Services.AddSingleton(new ClusterExecutionTracker());
 
 builder.Services.AddCentra(options =>
 {

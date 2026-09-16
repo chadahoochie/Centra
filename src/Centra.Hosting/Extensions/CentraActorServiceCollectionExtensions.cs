@@ -28,7 +28,7 @@ public static class CentraActorServiceCollectionExtensions
 
         services.TryAddSingleton<IActorPlacementDirector>(sp =>
         {
-            var centraOptions = sp.GetService<CentraOptions>();
+            var centraOptions = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
             var localAppId = centraOptions?.AppId ?? Environment.MachineName;
             var localNodeId = centraOptions?.ControlPlane.InstanceId ?? Environment.MachineName;
 
@@ -76,7 +76,7 @@ public static class CentraActorServiceCollectionExtensions
         {
             var stateStore = sp.GetRequiredService<IStateStore>();
             var opt = sp.GetRequiredService<ActorOptions>();
-            var centraOpt = sp.GetService<CentraOptions>();
+            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
             var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
                 ? opt.DefaultStateStore
                 : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
@@ -92,7 +92,7 @@ public static class CentraActorServiceCollectionExtensions
             var manager = sp.GetRequiredService<ActorManager>();
             var stateStore = sp.GetRequiredService<IStateStore>();
             var opt = sp.GetRequiredService<ActorOptions>();
-            var centraOpt = sp.GetService<CentraOptions>();
+            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
             var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
                 ? opt.DefaultStateStore
                 : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);

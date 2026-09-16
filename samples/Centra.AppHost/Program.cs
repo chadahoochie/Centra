@@ -25,6 +25,7 @@ var orders = builder.AddProject<Projects.Centra_Sample_OrdersService>("orders-se
     .WithCentra(controlPlane)
     .WithCentraRedis(redis)
     .WithCentraRabbitMQ(rabbitmq)
+    .WithHttpEndpoint()
     .WaitFor(redis)
     .WaitFor(rabbitmq)
     .WaitFor(controlPlane);
@@ -34,6 +35,7 @@ var multiInstance = builder.AddProject<Projects.Centra_Sample_MultiInstance>("mu
     .WithCentraRedis(redis)
     .WithCentraRabbitMQ(rabbitmq)
     .WithReplicas(3)
+    .WithHttpEndpoint()
     .WaitFor(redis)
     .WaitFor(rabbitmq)
     .WaitFor(controlPlane);
@@ -41,29 +43,34 @@ var multiInstance = builder.AddProject<Projects.Centra_Sample_MultiInstance>("mu
 var actors = builder.AddProject<Projects.Centra_Sample_Actors>("actors-service")
     .WithCentra(controlPlane)
     .WithCentraRedis(redis)
+    .WithHttpEndpoint()
     .WaitFor(redis)
     .WaitFor(controlPlane);
 
 var workflows = builder.AddProject<Projects.Centra_Sample_Workflows>("workflows-service")
     .WithCentra(controlPlane)
     .WithCentraRedis(redis)
+    .WithHttpEndpoint()
     .WaitFor(redis)
     .WaitFor(controlPlane);
 
 var bindings = builder.AddProject<Projects.Centra_Sample_Bindings>("bindings-service")
     .WithCentra(controlPlane)
     .WithCentraRedis(redis)
+    .WithHttpEndpoint()
     .WaitFor(redis)
     .WaitFor(controlPlane);
 
 var resilience = builder.AddProject<Projects.Centra_Sample_Resilience>("resilience-service")
     .WithCentra(controlPlane)
+    .WithHttpEndpoint()
     .WaitFor(controlPlane);
 
 var tenantOffload = builder.AddProject<Projects.Centra_Sample_TenantOffload>("tenant-offload-service")
     .WithCentra(controlPlane)
     .WithCentraRabbitMQ(rabbitmq)
     .WithReplicas(3)
+    .WithHttpEndpoint()
     .WaitFor(rabbitmq)
     .WaitFor(controlPlane);
 
