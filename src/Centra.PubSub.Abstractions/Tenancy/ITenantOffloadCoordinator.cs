@@ -17,4 +17,6 @@ public interface ITenantOffloadCoordinator
     string ResolvePublishTopic(string pubSubName, string baseTopic, string? tenantId);
 
     ValueTask CleanupIdleResourcesAsync(CancellationToken cancellationToken);
+
+    TenantOffloadState GetTenantState(string tenantId, string topic) => TenantOffloadState.Normal;
 }

@@ -51,10 +51,27 @@ public sealed class TenantOffloadCoordinator : ITenantOffloadCoordinator
                     return true;
                 }
 
+                // Anomaly subsided: enter Draining state to cut off publishers while consumers drain
+                _tenantStates[key] = (TenantOffloadState.Draining, state.Reason, _timeProvider.GetUtcNow());
+                CentraMeters.RecordTenantStateTransition(tenantId, topic, "Offloaded", "Draining", "AnomalySubsided");
+                reason = state.Reason;
+                return true;
+            }
+
+            if (state.State == TenantOffloadState.Draining)
+            {
+                if (_tracker.ShouldOffload(tenantId, topic, out var reTriggerReason))
+                {
+                    _tenantStates[key] = (TenantOffloadState.Offloaded, reTriggerReason, _timeProvider.GetUtcNow());
+                    CentraMeters.RecordTenantStateTransition(tenantId, topic, "Draining", "Offloaded", reTriggerReason.ToString());
+                    reason = reTriggerReason;
+                    return true;
+                }
+
                 if (_timeProvider.GetUtcNow() - state.LastStateChange >= _options.CooldownPeriod)
                 {
                     _tenantStates[key] = (TenantOffloadState.Normal, TenantOffloadReason.None, _timeProvider.GetUtcNow());
-                    CentraMeters.RecordTenantStateTransition(tenantId, topic, "Offloaded", "Normal", "CooldownExpired");
+                    CentraMeters.RecordTenantStateTransition(tenantId, topic, "Draining", "Normal", "CooldownExpired");
                     return false;
                 }
 
@@ -74,6 +91,17 @@ public sealed class TenantOffloadCoordinator : ITenantOffloadCoordinator
         }
 
         return false;
+    }
+
+    public TenantOffloadState GetTenantState(string tenantId, string topic)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(topic))
+        {
+            return TenantOffloadState.Normal;
+        }
+
+        var key = new TenantTopicKey(topic, tenantId);
+        return _tenantStates.TryGetValue(key, out var state) ? state.State : TenantOffloadState.Normal;
     }
 
     public void ForceOffload(string tenantId, string topic, TenantOffloadReason reason)
@@ -113,12 +141,13 @@ public sealed class TenantOffloadCoordinator : ITenantOffloadCoordinator
         _tracker.RecordExecution(tenantId, topic, durationMs);
 
         var key = new TenantTopicKey(topic, tenantId);
-        if (!_tenantStates.TryGetValue(key, out var state) || state.State == TenantOffloadState.Normal)
+        if (!_tenantStates.TryGetValue(key, out var state) || state.State != TenantOffloadState.Offloaded)
         {
             if (_tracker.ShouldOffload(tenantId, topic, out var reason))
             {
+                var previousState = state.State.ToString();
                 _tenantStates[key] = (TenantOffloadState.Offloaded, reason, _timeProvider.GetUtcNow());
-                CentraMeters.RecordTenantStateTransition(tenantId, topic, "Normal", "Offloaded", reason.ToString());
+                CentraMeters.RecordTenantStateTransition(tenantId, topic, previousState, "Offloaded", reason.ToString());
             }
         }
 
@@ -133,9 +162,27 @@ public sealed class TenantOffloadCoordinator : ITenantOffloadCoordinator
             return baseTopic;
         }
 
+        // When Draining or Normal, publisher traffic is steered to baseTopic (publisher cutoff)
+        var key = new TenantTopicKey(baseTopic, tenantId);
+        if (_tenantStates.TryGetValue(key, out var state))
+        {
+            if (state.State == TenantOffloadState.Offloaded)
+            {
+                return _strategy.ResolvePublishTopic(baseTopic, tenantId);
+            }
+
+            if (state.State == TenantOffloadState.Draining)
+            {
+                return baseTopic;
+            }
+        }
+
         if (IsTenantOffloaded(tenantId, baseTopic, out _))
         {
-            return _strategy.ResolvePublishTopic(baseTopic, tenantId);
+            if (_tenantStates.TryGetValue(key, out var updatedState) && updatedState.State == TenantOffloadState.Offloaded)
+            {
+                return _strategy.ResolvePublishTopic(baseTopic, tenantId);
+            }
         }
 
         return baseTopic;
@@ -145,6 +192,4 @@ public sealed class TenantOffloadCoordinator : ITenantOffloadCoordinator
     {
         await _strategy.CleanupIdleResourcesAsync(cancellationToken).ConfigureAwait(false);
     }
-
-    internal static string BuildKey(string topic, string tenantId) => $"{topic}:{tenantId}";
 }

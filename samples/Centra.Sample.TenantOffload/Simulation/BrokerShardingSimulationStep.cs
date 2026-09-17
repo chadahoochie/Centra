@@ -26,6 +26,7 @@ public static class BrokerShardingSimulationStep
         TenantOffloadOptions options,
         EphemeralBrokerTopicOffloadStrategy? existingStrategy = null,
         int holdSeconds = 0,
+        IPubSubQueueInspector? queueInspector = null,
         CancellationToken cancellationToken = default)
     {
         SimulationLogger.SubHeader("Step 4: Broker Topic Sharding & Ephemeral Topic Resolution");
@@ -47,7 +48,8 @@ public static class BrokerShardingSimulationStep
         var ephemeralStrategy = existingStrategy ?? new EphemeralBrokerTopicOffloadStrategy(
             publisher,
             subscriber,
-            ephemeralOptions);
+            ephemeralOptions,
+            queueInspector: queueInspector);
 
         var baseTopic = "tenant.orders";
         var sampleTenants = new[] { "tenant-mega", "tenant-alpha", "tenant-beta", "tenant-gamma", "tenant-delta" };
@@ -120,6 +122,16 @@ public static class BrokerShardingSimulationStep
 
             SimulationLogger.Log($"  Tenant [tenant-mega] ➔ Declared dedicated queue '{queueName}' on broker", ConsoleColor.Cyan);
             SimulationLogger.Log($"  Active offload topics on broker: {string.Join(", ", ephemeralStrategy.ActiveOffloadTopics.Select(t => t.Topic))}", ConsoleColor.Cyan);
+            var inFlightTurns = ephemeralStrategy.GetActiveConsumerTurns("pubsub", targetOffloadTopic);
+            SimulationLogger.Log($"  Active consumer execution turns on queue: {inFlightTurns}", ConsoleColor.Cyan);
+            if (queueInspector is not null)
+            {
+                var qStats = await queueInspector.GetQueueStatsAsync("pubsub", targetOffloadTopic, cancellationToken).ConfigureAwait(false);
+                if (qStats is not null)
+                {
+                    SimulationLogger.Log($"  Broker queue inspection: MessageCount={qStats.Value.MessageCount}, ConsumerCount={qStats.Value.ConsumerCount}", ConsoleColor.Cyan);
+                }
+            }
             SimulationLogger.Log($"✓ Tenant-specific queue spun up and verified on broker: '{queueName}'", ConsoleColor.Green);
 
             if (holdSeconds > 0)

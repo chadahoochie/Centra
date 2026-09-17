@@ -9,24 +9,33 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
     private readonly IPubSubSubscriber? _subscriber;
     private readonly TenantOffloadOptions _options;
     private readonly TimeProvider _timeProvider;
+    private readonly IPubSubQueueInspector? _queueInspector;
+    private readonly EphemeralTopicTurnTracker _turnTracker;
     private readonly ConcurrentDictionary<(string PubSubName, string Topic), Task> _topicSubscriptions = new();
     private readonly ConcurrentDictionary<(string PubSubName, string Topic), DateTimeOffset> _lastActivityTimes = new();
     private readonly ConcurrentDictionary<(string PubSubName, string Topic), Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>>> _topicHandlers = new();
 
     public TenantOffloadStrategyType StrategyType => TenantOffloadStrategyType.EphemeralBrokerTopic;
 
-    public IReadOnlyCollection<(string PubSubName, string Topic)> ActiveOffloadTopics => _topicSubscriptions.Keys.ToArray();
+    public IReadOnlyCollection<(string PubSubName, string Topic)> ActiveOffloadTopics =>
+        _topicSubscriptions.IsEmpty ? Array.Empty<(string PubSubName, string Topic)>() : _topicSubscriptions.Keys.ToArray();
+
+    public int GetActiveConsumerTurns(string pubSubName, string topic) => _turnTracker.GetActiveTurns((pubSubName, topic));
 
     public EphemeralBrokerTopicOffloadStrategy(
         IPubSubPublisher publisher,
         IPubSubSubscriber? subscriber = null,
         TenantOffloadOptions? options = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IPubSubQueueInspector? queueInspector = null,
+        EphemeralTopicTurnTracker? turnTracker = null)
     {
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _subscriber = subscriber;
         _options = options ?? new TenantOffloadOptions();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _queueInspector = queueInspector;
+        _turnTracker = turnTracker ?? new EphemeralTopicTurnTracker();
     }
 
     public async ValueTask<EventHandlingResult> ExecuteOffloadAsync(TenantOffloadWorkItem workItem, CancellationToken cancellationToken)
@@ -61,20 +70,28 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
                     key.Topic,
                     async (payload, headers, ct) =>
                     {
-                        _lastActivityTimes[key] = _timeProvider.GetUtcNow();
-                        if (_topicHandlers.TryGetValue(key, out var currentHandler))
+                        _turnTracker.Enter(key);
+                        try
                         {
-                            return await currentHandler(payload, headers, ct).ConfigureAwait(false);
+                            _lastActivityTimes[key] = _timeProvider.GetUtcNow();
+                            if (_topicHandlers.TryGetValue(key, out var currentHandler))
+                            {
+                                return await currentHandler(payload, headers, ct).ConfigureAwait(false);
+                            }
+                            if (invoker is not null)
+                            {
+                                return await invoker(payload, headers, ct).ConfigureAwait(false);
+                            }
+                            if (fallback is not null)
+                            {
+                                return await fallback(ct).ConfigureAwait(false);
+                            }
+                            return EventHandlingResult.Success;
                         }
-                        if (invoker is not null)
+                        finally
                         {
-                            return await invoker(payload, headers, ct).ConfigureAwait(false);
+                            _turnTracker.Exit(key);
                         }
-                        if (fallback is not null)
-                        {
-                            return await fallback(ct).ConfigureAwait(false);
-                        }
-                        return EventHandlingResult.Success;
                     },
                     cancellationToken: cancellationToken,
                     options: subOptions).AsTask();
@@ -126,7 +143,18 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
         var task = _topicSubscriptions.GetOrAdd(key, k => _subscriber.SubscribeAsync(
             k.PubSubName,
             k.Topic,
-            handler,
+            async (p, h, ct) =>
+            {
+                _turnTracker.Enter(k);
+                try
+                {
+                    return await handler(p, h, ct).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _turnTracker.Exit(k);
+                }
+            },
             cancellationToken: cancellationToken,
             options: subOptions).AsTask());
         try
@@ -162,20 +190,39 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
 
         foreach (var kvp in _lastActivityTimes)
         {
-            if (now - kvp.Value >= idleTimeout)
+            if (now - kvp.Value < idleTimeout)
             {
-                if (_lastActivityTimes.TryRemove(kvp.Key, out _) &&
-                    _topicSubscriptions.TryRemove(kvp.Key, out _))
+                continue;
+            }
+
+            // Safety Check 1: In-flight consumer turns must be 0
+            if (_turnTracker.GetActiveTurns(kvp.Key) > 0)
+            {
+                continue;
+            }
+
+            // Safety Check 2: Queue depth inspection (MessageCount must be 0)
+            if (_queueInspector is not null)
+            {
+                var stats = await _queueInspector.GetQueueStatsAsync(kvp.Key.PubSubName, kvp.Key.Topic, cancellationToken).ConfigureAwait(false);
+                if (stats is not null && stats.Value.MessageCount > 0)
                 {
-                    _topicHandlers.TryRemove(kvp.Key, out _);
-                    try
-                    {
-                        await _subscriber.UnsubscribeAsync(kvp.Key.PubSubName, kvp.Key.Topic, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Trace.TraceWarning("Failed to unsubscribe idle ephemeral topic: {0}", ex.Message);
-                    }
+                    continue;
+                }
+            }
+
+            if (_lastActivityTimes.TryRemove(kvp.Key, out _) &&
+                _topicSubscriptions.TryRemove(kvp.Key, out _))
+            {
+                _topicHandlers.TryRemove(kvp.Key, out _);
+                _turnTracker.TryRemove(kvp.Key);
+                try
+                {
+                    await _subscriber.UnsubscribeAsync(kvp.Key.PubSubName, kvp.Key.Topic, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.TraceWarning("Failed to unsubscribe idle ephemeral topic: {0}", ex.Message);
                 }
             }
         }

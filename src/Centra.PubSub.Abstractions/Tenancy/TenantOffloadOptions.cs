@@ -29,4 +29,8 @@ public sealed class TenantOffloadOptions
     public bool EnablePublisherBypassing { get; set; } = true;
 
     public string OffloadTopicPattern { get; set; } = "{topic}.offload.{tenantId}";
+
+    public TimeSpan ReapQuarantineWindow { get; set; } = TimeSpan.FromSeconds(2);
+
+    public bool EnableDistributedReaperLock { get; set; } = true;
 }
