@@ -369,10 +369,24 @@ When a trigger fires, the tenant transitions from `Normal` to `Offloaded` state,
 - **Publisher Side**: When `EnablePublisherBypassing = true`, [`CentraPubSubClient.PublishAsync`](../../src/Centra.PubSub/PubSub/CentraPubSubClient.cs) queries `ResolvePublishTopic`. If the tenant is offloaded, outgoing traffic is routed directly to the offload topic shard, bypassing the primary broker topic entirely.
 - **Subscriber Side**: [`CentraSubscriptionEventDispatcher`](../../src/Centra.Hosting/HostedServices/CentraSubscriptionEventDispatcher.cs) intercepts incoming events tagged with `ce-tenantid`. If the tenant is offloaded, it delegates to `ITenantOffloadCoordinator.HandleOffloadAsync(...)`.
 
-### 5. Cooldown, State Recovery & Lane Reaping
+### 5. Cooldown, State Recovery & 5-Phase Safe Reaping
 
 - **Cooldown Grace Period**: Once a tenant's burst drops below the thresholds, the coordinator observes a configurable `CooldownPeriod` (e.g., 30s) before restoring the tenant to `Normal` state.
-- **Idle Lane Reclamation**: [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) periodically inspects worker lanes and reaps idle resources when inactive past `LaneIdleTimeout`, recording `centra.tenant.reaped.lanes`.
+- **Idle Resource Reclamation**: [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) periodically inspects lanes and ephemeral broker topics, safely decommissioning idle resources once inactive past `LaneIdleTimeout` or `ReapQuarantineWindow`.
+
+#### The 5-Phase Ephemeral Reaping Protocol
+When using `EphemeralBrokerTopic`, simply tearing down a broker queue when idle creates severe message loss hazards (e.g., in RabbitMQ, queues with `autoDelete: true` are destroyed the instant consumer count hits 0, deleting unacknowledged messages). Centra enforces a strict 5-phase sequence before deleting any ephemeral queue:
+1. **Publisher Cutoff (`Draining` State)**: The coordinator moves the tenant to `TenantOffloadState.Draining`. `ResolvePublishTopic` instantly routes new outbound publications back to the primary topic (`baseTopic`), ensuring zero new messages enter the ephemeral queue.
+2. **In-Flight Turn Protection**: [`EphemeralTopicTurnTracker`](../../src/Centra.PubSub/Tenancy/EphemeralTopicTurnTracker.cs) checks active consumer turns. If any event handler is actively executing, reaping aborts immediately and retries on the next cycle.
+3. **Queue Depth Inspection**: The reaper queries [`IPubSubQueueInspector`](../../src/Centra.PubSub.Abstractions/IPubSubQueueInspector.cs) on the broker driver (e.g., AMQP passive queue inspection). Teardown proceeds only if `MessageCount == 0`.
+4. **Distributed Lock Mutual Exclusion**: If running across multiple instances, the reaper acquires an [`IDistributedLockProvider`](../../src/Centra.DistributedLock.Abstractions/IDistributedLockProvider.cs) lock (`centra:reaper:{tenantId}:{topic}`) to guarantee mutual exclusion.
+5. **Clean Broker Queue Reclaim**: Consumers unsubscribe cleanly, the broker queue is safely deleted, and the tenant transitions back to `Normal`.
+
+> [!WARNING]
+> **Split-Brain Reaping Hazard in Multi-Instance Ephemeral Deployments**:
+> If you configure `TenantOffloadStrategyType.EphemeralBrokerTopic` across multiple replica instances without enabling distributed locks (`EnableDistributedReaperLock = true` with a registered `IDistributedLockProvider` such as Redis or PostgreSQL), independent reaper background services may race to decommission the queue while peer nodes are still handling in-flight events or draining buffered backlog.
+> Centra logs a critical runtime warning if `EphemeralBrokerTopic` is configured across instances without a distributed lock provider. For multi-node deployments without distributed locks, prefer `TenantOffloadStrategyType.InProcessFairScheduler` or `TenantOffloadStrategyType.BoundedShardBrokerTopic`.
+
 
 ### 6. Configuration Example
 

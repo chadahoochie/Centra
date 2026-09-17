@@ -4,7 +4,7 @@ using Centra.PubSub;
 
 namespace Centra.Providers.InMemory.PubSub;
 
-public sealed class InMemoryPubSubDriver : IPubSubDriver
+public sealed class InMemoryPubSubDriver : IPubSubDriver, IPubSubQueueInspector
 {
     // pubSubName -> (topic -> list of subscriptions)
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>>> _topics =
@@ -87,5 +87,19 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver
         var pubSubTopics = _topics.GetOrAdd(pubSubName, static _ => new ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>>(StringComparer.OrdinalIgnoreCase));
         pubSubTopics.TryRemove(topic, out _);
         return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<PubSubQueueStats?> GetQueueStatsAsync(
+        string pubSubName,
+        string topic,
+        CancellationToken cancellationToken = default)
+    {
+        if (_topics.TryGetValue(pubSubName, out var pubSubTopics) &&
+            pubSubTopics.TryGetValue(topic, out var subscriptions))
+        {
+            return ValueTask.FromResult<PubSubQueueStats?>(new PubSubQueueStats(MessageCount: 0, ConsumerCount: subscriptions.Count));
+        }
+
+        return ValueTask.FromResult<PubSubQueueStats?>(new PubSubQueueStats(MessageCount: 0, ConsumerCount: 0));
     }
 }

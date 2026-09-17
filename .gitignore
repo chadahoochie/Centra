@@ -7,3 +7,4 @@ TestResults/
 *.suo
 .DS_Store
 coverage/
+.vscode/

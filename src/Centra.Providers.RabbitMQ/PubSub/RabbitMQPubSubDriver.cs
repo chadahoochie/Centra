@@ -11,7 +11,7 @@ using RabbitMQ.Client.Events;
 
 namespace Centra.Providers.RabbitMQ.PubSub;
 
-public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
+public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector, IAsyncDisposable
 {
     private readonly IConnectionFactory _connectionFactory;
     private readonly RabbitMQProviderOptions _options;
@@ -342,6 +342,28 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IAsyncDisposable
             }
 
             sub.Limiter?.Dispose();
+        }
+    }
+
+    public async ValueTask<PubSubQueueStats?> GetQueueStatsAsync(
+        string pubSubName,
+        string topic,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(topic);
+
+        var queueName = $"{_options.QueuePrefix}.{pubSubName}.{topic}";
+        try
+        {
+            var channel = await GetPublishChannelAsync(cancellationToken).ConfigureAwait(false);
+            var declareOk = await channel.QueueDeclarePassiveAsync(queueName, cancellationToken).ConfigureAwait(false);
+            return new PubSubQueueStats((long)declareOk.MessageCount, (int)declareOk.ConsumerCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not inspect queue stats for {QueueName}", queueName);
+            return null;
         }
     }
 

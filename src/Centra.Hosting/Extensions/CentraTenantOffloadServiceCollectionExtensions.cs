@@ -63,13 +63,17 @@ public static class CentraTenantOffloadServiceCollectionExtensions
             var publisher = sp.GetService<IPubSubPublisher>() ?? (IPubSubPublisher?)driver;
             var subscriber = sp.GetService<IPubSubSubscriber>() ?? (IPubSubSubscriber?)driver;
 
+            var inspector = sp.GetService<IPubSubQueueInspector>() ?? (driver as IPubSubQueueInspector);
+
             return options.OffloadStrategy switch
             {
                 TenantOffloadStrategyType.EphemeralBrokerTopic =>
                     new EphemeralBrokerTopicOffloadStrategy(
                         publisher ?? throw new InvalidOperationException($"No PubSub driver or publisher registered for tenant offload strategy '{options.OffloadStrategy}'."),
                         subscriber,
-                        options),
+                        options,
+                        timeProvider: sp.GetService<TimeProvider>(),
+                        queueInspector: inspector),
                 TenantOffloadStrategyType.BoundedShardBrokerTopic =>
                     new BoundedShardBrokerTopicOffloadStrategy(
                         publisher ?? throw new InvalidOperationException($"No PubSub driver or publisher registered for tenant offload strategy '{options.OffloadStrategy}'."),
@@ -83,10 +87,18 @@ public static class CentraTenantOffloadServiceCollectionExtensions
             var tracker = sp.GetRequiredService<ITenantMetricsTracker>();
             var strategy = sp.GetRequiredService<ITenantOffloadStrategy>();
             var options = sp.GetRequiredService<IOptions<TenantOffloadOptions>>().Value;
-            return new TenantOffloadCoordinator(tracker, strategy, options);
+            var timeProvider = sp.GetService<TimeProvider>();
+            return new TenantOffloadCoordinator(tracker, strategy, options, timeProvider);
         });
 
-        services.AddHostedService<TenantOffloadReaperHostedService>();
+        services.AddHostedService(sp =>
+        {
+            var coordinator = sp.GetRequiredService<ITenantOffloadCoordinator>();
+            var options = sp.GetRequiredService<IOptions<TenantOffloadOptions>>();
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TenantOffloadReaperHostedService>>();
+            var lockProvider = sp.GetService<Centra.Locks.IDistributedLockProvider>();
+            return new TenantOffloadReaperHostedService(coordinator, options, logger, lockProvider);
+        });
 
         return services;
     }

@@ -133,7 +133,24 @@ The simulation orchestrates 6 progressive scenarios:
    - While `tenant-mega`'s backlog is queued in a dedicated worker lane (`MaxConcurrencyPerTenant = 2`), `tenant-alpha`'s concurrent orders process immediately on the primary subscription pipeline without starvation.
 4. **Broker Topic Sharding Demonstration**:
    - Shows how `BoundedShardBrokerTopicOffloadStrategy` and `EphemeralBrokerTopicOffloadStrategy` deterministically hash tenants to isolated broker topics (`tenant.orders.offload.0`, etc.).
-5. **Cooldown, State Recovery & Ephemeral Reaper**:
-   - After the noisy surge stops, the cooldown window elapses, returning `tenant-mega` to `Normal` state, while the background [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) automatically reaps and unregisters idle ephemeral broker queues (`centra.pubsub.tenant.orders.offload.tenant-mega`).
+5. **5-Phase Safe Drain, State Recovery & Ephemeral Reaping**:
+   - Once the noisy burst subsides and the cooldown window elapses, the coordinator and [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) execute a safe, 5-phase decommission sequence to prevent dropped messages or split-brain queue teardown:
+     - **Phase 1: Publisher Cutoff (`Draining` State)**: The coordinator transitions the tenant to `TenantOffloadState.Draining`. `ResolvePublishTopic` instantly routes incoming orders back to the primary topic (`tenant.orders`), cutting off new arrivals to the ephemeral topic while allowing remaining backlog to drain.
+     - **Phase 2: In-Flight Turn Protection**: The [`EphemeralTopicTurnTracker`](../../src/Centra.PubSub/Tenancy/EphemeralTopicTurnTracker.cs) ensures any active worker turns currently processing an event finish cleanly before queue teardown.
+     - **Phase 3: Broker Queue Depth Inspection**: [`IPubSubQueueInspector`](../../src/Centra.PubSub.Abstractions/IPubSubQueueInspector.cs) queries the underlying broker (e.g., via `QueueDeclarePassive` in RabbitMQ) to verify unconsumed backlog reaches exactly zero (`MessageCount == 0`).
+     - **Phase 4: Distributed Lock Mutual Exclusion**: Reaping requires acquiring an [`IDistributedLockProvider`](../../src/Centra.DistributedLock.Abstractions/IDistributedLockProvider.cs) lease (`centra:reaper:{tenantId}:{topic}`) to prevent concurrent instances in a cluster from racing to delete the queue.
+     - **Phase 5: Clean Broker Queue Reclaim**: Consumers unsubscribe safely, ephemeral broker resources are deleted, and tenant state transitions back to `Normal`.
 6. **Multi-Instance Distributed Consumption**:
    - Simulates multi-replica consumer nodes (`replica-1`, `replica-2`) receiving distributed traffic, tracking independent node metrics while isolating noisy tenant lanes.
+
+---
+
+## ⚠️ Ephemeral Broker Strategy & Multi-Instance Split-Brain Warning
+
+> [!WARNING]
+> **Ephemeral Broker Queues Without Distributed Locking Cause Split-Brain Queue Deletion**:
+> When deploying multiple replicas with `OffloadStrategy = TenantOffloadStrategyType.EphemeralBrokerTopic`:
+> - Each replica runs an independent instance of `TenantOffloadReaperHostedService`.
+> - If `EnableDistributedReaperLock = false` or no `IDistributedLockProvider` (e.g. Redis, Postgres) is registered, multiple nodes may race to reap the ephemeral queue. One node may disconnect and trigger queue deletion while another node still has in-flight handlers processing or unconsumed messages in the queue buffer.
+> - **In production multi-replica environments, always configure distributed locking (`EnableDistributedReaperLock = true`) or use `InProcessFairScheduler` / `BoundedShardBrokerTopic`.** Single-node deployments or local test environments may use the in-memory lock provider.
+

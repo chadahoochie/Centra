@@ -45,6 +45,7 @@ flowchart TD
 | **Virtual Actor Placement** | Single-node / in-memory or fixed partition assignment. | Dynamic consistent-hash ring over live active node topology. |
 | **Resilience Policies** | Static Polly Core v8 pipelines declared in application code. | Dynamically mutable Polly v8 pipelines pushed via live SSE. |
 | **Operational Inspection** | Local `/health` endpoints and OpenTelemetry metrics/traces. | Central REST API for active actor passivation and workflow history. |
+| **Tenant Offload Queue Reaping** | In-process lanes or broker sharding; ephemeral broker topics require an `IDistributedLockProvider` to prevent split-brain teardown. | Cluster coordination and distributed lock leases guarantee safe single-instance ephemeral broker queue reclamation across replicas. |
 
 ---
 
@@ -154,6 +155,13 @@ The Control Plane exposes runtime inspection endpoints:
 - Query active virtual actor counts across the cluster (`GET /api/v1/actors/activations`).
 - Trigger manual passivation of idle or hot actors (`POST /api/v1/actors/{type}/{id}/passivate`).
 - Query durable workflow instances and inspect historical event streams (`GET /api/v1/workflows/instances/{id}/history`).
+
+### 6. Dynamic Ephemeral Tenant Offload Coordination Across Replicas
+When using Centra's dynamic noisy neighbor isolation with `TenantOffloadStrategyType.EphemeralBrokerTopic`:
+- Each service replica runs an independent [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs).
+- To prevent split-brain broker queue deletion (where one node deletes the ephemeral topic while peer nodes are still processing in-flight events or draining unconsumed backlog), the reaper executes a 5-phase protocol requiring an [`IDistributedLockProvider`](../../src/Centra.DistributedLock.Abstractions/IDistributedLockProvider.cs) lease (`centra:reaper:{tenantId}:{topic}`).
+- In **Standalone Mode**, you must explicitly register an `IDistributedLockProvider` (e.g., Redis, PostgreSQL) and configure `EnableDistributedReaperLock = true`.
+- In **Orchestrated Mode**, centralized coordination and cluster locks guarantee single-leader execution of ephemeral queue decommissioning without risk of split-brain teardown.
 
 ---
 

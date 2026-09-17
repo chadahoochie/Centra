@@ -48,6 +48,9 @@ public static class TenantOffloadDemoRunner
         var diStrategy = (coordinator as TenantOffloadCoordinator)?.Strategy as EphemeralBrokerTopicOffloadStrategy
             ?? sp.GetService<ITenantOffloadStrategy>() as EphemeralBrokerTopicOffloadStrategy;
 
+        var queueInspector = sp.GetService<IPubSubQueueInspector>() ?? (driver as IPubSubQueueInspector);
+        var lockProvider = sp.GetService<Centra.Locks.IDistributedLockProvider>();
+
         // 4. Broker Sharding & Ephemeral Topic Resolution (Spins up tenant queue on broker!)
         var (step4Success, ephemeralStrategy) = await BrokerShardingSimulationStep.ExecuteWithStrategyAsync(
             publisher ?? new TestPublisherStub(),
@@ -55,11 +58,12 @@ public static class TenantOffloadDemoRunner
             options,
             diStrategy,
             holdSeconds,
+            queueInspector,
             cancellationToken).ConfigureAwait(false);
         notes.Add($"Step 4 Broker Topic Sharding: {(step4Success ? "PASSED" : "FAILED")}");
 
         // 5. Cooldown Recovery & Ephemeral Reaper
-        var step5Success = await RecoveryReapingSimulationStep.ExecuteAsync(coordinator, ephemeralStrategy, cancellationToken).ConfigureAwait(false);
+        var step5Success = await RecoveryReapingSimulationStep.ExecuteAsync(coordinator, ephemeralStrategy, queueInspector, lockProvider, cancellationToken).ConfigureAwait(false);
         notes.Add($"Step 5 Cooldown & Ephemeral Reaper: {(step5Success ? "PASSED" : "FAILED")}");
 
         // 6. Multi-Instance Distributed Consumption
