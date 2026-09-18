@@ -63,7 +63,17 @@ public sealed class CentraServiceInvoker : IServiceInvoker
         ServiceInvocationOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var verb = new HttpMethod(httpVerb ?? "POST");
+        var verb = (httpVerb ?? "POST").ToUpperInvariant() switch
+        {
+            "POST" => HttpMethod.Post,
+            "GET" => HttpMethod.Get,
+            "PUT" => HttpMethod.Put,
+            "DELETE" => HttpMethod.Delete,
+            "PATCH" => HttpMethod.Patch,
+            "HEAD" => HttpMethod.Head,
+            "OPTIONS" => HttpMethod.Options,
+            var other => new HttpMethod(other)
+        };
         var baseUri = await _endpointResolver.ResolveEndpointAsync(serviceAppId, cancellationToken).ConfigureAwait(false)
             ?? new Uri($"http://{serviceAppId}/", UriKind.Absolute);
 

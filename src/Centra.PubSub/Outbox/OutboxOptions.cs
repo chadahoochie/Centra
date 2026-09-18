@@ -33,4 +33,10 @@ public sealed record OutboxOptions
     /// Defaults to 1 (sequential publish). Set > 1 for high-throughput parallel drain.
     /// </summary>
     public int MaxConcurrentPublishes { get; init; } = 1;
+
+    /// <summary>
+    /// Gets or sets whether to group pending messages by (PubSubName, Topic) and publish in batches via <see cref="IPubSubPublisher.PublishBatchAsync"/>.
+    /// Defaults to true.
+    /// </summary>
+    public bool EnableBatchPublishing { get; init; } = true;
 }

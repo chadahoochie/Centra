@@ -94,7 +94,8 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
             Status = (int)WorkflowStatus.Running,
             Input = inputBytes,
             CreatedAt = now,
-            LastUpdatedAt = now
+            LastUpdatedAt = now,
+            LastEventId = 1
         };
 
         await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
@@ -197,8 +198,17 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
             throw new KeyNotFoundException($"Workflow instance '{instanceId.Value}' was not found.");
         }
 
-        var history = await _historyStore.GetHistoryAsync(instanceId, cancellationToken).ConfigureAwait(false);
-        long nextId = (history.Count > 0 ? history[^1].EventId : 0) + 1;
+        long nextId;
+        if (state.LastEventId > 0)
+        {
+            nextId = state.LastEventId + 1;
+        }
+        else
+        {
+            var history = await _historyStore.GetHistoryAsync(instanceId, cancellationToken).ConfigureAwait(false);
+            nextId = (history.Count > 0 ? history[^1].EventId : 0) + 1;
+        }
+        state.LastEventId = nextId;
 
         byte[]? data = null;
         if (eventData is not null)
@@ -230,6 +240,10 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
                 await _turnProcessor.ProcessTurnAsync(instanceId, def, state, cancellationToken).ConfigureAwait(false);
             }
         }
+        else
+        {
+            await _historyStore.SaveStateAsync(state, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public async ValueTask FireTimerAsync(
@@ -245,8 +259,17 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         var state = await _historyStore.GetStateAsync(instanceId, cancellationToken).ConfigureAwait(false);
         if (state is null) return;
 
-        var history = await _historyStore.GetHistoryAsync(instanceId, cancellationToken).ConfigureAwait(false);
-        long nextId = (history.Count > 0 ? history[^1].EventId : 0) + 1;
+        long nextId;
+        if (state.LastEventId > 0)
+        {
+            nextId = state.LastEventId + 1;
+        }
+        else
+        {
+            var history = await _historyStore.GetHistoryAsync(instanceId, cancellationToken).ConfigureAwait(false);
+            nextId = (history.Count > 0 ? history[^1].EventId : 0) + 1;
+        }
+        state.LastEventId = nextId;
 
         var timerEvent = new WorkflowHistoryEventRecord
         {
@@ -270,6 +293,10 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
                 await _turnProcessor.ProcessTurnAsync(instanceId, def, state, cancellationToken).ConfigureAwait(false);
             }
         }
+        else
+        {
+            await _historyStore.SaveStateAsync(state, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public async ValueTask TerminateWorkflowAsync(
@@ -286,8 +313,17 @@ public sealed class WorkflowEngine : IWorkflowEngine, IDisposable
         var state = await _historyStore.GetStateAsync(instanceId, cancellationToken).ConfigureAwait(false);
         if (state is null) return;
 
-        var history = await _historyStore.GetHistoryAsync(instanceId, cancellationToken).ConfigureAwait(false);
-        long nextId = (history.Count > 0 ? history[^1].EventId : 0) + 1;
+        long nextId;
+        if (state.LastEventId > 0)
+        {
+            nextId = state.LastEventId + 1;
+        }
+        else
+        {
+            var history = await _historyStore.GetHistoryAsync(instanceId, cancellationToken).ConfigureAwait(false);
+            nextId = (history.Count > 0 ? history[^1].EventId : 0) + 1;
+        }
+        state.LastEventId = nextId;
 
         var terminatedEvent = new WorkflowHistoryEventRecord
         {

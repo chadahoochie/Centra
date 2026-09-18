@@ -16,4 +16,5 @@ public sealed class WorkflowStateRecord
     public string? FailureDetails { get; set; }
     public string? WaitingEventName { get; set; }
     public DateTimeOffset? TimerDueTime { get; set; }
+    public long LastEventId { get; set; }
 }

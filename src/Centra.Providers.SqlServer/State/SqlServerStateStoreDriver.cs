@@ -11,7 +11,8 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
 {
     private readonly SqlServerProviderOptions _options;
     private readonly string _fullTableName;
-    private int _initialized;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private volatile bool _isInitialized;
 
     public SqlServerStateStoreDriver(IOptions<SqlServerProviderOptions> options)
     {
@@ -21,8 +22,19 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
 
     internal async ValueTask EnsureTableCreatedAsync(CancellationToken cancellationToken)
     {
-        if (_options.AutoCreateTable && Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
+        if (!_options.AutoCreateTable || _isInitialized)
         {
+            return;
+        }
+
+        await _initLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_isInitialized)
+            {
+                return;
+            }
+
             var sql = $"""
                 IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE t.name = @tbl AND s.name = @sch)
                 BEGIN
@@ -46,6 +58,11 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
             cmd.Parameters.Add(new SqlParameter("@tbl", SqlDbType.NVarChar, 128) { Value = _options.StateTableName });
             cmd.Parameters.Add(new SqlParameter("@sch", SqlDbType.NVarChar, 128) { Value = _options.SchemaName });
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _isInitialized = true;
+        }
+        finally
+        {
+            _initLock.Release();
         }
     }
 

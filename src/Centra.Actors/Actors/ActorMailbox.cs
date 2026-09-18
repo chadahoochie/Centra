@@ -158,12 +158,15 @@ public sealed class ActorMailbox : IAsyncDisposable
                 // Channel appears empty. Safely transition to idle under gate.
                 lock (_gate)
                 {
+                    Interlocked.Exchange(ref _status, StatusIdle);
                     if (_channel.Reader.TryPeek(out _))
                     {
-                        continue;
+                        if (Interlocked.CompareExchange(ref _status, StatusRunning, StatusIdle) == StatusIdle)
+                        {
+                            continue;
+                        }
                     }
 
-                    Interlocked.Exchange(ref _status, StatusIdle);
                     break;
                 }
             }

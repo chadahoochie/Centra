@@ -55,10 +55,12 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
             var indexEntry = await _stateStore.GetAsync<List<string>>(_storeName, IndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
             var list = indexEntry.HasValue ? new List<string>(indexEntry.Value.Value) : [];
             var nodeCompositeKey = $"{request.AppId.ToLowerInvariant()}:{request.InstanceId.ToLowerInvariant()}";
-            if (!list.Contains(nodeCompositeKey))
+            if (list.Contains(nodeCompositeKey))
             {
-                list.Add(nodeCompositeKey);
+                break;
             }
+
+            list.Add(nodeCompositeKey);
 
             var etag = indexEntry?.ETag ?? string.Empty;
             var success = await _stateStore.TrySetAsync(_storeName, IndexKey, list, etag, cancellationToken: cancellationToken).ConfigureAwait(false);

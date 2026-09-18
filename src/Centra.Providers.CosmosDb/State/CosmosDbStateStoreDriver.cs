@@ -12,7 +12,8 @@ public sealed class CosmosDbStateStoreDriver : IStateStoreDriver
 {
     private readonly CosmosClient _client;
     private readonly CosmosDbProviderOptions _options;
-    private int _initialized;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private volatile bool _isInitialized;
 
     public CosmosDbStateStoreDriver(
         CosmosClient client,
@@ -26,14 +27,30 @@ public sealed class CosmosDbStateStoreDriver : IStateStoreDriver
 
     internal async ValueTask EnsureInitializedAsync(CancellationToken cancellationToken)
     {
-        if (_options.AutoCreateDatabaseAndContainers && Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
+        if (!_options.AutoCreateDatabaseAndContainers || _isInitialized)
         {
+            return;
+        }
+
+        await _initLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_isInitialized)
+            {
+                return;
+            }
+
             var dbResponse = await _client.CreateDatabaseIfNotExistsAsync(_options.DatabaseName, cancellationToken: cancellationToken).ConfigureAwait(false);
             var containerProperties = new ContainerProperties(_options.StateContainerName, _options.StatePartitionKeyPath)
             {
                 DefaultTimeToLive = -1
             };
             await dbResponse.Database.CreateContainerIfNotExistsAsync(containerProperties, _options.Throughput, cancellationToken: cancellationToken).ConfigureAwait(false);
+            _isInitialized = true;
+        }
+        finally
+        {
+            _initLock.Release();
         }
     }
 

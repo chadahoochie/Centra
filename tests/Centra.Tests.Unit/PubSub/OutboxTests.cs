@@ -1,5 +1,6 @@
 using Centra.Drivers;
 using Centra.Hosting.Outbox;
+using Centra.PubSub;
 using Centra.PubSub.Outbox;
 using Centra.State;
 using Centra.Tests.Unit.Common;
@@ -127,7 +128,7 @@ public sealed class OutboxTests
         await publisher.EnqueueAsync(topic, new TestOrderCreatedEvent(orderId2, "prod-2", 2));
         await publisher.EnqueueAsync(topic, new TestOrderCreatedEvent(orderId3, "prod-3", 3));
 
-        var options = new OutboxOptions { MaxConcurrentPublishes = 4, BatchSize = 10 };
+        var options = new OutboxOptions { MaxConcurrentPublishes = 4, BatchSize = 10, EnableBatchPublishing = false };
         var processor = new OutboxProcessor(outboxStore, _driver, options);
         var publishedCount = await processor.ProcessPendingAsync();
 
@@ -139,6 +140,34 @@ public sealed class OutboxTests
             topic,
             Arg.Any<ReadOnlyMemory<byte>>(),
             Arg.Any<IReadOnlyDictionary<string, string>>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory, AutoNSubstituteData]
+    public async Task Should_Process_Pending_Outbox_Messages_As_Batch_When_Same_Topic(
+        string topic,
+        string orderId1,
+        string orderId2,
+        string orderId3)
+    {
+        var outboxStore = new InMemoryOutboxStore();
+        var publisher = new CentraOutboxPublisher(outboxStore, "event-bus", "orders-app");
+
+        await publisher.EnqueueAsync(topic, new TestOrderCreatedEvent(orderId1, "prod-1", 1));
+        await publisher.EnqueueAsync(topic, new TestOrderCreatedEvent(orderId2, "prod-2", 2));
+        await publisher.EnqueueAsync(topic, new TestOrderCreatedEvent(orderId3, "prod-3", 3));
+
+        var options = new OutboxOptions { BatchSize = 10, EnableBatchPublishing = true };
+        var processor = new OutboxProcessor(outboxStore, _driver, options);
+        var publishedCount = await processor.ProcessPendingAsync();
+
+        publishedCount.ShouldBe(3);
+        outboxStore.PendingCount.ShouldBe(0);
+
+        await _driver.Received(1).PublishBatchAsync(
+            "event-bus",
+            topic,
+            Arg.Is<IReadOnlyList<PubSubMessage>>(msgs => msgs.Count == 3),
             Arg.Any<CancellationToken>());
     }
 }
