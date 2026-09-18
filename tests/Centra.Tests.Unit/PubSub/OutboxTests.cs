@@ -106,6 +106,9 @@ public sealed class OutboxTests
         _stateStore.GetAsync<OutboxMessageRecord>("statestore", $"centra:outbox:msg:{messageId}", Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
             .Returns(storedMsg);
 
+        _stateStore.GetBatchAsync<OutboxMessageRecord>("statestore", Arg.Any<IReadOnlyList<string>>(), Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StateEntry<OutboxMessageRecord>> { storedMsg });
+
         var store = new StateStoreOutboxStore(_stateStore, "statestore");
         var pending = await store.FetchPendingAsync(10);
 

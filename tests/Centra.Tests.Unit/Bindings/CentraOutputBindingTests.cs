@@ -10,6 +10,7 @@ using Xunit;
 
 namespace Centra.Tests.Unit.Bindings;
 
+[Collection("CentraDiagnostics")]
 public sealed class CentraOutputBindingTests
 {
     private readonly ComponentRegistry _registry;
@@ -112,11 +113,11 @@ public sealed class CentraOutputBindingTests
 
         await outputBinding.InvokeAsync(bindingName, new BindingRequest(ReadOnlyMemory<byte>.Empty, null, "send"));
 
-        var span = listener.StoppedActivities.FirstOrDefault(a => a.OperationName == "Centra.Binding.Invoke");
+        var span = listener.StoppedActivities.FirstOrDefault(a => a.OperationName == "Centra.Binding.Invoke" && a.GetTagItem("centra.binding.name")?.ToString() == bindingName);
         span.ShouldNotBeNull();
         span.GetTagItem("centra.binding.name")?.ToString().ShouldBe(bindingName);
 
-        var metrics = meterListener.Measurements.Where(m => m.InstrumentName == "centra.binding.invocations.total").ToList();
+        var metrics = meterListener.Measurements.Where(m => m.InstrumentName == "centra.binding.invocations.total" && m.Tags.Any(t => t.Key == "centra.binding.name" && t.Value?.ToString() == bindingName)).ToList();
         metrics.ShouldNotBeEmpty();
     }
 
@@ -139,11 +140,11 @@ public sealed class CentraOutputBindingTests
 
         ex.Message.ShouldBe("Driver exploded");
 
-        var span = listener.StoppedActivities.FirstOrDefault(a => a.OperationName == "Centra.Binding.Invoke");
+        var span = listener.StoppedActivities.FirstOrDefault(a => a.OperationName == "Centra.Binding.Invoke" && a.GetTagItem("centra.binding.name")?.ToString() == bindingName);
         span.ShouldNotBeNull();
         span.Status.ShouldBe(System.Diagnostics.ActivityStatusCode.Error);
 
-        var metrics = meterListener.Measurements.Where(m => m.InstrumentName == "centra.binding.invocations.total").ToList();
+        var metrics = meterListener.Measurements.Where(m => m.InstrumentName == "centra.binding.invocations.total" && m.Tags.Any(t => t.Key == "centra.binding.name" && t.Value?.ToString() == bindingName)).ToList();
         metrics.ShouldNotBeEmpty();
         metrics.Any(m => m.Tags.Any(t => t.Key == "status" && t.Value?.ToString() == "error")).ShouldBeTrue();
     }

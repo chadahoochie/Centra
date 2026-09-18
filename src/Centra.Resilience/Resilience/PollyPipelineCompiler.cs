@@ -75,7 +75,7 @@ internal static class PollyPipelineCompiler
                 SamplingDuration = sampling,
                 MinimumThroughput = definition.CircuitBreaker.MinimumThroughput,
                 BreakDuration = breakDur,
-                ShouldHandle = new PredicateBuilder().Handle<Exception>(),
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(static ex => ex is not OperationCanceledException),
                 OnOpened = args => listener.OnCircuitOpened(args),
                 OnClosed = args => listener.OnCircuitClosed(args),
                 OnHalfOpened = args => listener.OnCircuitHalfOpened(args)
@@ -107,7 +107,7 @@ internal static class PollyPipelineCompiler
                 Delay = baseDelay,
                 MaxDelay = maxDelay,
                 UseJitter = definition.Retry.UseJitter,
-                ShouldHandle = new PredicateBuilder().Handle<Exception>(),
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(static ex => ex is not OperationCanceledException),
                 OnRetry = args => listener.OnRetry(args)
             });
         }

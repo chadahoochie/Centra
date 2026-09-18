@@ -232,4 +232,29 @@ public sealed class PollyResiliencePipelineRegistryTests
             await pipeline.ExecuteAsync(ct => ValueTask.FromResult(3));
         });
     }
+
+    [Fact]
+    public async Task Should_Not_Retry_When_OperationCanceledException_Is_Thrown()
+    {
+        // Arrange
+        var registry = new PollyResiliencePipelineRegistry();
+        registry.RegisterPolicy(new CentraResiliencePolicyDefinition(
+            PolicyName: "cancel-policy",
+            Retry: new RetryPolicyOptions(MaxRetries: 3, BaseDelay: TimeSpan.FromMilliseconds(5))));
+
+        var pipeline = registry.GetPipeline("cancel-policy");
+        var executionCount = 0;
+
+        // Act & Assert
+        await Should.ThrowAsync<OperationCanceledException>(async () =>
+        {
+            await pipeline.ExecuteAsync<int>(ct =>
+            {
+                executionCount++;
+                throw new OperationCanceledException();
+            });
+        });
+
+        executionCount.ShouldBe(1);
+    }
 }

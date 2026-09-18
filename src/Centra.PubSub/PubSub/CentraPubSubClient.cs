@@ -129,8 +129,16 @@ public sealed class CentraPubSubClient : IPubSubClient
             return;
         }
 
+        var tenantId = CentraAmbientContext.TenantId;
+        if (options?.Metadata != null && options.Metadata.TryGetValue(CloudEventConstants.TenantIdHeader, out var customTenantId))
+        {
+            tenantId = customTenantId;
+        }
+
+        var targetTopic = _offloadCoordinator?.ResolvePublishTopic(pubSubName, topic, tenantId) ?? topic;
+
         var startTime = Stopwatch.GetTimestamp();
-        using var activity = CentraDiagnostics.StartPublishActivity(pubSubName, topic);
+        using var activity = CentraDiagnostics.StartPublishActivity(pubSubName, targetTopic);
 
         var mode = options?.Mode ?? CloudEventMode.Binary;
         var messages = items is IReadOnlyCollection<T> col ? new List<PubSubMessage>(col.Count) : new List<PubSubMessage>();
@@ -150,21 +158,21 @@ public sealed class CentraPubSubClient : IPubSubClient
             if (_resilienceProvider is not null && options?.DisableResilience != true)
             {
                 var pipeline = _resilienceProvider.GetPubSubPipeline(pubSubName);
-                await pipeline.ExecuteAsync(async ct => await driver.PublishBatchAsync(pubSubName, topic, messages, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+                await pipeline.ExecuteAsync(async ct => await driver.PublishBatchAsync(pubSubName, targetTopic, messages, ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                await driver.PublishBatchAsync(pubSubName, topic, messages, cancellationToken).ConfigureAwait(false);
+                await driver.PublishBatchAsync(pubSubName, targetTopic, messages, cancellationToken).ConfigureAwait(false);
             }
 
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-            CentraMeters.RecordPubSubPublished(pubSubName, topic, "success", durationMs, messages.Count);
+            CentraMeters.RecordPubSubPublished(pubSubName, targetTopic, "success", durationMs, messages.Count);
         }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-            CentraMeters.RecordPubSubPublished(pubSubName, topic, "error", durationMs, messages.Count);
+            CentraMeters.RecordPubSubPublished(pubSubName, targetTopic, "error", durationMs, messages.Count);
             throw;
         }
     }
