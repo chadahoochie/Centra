@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Centra.Bindings;
+using Centra.Diagnostics;
 using Centra.Locks;
 using Microsoft.Extensions.Logging;
 
@@ -42,12 +44,25 @@ public sealed class DistributedJobHandler : IJobHandler
                 "Cron job '{JobName}' tick at {ScheduledTime} skipped on this instance because another cluster replica acquired the lock.",
                 context.JobName,
                 context.ScheduledTime);
+            CentraMeters.RecordBindingTrigger(context.JobName, "skipped", 0);
             return;
         }
 
+        var startTime = Stopwatch.GetTimestamp();
         await using (acquiredLock.ConfigureAwait(false))
         {
-            await _innerHandler.ExecuteAsync(context).ConfigureAwait(false);
+            try
+            {
+                await _innerHandler.ExecuteAsync(context).ConfigureAwait(false);
+                var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+                CentraMeters.RecordBindingTrigger(context.JobName, "success", durationMs);
+            }
+            catch
+            {
+                var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+                CentraMeters.RecordBindingTrigger(context.JobName, "error", durationMs);
+                throw;
+            }
         }
     }
 }

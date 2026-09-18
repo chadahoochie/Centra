@@ -9,4 +9,5 @@ internal enum Operation
     CronLastRun,
     LeaderLeaseCycle,
     WorkflowStart,
+    ResilienceTest,
 }

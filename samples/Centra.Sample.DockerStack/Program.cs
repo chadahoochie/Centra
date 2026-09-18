@@ -7,8 +7,8 @@ using Centra.Locks;
 using Centra.Providers.PostgreSql.Extensions;
 using Centra.Providers.RabbitMQ.Extensions;
 using Centra.Providers.Redis.Extensions;
-using Centra.Providers.SqlServer.Extensions;
 using Centra.PubSub;
+using Centra.Resilience;
 using Centra.Sample.DockerStack.Cluster;
 using Centra.Sample.DockerStack.Cron;
 using Centra.Sample.DockerStack.Domain;
@@ -89,14 +89,6 @@ if (!string.IsNullOrWhiteSpace(pgConnectionString))
     builder.Services.AddCentraPostgreSqlLocks("pg-lockstore", o => o.ConnectionString = pgConnectionString);
 }
 
-var sqlConnectionString = builder.Configuration.GetConnectionString("sqlserver")
-    ?? builder.Configuration["SqlServer:ConnectionString"];
-if (!string.IsNullOrWhiteSpace(sqlConnectionString))
-{
-    builder.Services.AddCentraSqlServerStateStore("sql-statestore", o => o.ConnectionString = sqlConnectionString);
-    builder.Services.AddCentraSqlServerLocks("sql-lockstore", o => o.ConnectionString = sqlConnectionString);
-}
-
 // 3. Actors: register the demo actor. AddCentra (above) already wires actor placement's
 // consistent hash ring from the built-in IClusterTopologyProvider, so every replica learns about
 // its peers automatically. We still swap in a custom IActorProxyFactory here because actor-to-actor
@@ -126,6 +118,16 @@ builder.Services.AddWorkflowActivity<ShipOrderActivity>();
 // it with the shared Redis lock store so only one replica executes any given scheduled tick.
 builder.Services.AddCentraCronJob<ClusterHeartbeatJob>(ClusterHeartbeatJob.JobName, "*/10 * * * * *");
 
+// 5b. Resilience: registers Polly v8 resilience pipelines (retries, timeouts, circuit breakers)
+builder.Services.AddCentraResilience(options =>
+{
+    options.AddPolicy(new CentraResiliencePolicyDefinition(
+        PolicyName: "demo-resilience",
+        Retry: new RetryPolicyOptions(MaxRetries: 3),
+        CircuitBreaker: new CircuitBreakerPolicyOptions(FailureRatio: 0.5, BreakDuration: TimeSpan.FromSeconds(5)),
+        Timeout: new TimeoutPolicyOptions(TimeSpan.FromSeconds(2))));
+});
+
 // 6. Peer service invocation (round-robin across replicas) + node-local demo state + CloudEvents handler.
 builder.Services.AddSingleton<IClusterNodeLocalState, ClusterNodeLocalState>();
 builder.Services.AddCentraServiceClient<IPeerClient>();
@@ -152,10 +154,13 @@ app.MapGet("/", (IClusterNodeLocalState nodeState) => Results.Ok(new
         "POST /tasks/dispatch",
         "GET /tasks",
         "GET /cron/last-run",
+        "POST /db/postgres/{key}",
+        "GET /db/postgres/{key}",
         "POST /actors/{id}/increment",
         "GET /actors/{id}",
         "POST /centra/workflows/OrderProcessingWorkflow/start",
-        "GET /centra/workflows/{instanceId}"
+        "GET /centra/workflows/{instanceId}",
+        "POST /resilience/simulate"
     }
 }));
 
@@ -341,17 +346,31 @@ app.MapGet("/db/postgres/{key}", async (string key, IStateStore stateStore, Canc
     return entry.HasValue ? Results.Ok(new { Database = "PostgreSQL", Key = key, Value = entry.Value.Value, ETag = entry.Value.ETag }) : Results.NotFound();
 });
 
-// --- SQL Server State Store & Locks ---
-app.MapPost("/db/sqlserver/{key}", async (string key, SetDbStateRequest request, IStateStore stateStore, CancellationToken ct) =>
+// --- Resilience: Polly v8 retry, timeout, and circuit breaker telemetry ---
+app.MapPost("/resilience/simulate", async (
+    bool? induceFailure,
+    IResiliencePipelineProvider resilienceProvider,
+    CancellationToken ct) =>
 {
-    await stateStore.SetAsync("sql-statestore", key, request.Value, cancellationToken: ct);
-    return Results.Ok(new { Database = "SQL Server", Key = key, Value = request.Value });
-});
-
-app.MapGet("/db/sqlserver/{key}", async (string key, IStateStore stateStore, CancellationToken ct) =>
-{
-    var entry = await stateStore.GetAsync<string>("sql-statestore", key, cancellationToken: ct);
-    return entry.HasValue ? Results.Ok(new { Database = "SQL Server", Key = key, Value = entry.Value.Value, ETag = entry.Value.ETag }) : Results.NotFound();
+    var pipeline = resilienceProvider.GetPipeline("demo-resilience");
+    var attempts = 0;
+    try
+    {
+        var result = await pipeline.ExecuteAsync(async token =>
+        {
+            attempts++;
+            if (induceFailure is true && attempts < 3)
+            {
+                throw new InvalidOperationException($"Simulated transient failure on attempt {attempts}");
+            }
+            return await ValueTask.FromResult($"Success on attempt {attempts}");
+        }, ct);
+        return Results.Ok(new { Success = true, Attempts = attempts, Result = result });
+    }
+    catch (Exception ex)
+    {
+        return Results.Ok(new { Success = false, Attempts = attempts, Error = ex.Message });
+    }
 });
 
 // 7. Mount Centra actor invocation, workflow (start/status/history), and CloudEvents/bindings routes.

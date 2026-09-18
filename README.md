@@ -270,6 +270,9 @@ dotnet run --project samples/Centra.AppHost
 
 # 8. Full Docker Compose 3-node cluster (Redis, RabbitMQ, Control Plane, OTel, Grafana)
 docker compose -f samples/DockerStack/docker-compose.yml up --build
+
+# 9. Full Docker Compose kitchen sink cluster with SigNoz APM and pre-provisioned dashboard
+docker compose -f samples/SigNozStack/docker-compose.yml up --build
 ```
 
 ---

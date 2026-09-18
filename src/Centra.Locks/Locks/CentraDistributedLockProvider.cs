@@ -30,7 +30,7 @@ public sealed class CentraDistributedLockProvider : IDistributedLockProvider
             var @lock = await driver.TryAcquireLockAsync(lockStoreName, resourceId, expiryTime, cancellationToken).ConfigureAwait(false);
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordLockAcquisition(lockStoreName, @lock is not null ? "acquired" : "failed", durationMs);
-            return @lock;
+            return @lock is not null ? new TrackingDistributedLock(@lock, lockStoreName) : null;
         }
         catch (Exception ex)
         {
@@ -57,7 +57,7 @@ public sealed class CentraDistributedLockProvider : IDistributedLockProvider
             var @lock = await driver.AcquireLockAsync(lockStoreName, resourceId, expiryTime, timeout, cancellationToken).ConfigureAwait(false);
             var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             CentraMeters.RecordLockAcquisition(lockStoreName, "acquired", durationMs);
-            return @lock;
+            return new TrackingDistributedLock(@lock, lockStoreName);
         }
         catch (Exception ex)
         {

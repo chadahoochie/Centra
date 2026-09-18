@@ -29,6 +29,7 @@ public sealed class SimulationWorker(
         (Operation.CronLastRun, 1),
         (Operation.LeaderLeaseCycle, 1),
         (Operation.WorkflowStart, 1),
+        (Operation.ResilienceTest, 2),
     ];
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
@@ -73,8 +74,17 @@ public sealed class SimulationWorker(
         Operation.CronLastRun => GetCronLastRunAsync(node, ct),
         Operation.LeaderLeaseCycle => RunLeaderLeaseCycleAsync(node, ct),
         Operation.WorkflowStart => StartWorkflowAsync(node, ct),
+        Operation.ResilienceTest => RunResilienceTestAsync(node, ct),
         _ => Task.CompletedTask,
     };
+
+    internal async Task RunResilienceTestAsync(string node, CancellationToken ct)
+    {
+        var induceFailure = Random.Shared.Next(100) < 40;
+        var response = await _http.PostAsync($"{node}/resilience/simulate?induceFailure={induceFailure}", content: null, ct);
+        response.EnsureSuccessStatusCode();
+        logger.LogInformation("Executed resilience simulation via {Node} (induceFailure={InduceFailure})", node, induceFailure);
+    }
 
     internal async Task IncrementActorAsync(string node, CancellationToken ct)
     {
