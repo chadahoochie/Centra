@@ -1,0 +1,367 @@
+{
+  "uuid": "centra-kitchen-sink-overview",
+  "title": "Centra Distributed Framework - Kitchen Sink Overview",
+  "description": "Comprehensive telemetry dashboard for Centra .NET 10 distributed application framework: Service Invocation RPC, RabbitMQ CNCF CloudEvents Pub/Sub, Redis/PostgreSQL/SQL Server State CAS, Distributed Locks, Cron Bindings, Actors, Sagas, and Polly Resilience.",
+  "tags": [
+    "centra",
+    "dotnet10",
+    "kitchen-sink",
+    "distributed-framework",
+    "signoz"
+  ],
+  "version": "v4",
+  "uploadedGrafana": false,
+  "variables": {},
+  "layout": [
+    {
+      "h": 6,
+      "i": "panel-invocation-rate",
+      "static": false,
+      "w": 6,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "h": 6,
+      "i": "panel-invocation-duration",
+      "static": false,
+      "w": 6,
+      "x": 6,
+      "y": 0
+    },
+    {
+      "h": 6,
+      "i": "panel-pubsub-published",
+      "static": false,
+      "w": 6,
+      "x": 0,
+      "y": 6
+    },
+    {
+      "h": 6,
+      "i": "panel-pubsub-consumed",
+      "static": false,
+      "w": 6,
+      "x": 6,
+      "y": 6
+    },
+    {
+      "h": 6,
+      "i": "panel-state-operations",
+      "static": false,
+      "w": 6,
+      "x": 0,
+      "y": 12
+    },
+    {
+      "h": 6,
+      "i": "panel-state-duration",
+      "static": false,
+      "w": 6,
+      "x": 6,
+      "y": 12
+    },
+    {
+      "h": 6,
+      "i": "panel-lock-acquisitions",
+      "static": false,
+      "w": 6,
+      "x": 0,
+      "y": 18
+    },
+    {
+      "h": 6,
+      "i": "panel-lock-duration",
+      "static": false,
+      "w": 6,
+      "x": 6,
+      "y": 18
+    },
+    {
+      "h": 6,
+      "i": "panel-cron-bindings",
+      "static": false,
+      "w": 6,
+      "x": 0,
+      "y": 24
+    },
+    {
+      "h": 6,
+      "i": "panel-controlplane-heartbeats",
+      "static": false,
+      "w": 6,
+      "x": 6,
+      "y": 24
+    },
+    {
+      "h": 6,
+      "i": "panel-resilience-retries",
+      "static": false,
+      "w": 6,
+      "x": 0,
+      "y": 30
+    },
+    {
+      "h": 6,
+      "i": "panel-http-traffic",
+      "static": false,
+      "w": 6,
+      "x": 6,
+      "y": 30
+    }
+  ],
+  "widgets": [
+    {
+      "description": "Rate of peer RPC invocations load-balanced across replicas via Control Plane topology",
+      "id": "panel-invocation-rate",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "{{centra_target_app_id}} / {{status}}",
+            "name": "A",
+            "query": "sum(rate(centra_invocation_requests[2m])) by (centra_target_app_id, status)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "Service Invocation Request Rate",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "description": "95th percentile execution duration for peer RPC calls across nodes",
+      "id": "panel-invocation-duration",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "p95 latency (ms)",
+            "name": "A",
+            "query": "histogram_quantile(0.95, sum(rate(centra_invocation_duration_bucket[5m])) by (le))"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "Service Invocation Latency (p95)",
+      "yAxisUnit": "ms"
+    },
+    {
+      "description": "Publish rate of CNCF CloudEvents v1.0 messages to RabbitMQ topic exchange",
+      "id": "panel-pubsub-published",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "published: {{centra_topic}}",
+            "name": "A",
+            "query": "sum(rate(centra_pubsub_messages_published[2m])) by (centra_topic)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "RabbitMQ Pub/Sub: Messages Published",
+      "yAxisUnit": "msgps"
+    },
+    {
+      "description": "Consumption and dispatch rate of CloudEvents by subscriber event handlers",
+      "id": "panel-pubsub-consumed",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "consumed: {{centra_topic}}",
+            "name": "A",
+            "query": "sum(rate(centra_pubsub_messages_consumed[2m])) by (centra_topic)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "RabbitMQ Pub/Sub: Messages Consumed",
+      "yAxisUnit": "msgps"
+    },
+    {
+      "description": "Throughput of state operations (Get, Set, TrySet) across state drivers with ETag CAS",
+      "id": "panel-state-operations",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "{{centra_store_name}} [{{centra_operation}}] - {{status}}",
+            "name": "A",
+            "query": "sum(rate(centra_state_operations[2m])) by (centra_store_name, centra_operation, status)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "State Operations Rate (Redis / PostgreSQL)",
+      "yAxisUnit": "ops"
+    },
+    {
+      "description": "P95 latency of state reads, writes, and optimistic concurrency transactions",
+      "id": "panel-state-duration",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "p95 latency (ms)",
+            "name": "A",
+            "query": "histogram_quantile(0.95, sum(rate(centra_state_operation_duration_bucket[5m])) by (le))"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "State Operation Latency (p95)",
+      "yAxisUnit": "ms"
+    },
+    {
+      "description": "Lease acquisitions and conflicts across cluster nodes",
+      "id": "panel-lock-acquisitions",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "lock {{status}}",
+            "name": "A",
+            "query": "sum(rate(centra_lock_acquisitions[2m])) by (status)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "Distributed Lock Acquisitions (Leader Election)",
+      "yAxisUnit": "ops"
+    },
+    {
+      "description": "Duration locks and leadership leases are retained before release",
+      "id": "panel-lock-duration",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "p95 hold duration (ms)",
+            "name": "A",
+            "query": "histogram_quantile(0.95, sum(rate(centra_lock_hold_duration_bucket[5m])) by (le))"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "Distributed Lock Hold Duration",
+      "yAxisUnit": "ms"
+    },
+    {
+      "description": "Cron triggers processed - verifies mutual exclusion across cluster replicas",
+      "id": "panel-cron-bindings",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "{{centra_binding_name}} / {{status}}",
+            "name": "A",
+            "query": "sum(rate(centra_binding_triggers_total[2m])) by (centra_binding_name, status)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "Distributed Cron Bindings (Single-Execution)",
+      "yAxisUnit": "ops"
+    },
+    {
+      "description": "Cluster topology heartbeats received by Centra Control Plane per replica",
+      "id": "panel-controlplane-heartbeats",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "{{app_id}} ({{status}})",
+            "name": "A",
+            "query": "sum(rate(centra_controlplane_heartbeats_received[5m])) by (app_id, status)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "Control Plane Heartbeats Received",
+      "yAxisUnit": "ops"
+    },
+    {
+      "description": "Total retry attempts and circuit breaker executions handled by Centra.Resilience",
+      "id": "panel-resilience-retries",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "retries: {{centra_resilience_pipeline}}",
+            "name": "A",
+            "query": "sum(rate(centra_resilience_retries_total[2m])) by (centra_resilience_pipeline)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "Polly v8 Resilience Pipelines: Retries",
+      "yAxisUnit": "ops"
+    },
+    {
+      "description": "Overall inbound HTTP request rate across cluster replicas",
+      "id": "panel-http-traffic",
+      "isStacked": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "promql": [
+          {
+            "disabled": false,
+            "legend": "{{http_route}} [{{http_response_status_code}}]",
+            "name": "A",
+            "query": "sum(rate(http_server_request_duration_count[2m])) by (http_route, http_response_status_code)"
+          }
+        ],
+        "queryType": "promql"
+      },
+      "title": "Inbound HTTP Traffic & ASP.NET Core Request Rate",
+      "yAxisUnit": "reqps"
+    }
+  ]
+}

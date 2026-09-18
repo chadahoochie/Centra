@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Centra.Bindings;
+using Centra.Diagnostics;
 using Microsoft.Extensions.Logging;
 
 namespace Centra.Bindings;
@@ -148,12 +150,23 @@ public sealed class CentraCronScheduler : IScheduler, IDisposable
             iteration,
             entry.Cts.Token);
 
+        var startTime = Stopwatch.GetTimestamp();
         try
         {
             await entry.Handler.ExecuteAsync(context).ConfigureAwait(false);
+            if (entry.Handler is not DistributedJobHandler)
+            {
+                var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+                CentraMeters.RecordBindingTrigger(entry.JobName, "success", durationMs);
+            }
         }
         catch (Exception ex)
         {
+            if (entry.Handler is not DistributedJobHandler)
+            {
+                var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+                CentraMeters.RecordBindingTrigger(entry.JobName, "error", durationMs);
+            }
             _logger?.LogError(ex, "Scheduled job '{JobName}' failed on iteration {Iteration}.", entry.JobName, iteration);
         }
         finally
