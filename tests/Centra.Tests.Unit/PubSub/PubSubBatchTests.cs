@@ -11,6 +11,7 @@ using Xunit;
 
 namespace Centra.Tests.Unit.PubSub;
 
+[Collection("CentraDiagnostics")]
 public sealed class PubSubBatchTests
 {
     private readonly ComponentRegistry _registry = new();

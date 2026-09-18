@@ -59,14 +59,20 @@ public sealed class StateStoreDurableWorkflowTimerStore : IDurableWorkflowTimerS
             return Array.Empty<DurableWorkflowTimerRecord>();
         }
 
-        var result = new List<DurableWorkflowTimerRecord>();
-        foreach (var id in existing.Value.Value)
+        var ids = existing.Value.Value;
+        var keys = new string[ids.Count];
+        for (int i = 0; i < ids.Count; i++)
         {
-            var timerKey = $"centra:workflows:timer:{id}";
-            var entry = await _stateStore.GetAsync<DurableWorkflowTimerDto>(_storeName, timerKey, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (entry.HasValue && entry.Value.Value.DueTimeUtc <= asOfUtc)
+            keys[i] = $"centra:workflows:timer:{ids[i]}";
+        }
+
+        var batch = await _stateStore.GetBatchAsync<DurableWorkflowTimerDto>(_storeName, keys, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var result = new List<DurableWorkflowTimerRecord>(batch.Count);
+        for (int i = 0; i < batch.Count; i++)
+        {
+            var dto = batch[i].Value;
+            if (dto.DueTimeUtc <= asOfUtc)
             {
-                var dto = entry.Value.Value;
                 result.Add(new DurableWorkflowTimerRecord(
                     new WorkflowInstanceId(dto.InstanceId),
                     dto.EventId,

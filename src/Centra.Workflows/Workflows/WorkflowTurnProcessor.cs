@@ -128,6 +128,7 @@ public sealed class WorkflowTurnProcessor : IWorkflowTurnProcessor
             Data = outputBytes
         };
         context.NewEvents.Add(completedEvent);
+        stateRecord.LastEventId = completedEvent.EventId;
 
         await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
         await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
@@ -147,6 +148,10 @@ public sealed class WorkflowTurnProcessor : IWorkflowTurnProcessor
         stateRecord.WaitingEventName = context.WaitingEventName;
         stateRecord.TimerDueTime = context.TimerDueTime;
         stateRecord.LastUpdatedAt = _timeProvider.GetUtcNow();
+        if (context.NewEvents.Count > 0)
+        {
+            stateRecord.LastEventId = context.NewEvents[^1].EventId;
+        }
 
         await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
         await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);
@@ -198,6 +203,7 @@ public sealed class WorkflowTurnProcessor : IWorkflowTurnProcessor
             Timestamp = _timeProvider.GetUtcNow(),
             Details = actualEx.Message
         });
+        stateRecord.LastEventId = failedId;
 
         await _historyStore.AppendHistoryAsync(instanceId, context.NewEvents, cancellationToken).ConfigureAwait(false);
         await _historyStore.SaveStateAsync(stateRecord, cancellationToken).ConfigureAwait(false);

@@ -62,17 +62,35 @@ public sealed class StateStoreOutboxStore : IOutboxStore
         }
 
         var idsToFetch = existing.Value.Value.Take(batchSize).ToList();
-        var result = new List<OutboxMessage>(idsToFetch.Count);
-
-        foreach (var id in idsToFetch)
+        var keys = new string[idsToFetch.Count];
+        for (int i = 0; i < idsToFetch.Count; i++)
         {
-            var msgKey = $"centra:outbox:msg:{id}";
-            var entry = await _stateStore.GetAsync<OutboxMessageRecord>(_storeName, msgKey, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (entry.HasValue)
+            keys[i] = $"centra:outbox:msg:{idsToFetch[i]}";
+        }
+
+        var batch = await _stateStore.GetBatchAsync<OutboxMessageRecord>(_storeName, keys, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (batch is null || (batch.Count == 0 && idsToFetch.Count > 0))
+        {
+            var fallback = new List<OutboxMessage>(idsToFetch.Count);
+            foreach (var id in idsToFetch)
             {
-                var rec = entry.Value.Value;
-                result.Add(new OutboxMessage(rec.Id, rec.PubSubName, rec.Topic, rec.Payload, rec.Headers, rec.CreatedAtUtc));
+                var msgKey = $"centra:outbox:msg:{id}";
+                var entry = await _stateStore.GetAsync<OutboxMessageRecord>(_storeName, msgKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (entry.HasValue)
+                {
+                    var rec = entry.Value.Value;
+                    fallback.Add(new OutboxMessage(rec.Id, rec.PubSubName, rec.Topic, rec.Payload, rec.Headers, rec.CreatedAtUtc));
+                }
             }
+
+            return fallback;
+        }
+
+        var result = new List<OutboxMessage>(batch.Count);
+        for (int i = 0; i < batch.Count; i++)
+        {
+            var rec = batch[i].Value;
+            result.Add(new OutboxMessage(rec.Id, rec.PubSubName, rec.Topic, rec.Payload, rec.Headers, rec.CreatedAtUtc));
         }
 
         return result;

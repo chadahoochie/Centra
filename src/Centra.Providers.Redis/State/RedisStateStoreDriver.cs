@@ -11,29 +11,29 @@ public sealed class RedisStateStoreDriver : IStateStoreDriver
     private static readonly RedisValue DataField = "data";
     private static readonly RedisValue ETagField = "etag";
 
-    private const string TrySetScript = """
-        local currentEtag = redis.call('hget', KEYS[1], 'etag')
-        if currentEtag == false or currentEtag == ARGV[1] then
-            redis.call('hset', KEYS[1], 'data', ARGV[2], 'etag', ARGV[3])
-            local ttlMs = tonumber(ARGV[4])
+    private static readonly LuaScript PreparedTrySetScript = LuaScript.Prepare("""
+        local currentEtag = redis.call('hget', @key, 'etag')
+        if currentEtag == false or currentEtag == @expectedETag then
+            redis.call('hset', @key, 'data', @value, 'etag', @newEtag)
+            local ttlMs = tonumber(@ttlMs)
             if ttlMs and ttlMs > 0 then
-                redis.call('pexpire', KEYS[1], ttlMs)
+                redis.call('pexpire', @key, ttlMs)
             end
             return 1
         else
             return 0
         end
-        """;
+        """);
 
-    private const string TryDeleteScript = """
-        local currentEtag = redis.call('hget', KEYS[1], 'etag')
-        if currentEtag == ARGV[1] then
-            redis.call('del', KEYS[1])
+    private static readonly LuaScript PreparedTryDeleteScript = LuaScript.Prepare("""
+        local currentEtag = redis.call('hget', @key, 'etag')
+        if currentEtag == @expectedETag then
+            redis.call('del', @key)
             return 1
         else
             return 0
         end
-        """;
+        """);
 
     private readonly IConnectionMultiplexer _connection;
     private readonly RedisProviderOptions _options;
@@ -152,10 +152,16 @@ public sealed class RedisStateStoreDriver : IStateStoreDriver
             ? (long)options.TimeToLive.Value.TotalMilliseconds
             : 0;
 
-        var result = await db.ScriptEvaluateAsync(
-            TrySetScript,
-            [new RedisKey(redisKey)],
-            [expectedETag, value, newEtag, ttlMs]).ConfigureAwait(false);
+        var result = await PreparedTrySetScript.EvaluateAsync(
+            db,
+            new
+            {
+                key = (RedisKey)redisKey,
+                expectedETag = (RedisValue)expectedETag,
+                value = (RedisValue)value,
+                newEtag = (RedisValue)newEtag,
+                ttlMs = (RedisValue)ttlMs
+            }).ConfigureAwait(false);
 
         return (long)result == 1;
     }
@@ -189,10 +195,13 @@ public sealed class RedisStateStoreDriver : IStateStoreDriver
         var db = _connection.GetDatabase();
         var redisKey = BuildKey(storeName, key);
 
-        var result = await db.ScriptEvaluateAsync(
-            TryDeleteScript,
-            [new RedisKey(redisKey)],
-            [expectedETag]).ConfigureAwait(false);
+        var result = await PreparedTryDeleteScript.EvaluateAsync(
+            db,
+            new
+            {
+                key = (RedisKey)redisKey,
+                expectedETag = (RedisValue)expectedETag
+            }).ConfigureAwait(false);
 
         return (long)result == 1;
     }

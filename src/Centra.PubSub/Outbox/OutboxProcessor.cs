@@ -13,6 +13,7 @@ public sealed class OutboxProcessor
     private readonly IPubSubPublisher _publisher;
     private readonly OutboxOptions _options;
     private readonly ILogger<OutboxProcessor> _logger;
+    private readonly OutboxGroupDispatcher _dispatcher;
 
     public OutboxProcessor(
         IOutboxStore outboxStore,
@@ -24,6 +25,7 @@ public sealed class OutboxProcessor
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _options = options ?? new OutboxOptions();
         _logger = logger ?? NullLogger<OutboxProcessor>.Instance;
+        _dispatcher = new OutboxGroupDispatcher(_publisher, _outboxStore, _logger);
     }
 
     /// <summary>
@@ -38,6 +40,49 @@ public sealed class OutboxProcessor
             return 0;
         }
 
+        if (_options.EnableBatchPublishing)
+        {
+            var groups = new Dictionary<(string PubSubName, string Topic), List<OutboxMessage>>();
+            for (int i = 0; i < messages.Count; i++)
+            {
+                var msg = messages[i];
+                var key = (msg.PubSubName, msg.Topic);
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = [];
+                    groups[key] = list;
+                }
+                list.Add(msg);
+            }
+
+            if (_options.MaxConcurrentPublishes > 1 && groups.Count > 1)
+            {
+                int publishedCounter = 0;
+                var parallelOptions = new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = _options.MaxConcurrentPublishes,
+                    CancellationToken = cancellationToken
+                };
+
+                await Parallel.ForEachAsync(groups.Values, parallelOptions, async (group, ct) =>
+                {
+                    var count = await _dispatcher.DispatchGroupAsync(group, ct).ConfigureAwait(false);
+                    Interlocked.Add(ref publishedCounter, count);
+                }).ConfigureAwait(false);
+
+                return publishedCounter;
+            }
+
+            int publishedTotal = 0;
+            foreach (var group in groups.Values)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                publishedTotal += await _dispatcher.DispatchGroupAsync(group, cancellationToken).ConfigureAwait(false);
+            }
+
+            return publishedTotal;
+        }
+
         if (_options.MaxConcurrentPublishes > 1 && messages.Count > 1)
         {
             int publishedCounter = 0;
@@ -49,24 +94,9 @@ public sealed class OutboxProcessor
 
             await Parallel.ForEachAsync(messages, parallelOptions, async (message, ct) =>
             {
-                try
+                if (await _dispatcher.DispatchSingleAsync(message, ct).ConfigureAwait(false))
                 {
-                    await _publisher.PublishAsync(
-                        message.PubSubName,
-                        message.Topic,
-                        message.Payload,
-                        message.Headers,
-                        ct).ConfigureAwait(false);
-
-                    await _outboxStore.MarkPublishedAsync(message.Id, ct).ConfigureAwait(false);
                     Interlocked.Increment(ref publishedCounter);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to publish outbox message '{MessageId}' to topic '{Topic}' on pubsub '{PubSubName}'",
-                        message.Id, message.Topic, message.PubSubName);
-
-                    await _outboxStore.MarkFailedAsync(message.Id, ex.Message, ct).ConfigureAwait(false);
                 }
             }).ConfigureAwait(false);
 
@@ -77,25 +107,9 @@ public sealed class OutboxProcessor
         foreach (var message in messages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            try
+            if (await _dispatcher.DispatchSingleAsync(message, cancellationToken).ConfigureAwait(false))
             {
-                await _publisher.PublishAsync(
-                    message.PubSubName,
-                    message.Topic,
-                    message.Payload,
-                    message.Headers,
-                    cancellationToken).ConfigureAwait(false);
-
-                await _outboxStore.MarkPublishedAsync(message.Id, cancellationToken).ConfigureAwait(false);
                 publishedCount++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to publish outbox message '{MessageId}' to topic '{Topic}' on pubsub '{PubSubName}'",
-                    message.Id, message.Topic, message.PubSubName);
-
-                await _outboxStore.MarkFailedAsync(message.Id, ex.Message, cancellationToken).ConfigureAwait(false);
             }
         }
 

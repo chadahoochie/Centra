@@ -55,10 +55,12 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
             var indexEntry = await _stateStore.GetAsync<List<string>>(_storeName, IndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
             var list = indexEntry.HasValue ? new List<string>(indexEntry.Value.Value) : [];
             var nodeCompositeKey = $"{request.AppId.ToLowerInvariant()}:{request.InstanceId.ToLowerInvariant()}";
-            if (!list.Contains(nodeCompositeKey))
+            if (list.Contains(nodeCompositeKey))
             {
-                list.Add(nodeCompositeKey);
+                break;
             }
+
+            list.Add(nodeCompositeKey);
 
             var etag = indexEntry?.ETag ?? string.Empty;
             var success = await _stateStore.TrySetAsync(_storeName, IndexKey, list, etag, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -79,17 +81,31 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
             return Array.Empty<ClientNodeInfo>();
         }
 
-        var result = new List<ClientNodeInfo>();
+        var compositeKeys = indexEntry.Value.Value;
+        var keys = new string[compositeKeys.Count];
+        for (int i = 0; i < compositeKeys.Count; i++)
+        {
+            keys[i] = $"centra:controlplane:topology:{compositeKeys[i]}";
+        }
+
+        var batch = await _stateStore.GetBatchAsync<ClientNodeInfo>(_storeName, keys, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var activeNodesByKey = new Dictionary<string, ClientNodeInfo>(batch.Count, StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < batch.Count; i++)
+        {
+            activeNodesByKey[batch[i].Key] = batch[i].Value;
+        }
+
+        var result = new List<ClientNodeInfo>(batch.Count);
         var staleKeys = new List<string>();
         var cutoff = _timeProvider.GetUtcNow().Subtract(_defaultNodeTtl);
 
-        foreach (var compositeKey in indexEntry.Value.Value)
+        for (int i = 0; i < compositeKeys.Count; i++)
         {
-            var key = $"centra:controlplane:topology:{compositeKey}";
-            var entry = await _stateStore.GetAsync<ClientNodeInfo>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (entry.HasValue && entry.Value.Value.LastHeartbeatUtc >= cutoff)
+            var compositeKey = compositeKeys[i];
+            var key = keys[i];
+            if (activeNodesByKey.TryGetValue(key, out var nodeInfo) && nodeInfo.LastHeartbeatUtc >= cutoff)
             {
-                result.Add(entry.Value.Value);
+                result.Add(nodeInfo);
             }
             else
             {
@@ -129,14 +145,28 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
             return;
         }
 
+        var compositeKeys = indexEntry.Value.Value;
+        var keys = new string[compositeKeys.Count];
+        for (int i = 0; i < compositeKeys.Count; i++)
+        {
+            keys[i] = $"centra:controlplane:topology:{compositeKeys[i]}";
+        }
+
+        var batch = await _stateStore.GetBatchAsync<ClientNodeInfo>(_storeName, keys, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var activeNodesByKey = new Dictionary<string, ClientNodeInfo>(batch.Count, StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < batch.Count; i++)
+        {
+            activeNodesByKey[batch[i].Key] = batch[i].Value;
+        }
+
         var cutoff = _timeProvider.GetUtcNow().Subtract(timeout);
         var staleKeys = new List<string>();
 
-        foreach (var compositeKey in indexEntry.Value.Value)
+        for (int i = 0; i < compositeKeys.Count; i++)
         {
-            var key = $"centra:controlplane:topology:{compositeKey}";
-            var entry = await _stateStore.GetAsync<ClientNodeInfo>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (!entry.HasValue || entry.Value.Value.LastHeartbeatUtc < cutoff)
+            var compositeKey = compositeKeys[i];
+            var key = keys[i];
+            if (!activeNodesByKey.TryGetValue(key, out var nodeInfo) || nodeInfo.LastHeartbeatUtc < cutoff)
             {
                 staleKeys.Add(compositeKey);
                 await _stateStore.DeleteAsync(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);

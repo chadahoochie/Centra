@@ -10,7 +10,7 @@ public sealed class ConsistentHashRing
     private readonly IConsistentHashRingBuilder _ringBuilder;
     private readonly object _syncLock = new();
     private readonly HashSet<string> _nodes = new(StringComparer.Ordinal);
-    private ConsistentHashRingState _state = new(Array.Empty<uint>(), Array.Empty<string>());
+    private volatile ConsistentHashRingState _state = new(Array.Empty<uint>(), Array.Empty<string>());
 
     public ConsistentHashRing(
         int virtualNodesPerNode = 100,

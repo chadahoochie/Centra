@@ -1,4 +1,5 @@
 using System.Data;
+using System.Runtime.InteropServices;
 using Centra.Drivers;
 using Centra.Providers.SqlServer.Options;
 using Centra.State;
@@ -11,7 +12,8 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
 {
     private readonly SqlServerProviderOptions _options;
     private readonly string _fullTableName;
-    private int _initialized;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private volatile bool _isInitialized;
 
     public SqlServerStateStoreDriver(IOptions<SqlServerProviderOptions> options)
     {
@@ -21,8 +23,19 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
 
     internal async ValueTask EnsureTableCreatedAsync(CancellationToken cancellationToken)
     {
-        if (_options.AutoCreateTable && Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
+        if (!_options.AutoCreateTable || _isInitialized)
         {
+            return;
+        }
+
+        await _initLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_isInitialized)
+            {
+                return;
+            }
+
             var sql = $"""
                 IF NOT EXISTS (SELECT * FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE t.name = @tbl AND s.name = @sch)
                 BEGIN
@@ -46,6 +59,11 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
             cmd.Parameters.Add(new SqlParameter("@tbl", SqlDbType.NVarChar, 128) { Value = _options.StateTableName });
             cmd.Parameters.Add(new SqlParameter("@sch", SqlDbType.NVarChar, 128) { Value = _options.SchemaName });
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _isInitialized = true;
+        }
+        finally
+        {
+            _initLock.Release();
         }
     }
 
@@ -165,12 +183,16 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
                 VALUES (@store_name, @key, @value, @etag, @metadata, @expire_at_utc, @updated_at_utc);
             """;
 
+        var payloadBytes = MemoryMarshal.TryGetArray(value, out var segment) && segment.Offset == 0 && segment.Count == segment.Array!.Length
+            ? segment.Array
+            : value.ToArray();
+
         await using var conn = new SqlConnection(_options.ConnectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = new SqlCommand(sql, conn);
         cmd.Parameters.Add(new SqlParameter("@store_name", SqlDbType.NVarChar, 128) { Value = storeName });
         cmd.Parameters.Add(new SqlParameter("@key", SqlDbType.NVarChar, 256) { Value = key });
-        cmd.Parameters.Add(new SqlParameter("@value", SqlDbType.VarBinary, -1) { Value = value.ToArray() });
+        cmd.Parameters.Add(new SqlParameter("@value", SqlDbType.VarBinary, -1) { Value = payloadBytes });
         cmd.Parameters.Add(new SqlParameter("@etag", SqlDbType.NVarChar, 64) { Value = newEtag });
         cmd.Parameters.Add(new SqlParameter("@metadata", SqlDbType.NVarChar, -1) { Value = DBNull.Value });
         cmd.Parameters.Add(new SqlParameter("@expire_at_utc", SqlDbType.DateTimeOffset) { Value = expiresAt.HasValue ? (object)expiresAt.Value : DBNull.Value });
@@ -208,10 +230,14 @@ public sealed class SqlServerStateStoreDriver : IStateStoreDriver
             WHERE [store_name] = @store_name AND [key] = @key AND [etag] = @expected_etag;
             """;
 
+        var payloadBytes = MemoryMarshal.TryGetArray(value, out var segment) && segment.Offset == 0 && segment.Count == segment.Array!.Length
+            ? segment.Array
+            : value.ToArray();
+
         await using var conn = new SqlConnection(_options.ConnectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = new SqlCommand(sql, conn);
-        cmd.Parameters.Add(new SqlParameter("@value", SqlDbType.VarBinary, -1) { Value = value.ToArray() });
+        cmd.Parameters.Add(new SqlParameter("@value", SqlDbType.VarBinary, -1) { Value = payloadBytes });
         cmd.Parameters.Add(new SqlParameter("@etag", SqlDbType.NVarChar, 64) { Value = newEtag });
         cmd.Parameters.Add(new SqlParameter("@expire_at_utc", SqlDbType.DateTimeOffset) { Value = expiresAt.HasValue ? (object)expiresAt.Value : DBNull.Value });
         cmd.Parameters.Add(new SqlParameter("@updated_at_utc", SqlDbType.DateTimeOffset) { Value = now });

@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Centra.Tests.Unit.Bindings;
 
+[Collection("CentraDiagnostics")]
 public sealed class CentraInputBindingDispatcherTests
 {
     private readonly CentraInputBindingDispatcher _dispatcher;
@@ -94,12 +95,12 @@ public sealed class CentraInputBindingDispatcherTests
 
         var result = await _dispatcher.DispatchAsync(bindingName, new BindingData(Encoding.UTF8.GetBytes("payload"), metadata));
 
-        var span = listener.StoppedActivities.FirstOrDefault(a => a.OperationName == "Centra.Binding.Trigger");
+        var span = listener.StoppedActivities.FirstOrDefault(a => a.OperationName == "Centra.Binding.Trigger" && a.GetTagItem("centra.binding.name")?.ToString() == bindingName);
         span.ShouldNotBeNull();
         span.GetTagItem("centra.binding.name")?.ToString().ShouldBe(bindingName);
         span.ParentId.ShouldBe(traceparent);
 
-        var metrics = meterListener.Measurements.Where(m => m.InstrumentName == "centra.binding.triggers.total").ToList();
+        var metrics = meterListener.Measurements.Where(m => m.InstrumentName == "centra.binding.triggers.total" && m.Tags.Any(t => t.Key == "centra.binding.name" && t.Value?.ToString() == bindingName)).ToList();
         metrics.ShouldNotBeEmpty();
     }
 

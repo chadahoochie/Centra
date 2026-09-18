@@ -12,7 +12,8 @@ public sealed class PostgreSqlStateStoreDriver : IStateStoreDriver
     private readonly NpgsqlDataSource _dataSource;
     private readonly PostgreSqlProviderOptions _options;
     private readonly string _fullTableName;
-    private int _initialized;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private volatile bool _isInitialized;
 
     public PostgreSqlStateStoreDriver(
         NpgsqlDataSource dataSource,
@@ -25,8 +26,19 @@ public sealed class PostgreSqlStateStoreDriver : IStateStoreDriver
 
     internal async ValueTask EnsureTableCreatedAsync(CancellationToken cancellationToken)
     {
-        if (_options.AutoCreateTable && Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
+        if (!_options.AutoCreateTable || _isInitialized)
         {
+            return;
+        }
+
+        await _initLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_isInitialized)
+            {
+                return;
+            }
+
             var sql = $"""
                 CREATE TABLE IF NOT EXISTS {_fullTableName} (
                     store_name VARCHAR(128) NOT NULL,
@@ -43,6 +55,11 @@ public sealed class PostgreSqlStateStoreDriver : IStateStoreDriver
 
             await using var cmd = _dataSource.CreateCommand(sql);
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _isInitialized = true;
+        }
+        finally
+        {
+            _initLock.Release();
         }
     }
 

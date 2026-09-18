@@ -12,6 +12,7 @@ using Xunit;
 
 namespace Centra.Tests.Unit.PubSub;
 
+[Collection("CentraDiagnostics")]
 public sealed class PubSubTests
 {
     private readonly ComponentRegistry _registry = new();
@@ -110,9 +111,9 @@ public sealed class PubSubTests
         {
             ShouldListenTo = s => s.Name == CentraDiagnostics.SourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStarted = a =>
+            ActivityStopped = a =>
             {
-                if (a.OperationName == "Centra.PubSub.Publish")
+                if (a.OperationName == "Centra.PubSub.Publish" && (string?)a.GetTagItem("messaging.destination") == "orders.created")
                 {
                     capturedActivity = a;
                 }

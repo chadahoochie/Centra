@@ -8,6 +8,8 @@ public sealed class WorkflowSuspendedException : Exception
 {
     public string Reason { get; }
 
+    public override string? StackTrace => null;
+
     public WorkflowSuspendedException(string reason) : base($"Workflow suspended: {reason}")
     {
         Reason = reason;
