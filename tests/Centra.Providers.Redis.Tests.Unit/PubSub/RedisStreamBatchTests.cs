@@ -33,14 +33,12 @@ public sealed class RedisStreamBatchTests
 
         // Assert
         db.Received(1).CreateBatch();
-        await batch.Received(2).StreamAddAsync(
+        // NSubstitute verifies at call time; the returned Task is a batch-queued stub that
+        // never completes until Execute(), so it is discarded rather than awaited (SER305).
+        _ = batch.Received(2).StreamAddAsync(
             (RedisKey)"stream-key",
             (RedisValue)"envelope",
-            Arg.Any<RedisValue>(),
-            null,
-            null,
-            false,
-            CommandFlags.None);
+            Arg.Any<RedisValue>());
         batch.Received(1).Execute();
     }
 
@@ -59,9 +57,7 @@ public sealed class RedisStreamBatchTests
             (RedisValue)"grp-1",
             (RedisValue)"cons-1",
             StreamPosition.NewMessages,
-            10,
-            false,
-            CommandFlags.None)
+            count: 10)
             .Returns(Task.FromResult(new[] { entry1, entry2 }));
 
         var processedCount = 0;
@@ -158,11 +154,7 @@ public sealed class RedisStreamBatchTests
         await db.Received(1).StreamAddAsync(
             (RedisKey)"dlq-topic",
             (RedisValue)"envelope",
-            Arg.Any<RedisValue>(),
-            null,
-            null,
-            false,
-            CommandFlags.None);
+            Arg.Any<RedisValue>());
     }
 
     [Fact]
@@ -180,9 +172,7 @@ public sealed class RedisStreamBatchTests
             (RedisValue)"grp-1",
             (RedisValue)"cons-1",
             StreamPosition.NewMessages,
-            10,
-            false,
-            CommandFlags.None)
+            count: 10)
             .Returns(Task.FromResult(new[] { entry1, entry2 }));
 
         var processedCount = 0;
