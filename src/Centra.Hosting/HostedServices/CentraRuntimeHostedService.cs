@@ -71,12 +71,37 @@ public sealed class CentraRuntimeHostedService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        foreach (var router in _routerRegistry.GetRouters())
+        var routers = _routerRegistry.GetRouters();
+
+        // Subscriptions are torn down one topic at a time, so a driver that drains in-flight handlers
+        // must be told the whole shutdown shares one drain budget - otherwise each topic claims the
+        // full allowance and the total scales with the topic count.
+        var drainWindows = new List<IDisposable>();
+        var opened = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        foreach (var router in routers)
         {
-            var driver = _registry.GetPubSubDriver(router.PubSubName);
-            if (driver is not null)
+            if (_registry.GetPubSubDriver(router.PubSubName) is IPubSubShutdownDrain drainable && opened.Add(drainable))
             {
-                await driver.UnsubscribeAsync(router.PubSubName, router.Topic, cancellationToken).ConfigureAwait(false);
+                drainWindows.Add(drainable.BeginShutdownDrain());
+            }
+        }
+
+        try
+        {
+            foreach (var router in routers)
+            {
+                var driver = _registry.GetPubSubDriver(router.PubSubName);
+                if (driver is not null)
+                {
+                    await driver.UnsubscribeAsync(router.PubSubName, router.Topic, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        finally
+        {
+            foreach (var window in drainWindows)
+            {
+                window.Dispose();
             }
         }
     }

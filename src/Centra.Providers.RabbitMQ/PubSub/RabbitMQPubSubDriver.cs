@@ -11,7 +11,7 @@ using RabbitMQ.Client.Events;
 
 namespace Centra.Providers.RabbitMQ.PubSub;
 
-public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector, IAsyncDisposable
+public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector, IPubSubShutdownDrain, IAsyncDisposable
 {
     private readonly IConnectionFactory _connectionFactory;
     private readonly RabbitMQProviderOptions _options;
@@ -24,6 +24,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     private readonly IRedeliveryBudget _redeliveryBudget;
     private IConnection? _connection;
     private IChannel? _publishChannel;
+    private ShutdownDrainWindow? _drainWindow;
     private int _disposed;
 
     public RabbitMQPubSubDriver(
@@ -275,17 +276,41 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             ? options.MaxConcurrentCalls.Value
             : _options.DefaultMaxConcurrentCalls;
 
+        // Never disposed: SemaphoreSlim only needs disposal once AvailableWaitHandle has been accessed,
+        // which this code never does, so disposing it on shutdown would buy nothing while opening a
+        // window where the client's dispatcher can still call WaitAsync or Release on a disposed
+        // semaphore. Do not reinstate a Dispose here.
         var limiter = maxConcurrency > 1 ? new SemaphoreSlim(maxConcurrency, maxConcurrency) : null;
 
         var shutdown = new CancellationTokenSource();
         var shutdownToken = shutdown.Token;
 
         var consumer = new AsyncEventingBasicConsumer(channel);
+
+        // Completed by cancel-ok, which the consumer's serial work queue orders *after* every delivery
+        // it had already buffered - the signal the drain waits on. The client raises the same event on
+        // channel death, which RabbitMQSubscription separates out via the consumer's ShutdownReason.
+        var consumerCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        consumer.UnregisteredAsync += (_, _) =>
+        {
+            consumerCancelled.TrySetResult();
+            return Task.CompletedTask;
+        };
+
         if (limiter is not null)
         {
             consumer.ReceivedAsync += async (_, ea) =>
             {
+                inFlight.BeginDelivery();
                 await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+
+                // The client may recycle ea.Body the moment this callback returns, and it returns as
+                // soon as the work is handed over - so the continuation reads an owned copy instead.
+                // Basic properties are a per-delivery object, not pooled memory, so they travel as is.
+                var body = new PooledDeliveryBody(ea.Body);
+                var deliveryTag = ea.DeliveryTag;
+                var properties = ea.BasicProperties;
+
                 _ = Task.Run(async () =>
                 {
                     try
@@ -294,7 +319,9 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                     }
                     finally
                     {
+                        body.Return();
                         limiter.Release();
+                        inFlight.CompleteDelivery();
                     }
                 });
             };
@@ -317,6 +344,11 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         _subscriptions[subKey] = (channel, tag, limiter, shutdown, queueName);
     }
 
+    /// <summary>
+    /// Invokes the handler for one delivery and applies its acknowledgement decision. Takes the
+    /// delivery's parts rather than the event args so a caller that had to copy the body out of the
+    /// client's pooled buffer can pass its own copy.
+    /// </summary>
     internal async Task ProcessAndAckAsync(
         IChannel channel,
         string queueName,
@@ -457,6 +489,14 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         }
     }
 
+    /// <inheritdoc />
+    public IDisposable BeginShutdownDrain()
+    {
+        var window = new ShutdownDrainWindow(_options.TotalShutdownDrainTimeout);
+        Volatile.Write(ref _drainWindow, window);
+        return window;
+    }
+
     public async ValueTask<PubSubQueueStats?> GetQueueStatsAsync(
         string pubSubName,
         string topic,
@@ -486,7 +526,11 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             return;
         }
 
-        foreach (var (_, sub) in _subscriptions)
+        // One budget for the whole disposal, not one per subscription: subscriptions are drained
+        // sequentially, so a per-subscription timeout would multiply by the number of topics. A window
+        // the host already opened is reused, because that is the same shutdown.
+        var window = Volatile.Read(ref _drainWindow);
+        if (window is not { IsOpen: true })
         {
             await sub.Shutdown.CancelAsync().ConfigureAwait(false);
 
