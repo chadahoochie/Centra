@@ -24,4 +24,14 @@ public sealed class RabbitMQProviderOptions
     /// Defaults to 1 (sequential message processing per channel).
     /// </summary>
     public int DefaultMaxConcurrentCalls { get; set; } = 1;
+
+    /// <summary>
+    /// Maximum time <see cref="PubSub.RabbitMQPubSubDriver.UnsubscribeAsync"/> and
+    /// <see cref="PubSub.RabbitMQPubSubDriver.DisposeAsync"/> wait for in-flight handlers to finish
+    /// after the consumer has been cancelled, before the subscription channel is closed anyway.
+    /// Defaults to 10 seconds: comfortably longer than a typical handler, and short enough that
+    /// several subscriptions can still drain inside the 30 second default host shutdown budget.
+    /// Exceeding it is logged as an error, never silently ignored.
+    /// </summary>
+    public TimeSpan ShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(10);
 }

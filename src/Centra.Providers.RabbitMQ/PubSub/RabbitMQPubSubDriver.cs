@@ -16,7 +16,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     private readonly IConnectionFactory _connectionFactory;
     private readonly RabbitMQProviderOptions _options;
     private readonly ILogger<RabbitMQPubSubDriver> _logger;
-    private readonly ConcurrentDictionary<string, (IChannel Channel, string ConsumerTag, SemaphoreSlim? Limiter)> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, RabbitMQSubscription> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly IRabbitMQHeaderExtractor _headerExtractor;
     private readonly IRabbitMQMessageAcknowledger _acknowledger;
@@ -255,12 +255,29 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
 
         var limiter = maxConcurrency > 1 ? new SemaphoreSlim(maxConcurrency, maxConcurrency) : null;
 
+        // Tracked from the moment the delivery arrives - before the concurrency permit and before the
+        // work is handed to the thread pool - so a shutdown that starts mid-dispatch still waits for it.
+        var inFlight = new RabbitMQInFlightTracker();
+
         var consumer = new AsyncEventingBasicConsumer(channel);
         if (limiter is not null)
         {
             consumer.ReceivedAsync += async (_, ea) =>
             {
-                await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                inFlight.BeginDelivery();
+                try
+                {
+                    await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The subscription was torn down while this delivery waited for a permit. The
+                    // channel is already closing, so release the tracking instead of stranding the
+                    // drain counter on work that will never start.
+                    inFlight.CompleteDelivery();
+                    return;
+                }
+
                 _ = Task.Run(async () =>
                 {
                     try
@@ -270,6 +287,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                     finally
                     {
                         limiter.Release();
+                        inFlight.CompleteDelivery();
                     }
                 });
             };
@@ -278,7 +296,15 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         {
             consumer.ReceivedAsync += async (_, ea) =>
             {
-                await ProcessAndAckAsync(channel, queueName, ea, handler).ConfigureAwait(false);
+                inFlight.BeginDelivery();
+                try
+                {
+                    await ProcessAndAckAsync(channel, queueName, ea, handler).ConfigureAwait(false);
+                }
+                finally
+                {
+                    inFlight.CompleteDelivery();
+                }
             };
         }
 
@@ -289,7 +315,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _subscriptions[subKey] = (channel, tag, limiter);
+        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, limiter, inFlight);
     }
 
     internal async Task ProcessAndAckAsync(
@@ -322,26 +348,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         var subKey = $"{pubSubName}:{topic}";
         if (_subscriptions.TryRemove(subKey, out var sub))
         {
-            try
-            {
-                await sub.Channel.BasicCancelAsync(sub.ConsumerTag, cancellationToken: cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error canceling consumer tag {Tag} on unsubscribe", sub.ConsumerTag);
-            }
-
-            try
-            {
-                await sub.Channel.CloseAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-                sub.Channel.Dispose();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error closing subscription channel on unsubscribe");
-            }
-
-            sub.Limiter?.Dispose();
+            await sub.ShutdownAsync(_options.ShutdownDrainTimeout, _logger, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -376,17 +383,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
 
         foreach (var (_, sub) in _subscriptions)
         {
-            try
-            {
-                await sub.Channel.CloseAsync().ConfigureAwait(false);
-                sub.Channel.Dispose();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error closing subscription channel during disposal");
-            }
-
-            sub.Limiter?.Dispose();
+            await sub.ShutdownAsync(_options.ShutdownDrainTimeout, _logger, CancellationToken.None).ConfigureAwait(false);
         }
         _subscriptions.Clear();
 
