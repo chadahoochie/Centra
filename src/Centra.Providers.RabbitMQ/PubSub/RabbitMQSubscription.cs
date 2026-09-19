@@ -4,29 +4,25 @@ using RabbitMQ.Client;
 namespace Centra.Providers.RabbitMQ.PubSub;
 
 /// <summary>
-/// One live consumer: its channel, consumer tag, optional concurrency limiter, and in-flight tracker.
-/// Owns the shutdown order that makes a drain meaningful - cancel the consumer, wait for the client to
-/// hand every already-prefetched delivery to a handler, await those handlers, and only then close the
-/// channel.
+/// One live consumer: its channel, consumer tag, and in-flight tracker. Owns the shutdown order that
+/// makes a drain meaningful - cancel the consumer, wait for the client to hand every already-prefetched
+/// delivery to a handler, await those handlers, and only then close the channel.
 /// </summary>
 internal sealed class RabbitMQSubscription
 {
     private readonly IChannel _channel;
     private readonly string _consumerTag;
-    private readonly SemaphoreSlim? _limiter;
     private readonly RabbitMQInFlightTracker _inFlight;
     private readonly TaskCompletionSource _consumerCancelled;
 
     public RabbitMQSubscription(
         IChannel channel,
         string consumerTag,
-        SemaphoreSlim? limiter,
         RabbitMQInFlightTracker inFlight,
         TaskCompletionSource consumerCancelled)
     {
         _channel = channel;
         _consumerTag = consumerTag;
-        _limiter = limiter;
         _inFlight = inFlight;
         _consumerCancelled = consumerCancelled;
     }
@@ -34,39 +30,34 @@ internal sealed class RabbitMQSubscription
     /// <summary>
     /// Cancels the consumer, waits for the client to finish dispatching the deliveries it had already
     /// read off the socket, drains the resulting in-flight handlers, and then closes and disposes the
-    /// channel. Every drain wait - including the basic.cancel RPC, which would otherwise be bounded
-    /// only by the client's own continuation timeout - draws from the single
-    /// <paramref name="drainTimeout"/> budget, or is unbounded when that budget is
-    /// <see cref="Timeout.InfiniteTimeSpan"/>. The channel close is the one step outside the budget:
-    /// it is bounded by <paramref name="cancellationToken"/>, so on the host shutdown path the host's
-    /// token bounds it, but on <see cref="RabbitMQPubSubDriver.DisposeAsync"/> - which passes
-    /// <see cref="CancellationToken.None"/> - each close is bounded only by the client's continuation
-    /// timeout, and N subscriptions against an unresponsive broker cost N times that on top of the
-    /// drain budget. A drain that does not finish, or a consumer never confirmed cancelled, is
-    /// reported as an error; the channel still closes, because holding it open indefinitely would
-    /// wedge shutdown. The concurrency limiter is only disposed once the drain completed, so a handler
-    /// or a still-queued delivery cannot observe a disposed limiter.
+    /// channel. <paramref name="drainTimeout"/> bounds only the handler drain - the waits for cancel-ok
+    /// and for in-flight handlers - and is unbounded when it is <see cref="Timeout.InfiniteTimeSpan"/>.
+    /// The basic.cancel RPC and the channel close are control-plane steps outside that budget, bounded
+    /// by <paramref name="cancellationToken"/> and the client's own continuation timeout, so the
+    /// consumer is always actually cancelled even when earlier subscriptions consumed the whole drain
+    /// allowance. On the host shutdown path the host's token bounds them; on
+    /// <see cref="RabbitMQPubSubDriver.DisposeAsync"/>, which passes
+    /// <see cref="CancellationToken.None"/>, N subscriptions against an unresponsive broker cost N
+    /// times the continuation timeout on top of the drain budget. Handlers left in flight are reported
+    /// as an error, as is a consumer that could not be confirmed cancelled while drain budget
+    /// remained; an exhausted budget with nothing in flight is a warning, because nothing was lost. The
+    /// channel closes either way, since holding it open indefinitely would wedge shutdown.
     /// </summary>
     public async ValueTask ShutdownAsync(TimeSpan drainTimeout, ILogger logger, CancellationToken cancellationToken)
     {
         var unbounded = drainTimeout == Timeout.InfiniteTimeSpan;
+        var hadBudget = unbounded || drainTimeout > TimeSpan.Zero;
         var deadline = unbounded ? 0L : Environment.TickCount64 + (long)drainTimeout.TotalMilliseconds;
 
         var cancelRequested = true;
-        using (var cancelRpc = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        try
         {
-            cancelRpc.CancelAfter(unbounded
-                ? Timeout.InfiniteTimeSpan
-                : TimeSpan.FromMilliseconds(Math.Max(0L, deadline - Environment.TickCount64)));
-            try
-            {
-                await _channel.BasicCancelAsync(_consumerTag, cancellationToken: cancelRpc.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logger.LogDebug(ex, "Error canceling consumer tag {Tag} during subscription shutdown", _consumerTag);
-                cancelRequested = false;
-            }
+            await _channel.BasicCancelAsync(_consumerTag, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Error canceling consumer tag {Tag} during subscription shutdown", _consumerTag);
+            cancelRequested = false;
         }
 
         // BasicCancelAsync only stops the broker from dispatching *new* messages. Deliveries the client
@@ -102,22 +93,26 @@ internal sealed class RabbitMQSubscription
                 cancellationToken)
             .ConfigureAwait(false);
 
-        var drained = cancelOkObserved && outcome.Drained;
-
-        if (!cancelOkObserved)
-        {
-            logger.LogError(
-                "Gave up draining RabbitMQ subscription {Tag} after {DrainTimeout}; the consumer was never confirmed cancelled, so any deliveries the client had already buffered are lost when the channel closes and will be redelivered",
-                _consumerTag,
-                drainTimeout);
-        }
-        else if (!outcome.Drained)
+        if (!outcome.Drained)
         {
             logger.LogError(
                 "Gave up draining RabbitMQ subscription {Tag} after {DrainTimeout}; {Outstanding} handler(s) were still in flight when the channel closed, so those messages will be redelivered",
                 _consumerTag,
                 drainTimeout,
                 outcome.Outstanding);
+        }
+        else if (!cancelOkObserved && hadBudget)
+        {
+            logger.LogError(
+                "Gave up draining RabbitMQ subscription {Tag} after {DrainTimeout}; the consumer was never confirmed cancelled, so any deliveries the client had already buffered are lost when the channel closes and will be redelivered",
+                _consumerTag,
+                drainTimeout);
+        }
+        else if (!cancelOkObserved)
+        {
+            logger.LogWarning(
+                "Closed RabbitMQ subscription {Tag} without confirming the consumer was cancelled: the shared shutdown drain budget was already spent by earlier subscriptions, so no drain was attempted. Nothing was in flight",
+                _consumerTag);
         }
 
         try
@@ -131,11 +126,6 @@ internal sealed class RabbitMQSubscription
         finally
         {
             _channel.Dispose();
-        }
-
-        if (drained)
-        {
-            _limiter?.Dispose();
         }
     }
 }

@@ -26,18 +26,23 @@ public sealed class RabbitMQProviderOptions
     public int DefaultMaxConcurrentCalls { get; set; } = 1;
 
     /// <summary>
-    /// Total time budget for draining in-flight handlers across a whole shutdown, after each consumer
-    /// has been cancelled and before its channel is closed anyway. It is an allowance for every
-    /// subscription combined, not per subscription: a host tears subscriptions down one topic at a
-    /// time, and both that path (via <c>CentraRuntimeHostedService.StopAsync</c>, which opens the
-    /// driver's shutdown drain window first) and
-    /// <see cref="PubSub.RabbitMQPubSubDriver.DisposeAsync"/> share one deadline, so the drain cost
-    /// never scales with the number of topics. A lone
+    /// Total time budget for waiting on in-flight handlers across a whole shutdown. It bounds the
+    /// handler drain only: the basic.cancel RPC and the channel close are control-plane steps bounded
+    /// by the caller's cancellation token and the client's own continuation timeout, so a consumer is
+    /// always cancelled even once the drain allowance is spent.
+    /// It is an allowance for every subscription combined, not per subscription: a host tears
+    /// subscriptions down one topic at a time, and <c>CentraRuntimeHostedService.StopAsync</c> opens
+    /// one shared drain window for the driver so the drain cost never scales with the number of
+    /// topics. <see cref="PubSub.RabbitMQPubSubDriver.DisposeAsync"/> joins that window only while it
+    /// is still open; a disposal after the host has closed it - which reaches any subscription created
+    /// directly through <see cref="PubSub.RabbitMQPubSubDriver.SubscribeAsync"/> rather than through a
+    /// router, since those survive the host stop - gets a fresh allowance, so a worst-case shutdown
+    /// can spend this budget twice. A lone
     /// <see cref="PubSub.RabbitMQPubSubDriver.UnsubscribeAsync"/> outside a shutdown drains one
     /// subscription and gets the whole allowance.
     /// Defaults to 10 seconds: comfortably longer than a typical handler, and the whole drain fits
     /// well inside the 30 second default host shutdown budget no matter how many topics are bound.
-    /// Exceeding it is logged as an error, never silently ignored.
+    /// Handlers left in flight when it runs out are logged as an error, never silently ignored.
     /// Set <see cref="Timeout.InfiniteTimeSpan"/> to await in-flight handlers without any limit.
     /// Every other non-positive value is rejected by
     /// <see cref="RabbitMQProviderOptionsValidator"/> rather than silently degrading to no drain

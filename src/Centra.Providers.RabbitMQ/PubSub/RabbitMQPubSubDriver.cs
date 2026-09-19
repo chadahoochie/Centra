@@ -254,6 +254,10 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             ? options.MaxConcurrentCalls.Value
             : _options.DefaultMaxConcurrentCalls;
 
+        // Never disposed: SemaphoreSlim only needs disposal once AvailableWaitHandle has been accessed,
+        // which this code never does, so disposing it on shutdown would buy nothing while opening a
+        // window where the client's dispatcher can still call WaitAsync or Release on a disposed
+        // semaphore. Do not reinstate a Dispose here.
         var limiter = maxConcurrency > 1 ? new SemaphoreSlim(maxConcurrency, maxConcurrency) : null;
 
         // Tracked from the moment the delivery arrives - before the concurrency permit and before the
@@ -291,8 +295,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                     }
                     finally
                     {
-                        inFlight.CompleteDelivery();
                         limiter.Release();
+                        inFlight.CompleteDelivery();
                     }
                 });
             };
@@ -320,7 +324,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, limiter, inFlight, consumerCancelled);
+        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, inFlight, consumerCancelled);
     }
 
     internal async Task ProcessAndAckAsync(

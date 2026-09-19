@@ -52,6 +52,12 @@ public sealed class RabbitMQPubSubDriverDrainTests
         _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
+                var token = call.Arg<CancellationToken>();
+                if (token.IsCancellationRequested)
+                {
+                    return Task.FromCanceled(token);
+                }
+
                 var tag = call.Arg<string>();
                 return _consumers.TryGetValue(tag, out var consumer)
                     ? consumer.HandleBasicCancelOkAsync(tag)
@@ -85,7 +91,9 @@ public sealed class RabbitMQPubSubDriverDrainTests
             options: new PubSubSubscribeOptions { MaxConcurrentCalls = k * 2 });
 
         var (tag, consumer) = _consumers.Single();
-        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(k, _options.ExchangeName, Topic);
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        dispatcher.EnqueueDeliveries(k, _options.ExchangeName, Topic);
+        await dispatcher.HandedOverAsync();
 
         await _sut.UnsubscribeAsync(PubSubName, Topic);
 
@@ -159,7 +167,9 @@ public sealed class RabbitMQPubSubDriverDrainTests
             options: new PubSubSubscribeOptions { MaxConcurrentCalls = k * 2 });
 
         var (tag, consumer) = _consumers.Single();
-        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(k, _options.ExchangeName, Topic);
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        dispatcher.EnqueueDeliveries(k, _options.ExchangeName, Topic);
+        await dispatcher.HandedOverAsync();
 
         await _sut.DisposeAsync();
 
@@ -190,9 +200,13 @@ public sealed class RabbitMQPubSubDriverDrainTests
         }
 
         _consumers.Count.ShouldBe(subscriptionCount);
+        var dispatchers = new List<ConsumerDispatchQueue>();
         foreach (var (tag, consumer) in _consumers)
         {
-            await new ConsumerDeliverySource(consumer, tag).DeliverAsync(1, _options.ExchangeName, Topic);
+            var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+            dispatchers.Add(dispatcher);
+            dispatcher.EnqueueDeliveries(1, _options.ExchangeName, Topic);
+            await dispatcher.HandedOverAsync();
         }
 
         var elapsed = Stopwatch.StartNew();
@@ -202,6 +216,11 @@ public sealed class RabbitMQPubSubDriverDrainTests
         // One shared budget, not one per subscription: two budgets is already a generous ceiling.
         elapsed.Elapsed.ShouldBeLessThan(budget * 2);
         release.Release(subscriptionCount);
+
+        foreach (var dispatcher in dispatchers)
+        {
+            await dispatcher.DisposeAsync();
+        }
     }
 
     [Fact]
@@ -230,9 +249,13 @@ public sealed class RabbitMQPubSubDriverDrainTests
         }
 
         _consumers.Count.ShouldBe(subscriptionCount);
+        var dispatchers = new List<ConsumerDispatchQueue>();
         foreach (var (tag, consumer) in _consumers)
         {
-            await new ConsumerDeliverySource(consumer, tag).DeliverAsync(1, _options.ExchangeName, Topic);
+            var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+            dispatchers.Add(dispatcher);
+            dispatcher.EnqueueDeliveries(1, _options.ExchangeName, Topic);
+            await dispatcher.HandedOverAsync();
         }
 
         var elapsed = Stopwatch.StartNew();
@@ -247,6 +270,11 @@ public sealed class RabbitMQPubSubDriverDrainTests
 
         elapsed.Elapsed.ShouldBeLessThan(budget * 2);
         release.Release(subscriptionCount);
+
+        foreach (var dispatcher in dispatchers)
+        {
+            await dispatcher.DisposeAsync();
+        }
     }
 
     [Fact]
@@ -269,7 +297,9 @@ public sealed class RabbitMQPubSubDriverDrainTests
             options: new PubSubSubscribeOptions { MaxConcurrentCalls = 2 });
 
         var (tag, consumer) = _consumers.Single();
-        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(1, _options.ExchangeName, Topic);
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        dispatcher.EnqueueDeliveries(1, _options.ExchangeName, Topic);
+        await dispatcher.HandedOverAsync();
 
         var elapsed = Stopwatch.StartNew();
         await _sut.UnsubscribeAsync(PubSubName, Topic);
@@ -277,6 +307,63 @@ public sealed class RabbitMQPubSubDriverDrainTests
 
         elapsed.Elapsed.ShouldBeGreaterThanOrEqualTo(budget - TimeSpan.FromMilliseconds(100));
         release.Release();
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Still_Cancel_The_Consumer_When_The_Shared_Budget_Is_Spent()
+    {
+        // The drain budget governs waiting for handlers, not the control-plane cancel RPC: a
+        // subscription torn down after earlier ones spent the window must still be cancelled cleanly.
+        _options.TotalShutdownDrainTimeout = TimeSpan.FromMilliseconds(1);
+
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
+
+        var tag = _consumers.Keys.Single();
+
+        using (_sut.BeginShutdownDrain())
+        {
+            await Task.Delay(50);
+            await _sut.UnsubscribeAsync(PubSubName, Topic);
+        }
+
+        await _channel.Received(1).BasicCancelAsync(tag, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        _logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Warn_Not_Error_When_The_Budget_Is_Spent_And_Nothing_Is_In_Flight()
+    {
+        _options.TotalShutdownDrainTimeout = TimeSpan.FromMilliseconds(1);
+
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
+
+        var (tag, consumer) = _consumers.Single();
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+
+        // Cancel-ok arrives through the dispatcher rather than inline, so with no budget left it cannot
+        // be observed - yet nothing was in flight and nothing was buffered, so nothing was lost.
+        _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                dispatcher.EnqueueCancelOk();
+                return Task.CompletedTask;
+            });
+
+        using (_sut.BeginShutdownDrain())
+        {
+            await Task.Delay(50);
+            await _sut.UnsubscribeAsync(PubSubName, Topic);
+        }
+
+        _logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error);
+        _logger.Entries.ShouldContain(e =>
+            e.Level == LogLevel.Warning && e.Message.Contains("already spent", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -296,7 +383,9 @@ public sealed class RabbitMQPubSubDriverDrainTests
             options: new PubSubSubscribeOptions { MaxConcurrentCalls = 2 });
 
         var (tag, consumer) = _consumers.Single();
-        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(1, _options.ExchangeName, Topic);
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        dispatcher.EnqueueDeliveries(1, _options.ExchangeName, Topic);
+        await dispatcher.HandedOverAsync();
 
         await _sut.UnsubscribeAsync(PubSubName, Topic);
 
@@ -326,7 +415,9 @@ public sealed class RabbitMQPubSubDriverDrainTests
             options: new PubSubSubscribeOptions { MaxConcurrentCalls = 4 });
 
         var (tag, consumer) = _consumers.Single();
-        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(3, _options.ExchangeName, Topic);
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        dispatcher.EnqueueDeliveries(3, _options.ExchangeName, Topic);
+        await dispatcher.HandedOverAsync();
 
         await _sut.UnsubscribeAsync(PubSubName, Topic);
 

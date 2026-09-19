@@ -48,6 +48,22 @@ internal sealed class ConsumerDispatchQueue : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Completes once the pump has handed every delivery enqueued so far to the consumer callback,
+    /// which is the handshake a test needs before asserting on what is in flight. The marker is a work
+    /// item like any other, so the serial queue orders it behind exactly those deliveries.
+    /// </summary>
+    public Task HandedOverAsync()
+    {
+        var handedOver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _work.Writer.TryWrite(() =>
+        {
+            handedOver.TrySetResult();
+            return Task.CompletedTask;
+        });
+        return handedOver.Task;
+    }
+
     public void EnqueueCancelOk()
     {
         _work.Writer.TryWrite(() => _consumer.HandleBasicCancelOkAsync(_consumerTag));
