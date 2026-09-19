@@ -91,7 +91,7 @@ The resource pulls `ghcr.io/chadahoochie/centra-controlplane:1.0.0` by default:
 | Tag | `1.0.0` — the Centra framework version (`VersionPrefix`, see `RELEASE_NOTES.md`) |
 | Container port | `8080` |
 
-The tag is **not** immutable. The publish workflow refuses any version other than the current
+The tag is **not** immutable. The publish workflow always pushes the tag named by the current
 `VersionPrefix`, so every rerun at the same framework version republishes `:1.0.0` in place,
 pointing it at a new digest. Aspire's default pull policy reuses a tagged image that is already
 cached locally, so a developer who has run the AppHost before keeps running the old control plane
@@ -114,8 +114,9 @@ var controlPlane = builder.AddCentraControlPlane("control-plane")
 
 The image is published by the
 [`Publish Control Plane Image`](../../.github/workflows/publish-controlplane-image.yml) workflow,
-which builds [`src/Centra.ControlPlane/Dockerfile`](../../src/Centra.ControlPlane/Dockerfile) and
-refuses any version that does not match `VersionPrefix`.
+which builds [`src/Centra.ControlPlane/Dockerfile`](../../src/Centra.ControlPlane/Dockerfile),
+takes its tag from `VersionPrefix`, and refuses to push any reference
+`AddCentraControlPlane` will not pull.
 
 This route has not yet been exercised end to end against a published image — nothing in this
 repository pulls and starts the container, so a broken Dockerfile, a wrong `targetPort`, or a
