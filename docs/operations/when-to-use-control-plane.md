@@ -167,23 +167,36 @@ When using Centra's dynamic noisy neighbor isolation with `TenantOffloadStrategy
 
 ### Code Example: Running With Control Plane
 
-In your Aspire AppHost ([`Centra.AppHost`](../../samples/Centra.AppHost/Program.cs)):
+In your Aspire AppHost, add the Control Plane as a container pulled from the published image:
 
 ```csharp
 using Centra.Aspire.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// 1. Add Control Plane Resource
+// 1. Add the Control Plane container (ghcr.io/chadahoochie/centra-controlplane)
 var controlPlane = builder.AddCentraControlPlane("control-plane");
 
 // 2. Wire applications to the Control Plane
 var cluster = builder.AddProject<Projects.Centra_Sample_MultiInstance>("multi-instance-service")
     .WithCentra(controlPlane)
-    .WithReplicas(3);
+    .WithReplicas(3)
+    .WaitFor(controlPlane);
 
 builder.Build().Run();
 ```
+
+If Centra's source is already in your solution, orchestrate the project instead — this is what
+Centra's own sample AppHost does
+([`samples/Centra.AppHost`](../../samples/Centra.AppHost/Program.cs)):
+
+```csharp
+var controlPlane = builder.AddProject<Projects.Centra_ControlPlane>("control-plane")
+    .WithHttpEndpoint(port: 8080, name: "http");
+```
+
+`WithCentra` accepts either, and both routes are covered in
+[.NET Aspire Cloud-Native Orchestration](../getting-started/aspire.md#-two-ways-to-run-the-control-plane).
 
 In your application code:
 
