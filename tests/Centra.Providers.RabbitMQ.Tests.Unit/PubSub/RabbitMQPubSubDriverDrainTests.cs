@@ -305,6 +305,57 @@ public sealed class RabbitMQPubSubDriverDrainTests
     }
 
     [Fact]
+    public async Task UnsubscribeAsync_Should_Await_Handlers_Without_A_Limit_When_The_Budget_Is_Infinite()
+    {
+        _options.TotalShutdownDrainTimeout = Timeout.InfiniteTimeSpan;
+        var completed = 0;
+        var completedWhenChannelClosed = -1;
+        _channel
+            .When(c => c.CloseAsync(Arg.Any<ushort>(), Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()))
+            .Do(_ => completedWhenChannelClosed = Volatile.Read(ref completed));
+
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            async (payload, headers, ct) =>
+            {
+                await Task.Delay(400, CancellationToken.None).ConfigureAwait(false);
+                Interlocked.Increment(ref completed);
+                return EventHandlingResult.Success;
+            },
+            options: new PubSubSubscribeOptions { MaxConcurrentCalls = 4 });
+
+        var (tag, consumer) = _consumers.Single();
+        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(3, _options.ExchangeName, Topic);
+
+        await _sut.UnsubscribeAsync(PubSubName, Topic);
+
+        Volatile.Read(ref completed).ShouldBe(3);
+        completedWhenChannelClosed.ShouldBe(3);
+        await _channel.Received(3).BasicAckAsync(Arg.Any<ulong>(), multiple: false, Arg.Any<CancellationToken>());
+        _logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Report_An_Error_When_The_Consumer_Was_Never_Confirmed_Cancelled()
+    {
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
+
+        // A cancel RPC that never reaches the broker leaves the consumer live, so deliveries the client
+        // already buffered are still coming - "nothing in flight" must not be read as a clean drain.
+        _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException(new OperationCanceledException()));
+
+        await _sut.UnsubscribeAsync(PubSubName, Topic);
+
+        _logger.Entries.ShouldContain(e =>
+            e.Level == LogLevel.Error && e.Message.Contains("never confirmed cancelled", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task UnsubscribeAsync_Should_Not_Report_A_Drain_Failure_When_Nothing_Is_In_Flight()
     {
         await _sut.SubscribeAsync(

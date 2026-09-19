@@ -38,6 +38,10 @@ public sealed class RabbitMQProviderOptions
     /// Defaults to 10 seconds: comfortably longer than a typical handler, and the whole drain fits
     /// well inside the 30 second default host shutdown budget no matter how many topics are bound.
     /// Exceeding it is logged as an error, never silently ignored.
+    /// Set <see cref="Timeout.InfiniteTimeSpan"/> to await in-flight handlers without any limit.
+    /// Every other non-positive value is rejected by
+    /// <see cref="RabbitMQProviderOptionsValidator"/> rather than silently degrading to no drain
+    /// at all.
     /// </summary>
     public TimeSpan TotalShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(10);
 }

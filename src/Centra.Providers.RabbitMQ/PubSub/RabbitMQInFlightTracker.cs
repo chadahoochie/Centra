@@ -22,7 +22,8 @@ internal sealed class RabbitMQInFlightTracker
     }
 
     /// <summary>
-    /// Waits until every in-flight handler has completed or <paramref name="timeout"/> elapses.
+    /// Waits until every in-flight handler has completed or <paramref name="timeout"/> elapses. A
+    /// <paramref name="timeout"/> of <see cref="Timeout.InfiniteTimeSpan"/> waits without a limit.
     /// A cancelled <paramref name="cancellationToken"/> ends the wait the same way a timeout does:
     /// the outcome reports the residual count so the caller can log it rather than having it
     /// disappear into an exception thrown from a shutdown path.
@@ -34,7 +35,7 @@ internal sealed class RabbitMQInFlightTracker
             return new RabbitMQDrainOutcome(true, 0);
         }
 
-        if (timeout <= TimeSpan.Zero)
+        if (timeout <= TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
         {
             return new RabbitMQDrainOutcome(false, Volatile.Read(ref _inFlight));
         }
