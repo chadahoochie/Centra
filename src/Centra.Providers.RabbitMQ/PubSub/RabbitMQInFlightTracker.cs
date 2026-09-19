@@ -10,8 +10,21 @@ internal sealed class RabbitMQInFlightTracker
 {
     private TaskCompletionSource? _drained;
     private int _inFlight;
+    private int _receivedDelivery;
 
-    public void BeginDelivery() => Interlocked.Increment(ref _inFlight);
+    /// <summary>
+    /// Whether this subscription ever had a delivery handed to its handler. A subscription that never
+    /// did has no handler work to lose, which is what lets a shutdown tell an idle consumer apart from
+    /// one whose drain could not be confirmed - the in-flight count alone cannot, because it reads
+    /// zero in the gap between two sequential deliveries.
+    /// </summary>
+    public bool HasReceivedDelivery => Volatile.Read(ref _receivedDelivery) != 0;
+
+    public void BeginDelivery()
+    {
+        Volatile.Write(ref _receivedDelivery, 1);
+        Interlocked.Increment(ref _inFlight);
+    }
 
     public void CompleteDelivery()
     {

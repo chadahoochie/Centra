@@ -39,14 +39,16 @@ internal sealed class RabbitMQSubscription
     /// <see cref="RabbitMQPubSubDriver.DisposeAsync"/>, which passes
     /// <see cref="CancellationToken.None"/>, N subscriptions against an unresponsive broker cost N
     /// times the continuation timeout on top of the drain budget. Handlers left in flight are reported
-    /// as an error, as is a consumer that could not be confirmed cancelled while drain budget
-    /// remained; an exhausted budget with nothing in flight is a warning, because nothing was lost. The
-    /// channel closes either way, since holding it open indefinitely would wedge shutdown.
+    /// as an error, as is a consumer that could not be confirmed cancelled after this subscription had
+    /// already received at least one delivery, or whose cancel RPC failed outright - in both of those
+    /// the client may still hold buffered deliveries that the close drops. A consumer that was
+    /// cancelled cleanly and never received a delivery has nothing to lose and is reported at no
+    /// severity, however much of the drain budget was left. The channel closes either way, since
+    /// holding it open indefinitely would wedge shutdown.
     /// </summary>
     public async ValueTask ShutdownAsync(TimeSpan drainTimeout, ILogger logger, CancellationToken cancellationToken)
     {
         var unbounded = drainTimeout == Timeout.InfiniteTimeSpan;
-        var hadBudget = unbounded || drainTimeout > TimeSpan.Zero;
         var deadline = unbounded ? 0L : Environment.TickCount64 + (long)drainTimeout.TotalMilliseconds;
 
         var cancelRequested = true;
@@ -101,18 +103,12 @@ internal sealed class RabbitMQSubscription
                 drainTimeout,
                 outcome.Outstanding);
         }
-        else if (!cancelOkObserved && hadBudget)
+        else if (!cancelOkObserved && (_inFlight.HasReceivedDelivery || !cancelRequested))
         {
             logger.LogError(
                 "Gave up draining RabbitMQ subscription {Tag} after {DrainTimeout}; the consumer was never confirmed cancelled, so any deliveries the client had already buffered are lost when the channel closes and will be redelivered",
                 _consumerTag,
                 drainTimeout);
-        }
-        else if (!cancelOkObserved)
-        {
-            logger.LogWarning(
-                "Closed RabbitMQ subscription {Tag} without confirming the consumer was cancelled: the shared shutdown drain budget was already spent by earlier subscriptions, so no drain was attempted. Nothing was in flight",
-                _consumerTag);
         }
 
         try

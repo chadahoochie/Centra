@@ -334,7 +334,7 @@ public sealed class RabbitMQPubSubDriverDrainTests
     }
 
     [Fact]
-    public async Task UnsubscribeAsync_Should_Warn_Not_Error_When_The_Budget_Is_Spent_And_Nothing_Is_In_Flight()
+    public async Task UnsubscribeAsync_Should_Stay_Silent_When_An_Idle_Subscription_Is_Cancelled_Cleanly()
     {
         _options.TotalShutdownDrainTimeout = TimeSpan.FromMilliseconds(1);
 
@@ -347,7 +347,8 @@ public sealed class RabbitMQPubSubDriverDrainTests
         await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
 
         // Cancel-ok arrives through the dispatcher rather than inline, so with no budget left it cannot
-        // be observed - yet nothing was in flight and nothing was buffered, so nothing was lost.
+        // be observed. This subscription never received a delivery, so there is no handler work to
+        // lose and nothing to report at any severity.
         _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
@@ -361,9 +362,43 @@ public sealed class RabbitMQPubSubDriverDrainTests
             await _sut.UnsubscribeAsync(PubSubName, Topic);
         }
 
-        _logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error);
+        _logger.Entries.ShouldNotContain(e => e.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Error_When_A_Subscription_That_Received_Deliveries_Cannot_Confirm_Cancellation()
+    {
+        // The escalation that matters: this consumer was actively dispatching, so an unconfirmed
+        // cancel means the client may still hold buffered deliveries the channel close will drop.
+        // Leftover budget must not decide the severity - having had work at risk must.
+        _options.TotalShutdownDrainTimeout = TimeSpan.FromMilliseconds(1);
+
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            options: new PubSubSubscribeOptions { PrefetchCount = 50, MaxConcurrentCalls = 1 });
+
+        var (tag, consumer) = _consumers.Single();
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        dispatcher.EnqueueDeliveries(2, _options.ExchangeName, Topic);
+        await dispatcher.HandedOverAsync();
+
+        _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                dispatcher.EnqueueCancelOk();
+                return Task.CompletedTask;
+            });
+
+        using (_sut.BeginShutdownDrain())
+        {
+            await Task.Delay(50);
+            await _sut.UnsubscribeAsync(PubSubName, Topic);
+        }
+
         _logger.Entries.ShouldContain(e =>
-            e.Level == LogLevel.Warning && e.Message.Contains("already spent", StringComparison.Ordinal));
+            e.Level == LogLevel.Error && e.Message.Contains("buffered", StringComparison.Ordinal));
     }
 
     [Fact]
