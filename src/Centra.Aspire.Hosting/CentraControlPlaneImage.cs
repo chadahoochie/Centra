@@ -4,11 +4,12 @@ namespace Centra.Aspire.Hosting;
 /// Coordinates of the published Centra Control Plane container image.
 /// </summary>
 /// <remarks>
-/// <see cref="Tag"/> is a floating minor-version tag republished by the release pipeline
-/// alongside the exact build version. Pin an exact tag with
-/// <c>Aspire.Hosting.ContainerResourceBuilderExtensions.WithImageTag</c>, or mirror the image
-/// into a private registry and point at it with
-/// <c>Aspire.Hosting.ContainerResourceBuilderExtensions.WithImageRegistry</c>.
+/// <see cref="Tag"/> tracks the version Centra ships its assemblies and packages under —
+/// <c>VersionPrefix</c> in <c>Directory.Build.props</c>, recorded in <c>RELEASE_NOTES.md</c> — so
+/// the tag the resource pulls is the tag the release pipeline pushes. A unit test enforces that
+/// coupling. Mirror the image into a private registry and point at it with
+/// <c>Aspire.Hosting.ContainerResourceBuilderExtensions.WithImageRegistry</c>, or select a
+/// different build with <c>WithImageTag</c>.
 /// </remarks>
 public static class CentraControlPlaneImage
 {
@@ -18,8 +19,8 @@ public static class CentraControlPlaneImage
     /// <summary>Repository path of the published image within <see cref="Registry"/>.</summary>
     public const string Image = "chadahoochie/centra-controlplane";
 
-    /// <summary>Default image tag.</summary>
-    public const string Tag = "1.0";
+    /// <summary>Default image tag, matching the Centra framework version.</summary>
+    public const string Tag = "1.0.0";
 
     /// <summary>Port the control plane listens on inside the container.</summary>
     public const int ContainerHttpPort = 8080;

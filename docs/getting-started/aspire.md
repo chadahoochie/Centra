@@ -88,25 +88,27 @@ The defaults come from [`CentraControlPlaneImage`](../../src/Centra.Aspire.Hosti
 | --- | --- |
 | Registry | `ghcr.io` |
 | Image | `chadahoochie/centra-controlplane` |
-| Tag | `1.0` (floating `major.minor`; the release pipeline also pushes the exact version) |
+| Tag | `1.0.0` — the Centra framework version (`VersionPrefix`, see `RELEASE_NOTES.md`) |
 | Container port | `8080` |
 
-Override any of them with Aspire's own container extensions — no Centra-specific API required:
+The tag is immutable and moves only when the framework version does, so the default needs no
+pull-policy tuning. Override any of the coordinates with Aspire's own container extensions — no
+Centra-specific API required:
 
 ```csharp
 var controlPlane = builder.AddCentraControlPlane("control-plane")
     .WithImageRegistry("myorg.azurecr.io")   // private mirror
-    .WithImageTag("1.0.0")                   // pin an exact build
-    .WithImagePullPolicy(ImagePullPolicy.Always);
+    .WithImageTag("1.0.1");                  // a different published build
 ```
-
-Pin an exact tag for reproducible environments. The floating `1.0` tag combined with Aspire's
-default `Missing` pull policy will keep serving a cached layer after the tag moves, so pair a
-floating tag with `ImagePullPolicy.Always` if you want it to track the release.
 
 The image is published by the
 [`Publish Control Plane Image`](../../.github/workflows/publish-controlplane-image.yml) workflow,
-which builds [`src/Centra.ControlPlane/Dockerfile`](../../src/Centra.ControlPlane/Dockerfile).
+which builds [`src/Centra.ControlPlane/Dockerfile`](../../src/Centra.ControlPlane/Dockerfile) and
+refuses any version that does not match `VersionPrefix`.
+
+> **Availability:** the image is published by a manual `workflow_dispatch` run. A given tag is
+> pullable only after that workflow has been run for it. If `AddCentraControlPlane` fails to pull,
+> check the tag has been published, or use route 2 below.
 
 ### Route 2 — Orchestrate the packaged project
 

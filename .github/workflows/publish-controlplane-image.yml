@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Image version (e.g., 1.0.0). Also republished as the floating major.minor tag.'
+        description: 'Image version. Must match VersionPrefix in Directory.Build.props (e.g., 1.0.0).'
         required: true
         default: '1.0.0'
         type: string
@@ -31,18 +31,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Derive image tags
+      - name: Verify version matches the repository versioning scheme
         id: tags
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "::error::Version '$VERSION' is not a valid semantic version."
             exit 1
           fi
-          MINOR="$(printf '%s' "$VERSION" | cut -d. -f1-2)"
+
+          # The image tag the Aspire resource pulls by default is CentraControlPlaneImage.Tag,
+          # which a unit test pins to VersionPrefix. Refuse to publish a tag nothing will pull.
+          PREFIX="$(grep -oP '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)"
+          if [ "${VERSION%%-*}" != "$PREFIX" ]; then
+            echo "::error::Version '$VERSION' does not match VersionPrefix '$PREFIX' in Directory.Build.props."
+            exit 1
+          fi
+
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "MINOR=${MINOR}" >> $GITHUB_OUTPUT
-          echo "Publishing ${VERSION} and floating tag ${MINOR}"
+          echo "Publishing ${VERSION}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -61,9 +68,7 @@ jobs:
           context: .
           file: src/Centra.ControlPlane/Dockerfile
           push: ${{ github.event.inputs.push == 'true' }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.VERSION }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.MINOR }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.VERSION }}
           labels: |
             org.opencontainers.image.title=Centra Control Plane
             org.opencontainers.image.description=Centralized component catalog, secret resolution, cluster topology, and real-time streaming sync for Centra.

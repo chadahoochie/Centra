@@ -12,8 +12,28 @@ namespace Centra.Tests.Unit.Hosting;
 /// an endpoint annotation satisfies every addressability assertion while publishing an endpoint
 /// for a process that never exists.
 /// </summary>
+/// <remarks>
+/// Scope: these assertions cover the application model only. They prove the resource carries a
+/// container image the orchestrator can resolve and start, and they run offline with no Docker
+/// daemon and no registry access. They deliberately do <em>not</em> prove the default tag is
+/// present in the registry — that is a registry fact, not a code fact, and it depends on the
+/// <c>Publish Control Plane Image</c> workflow having been run for the current version.
+/// </remarks>
 public sealed class CentraControlPlaneLaunchabilityTests
 {
+    [Fact]
+    public void CentraControlPlaneImage_DefaultTagTracksTheFrameworkVersion()
+    {
+        var frameworkVersion = typeof(CentraControlPlaneImage).Assembly.GetName().Version;
+
+        frameworkVersion.ShouldNotBeNull();
+        CentraControlPlaneImage.Tag.ShouldBe(
+            $"{frameworkVersion.Major}.{frameworkVersion.Minor}.{frameworkVersion.Build}",
+            "The published image tag must match the version Centra ships its assemblies and "
+            + "packages under (VersionPrefix in Directory.Build.props, recorded in RELEASE_NOTES.md), "
+            + "so whoever runs the publish workflow pushes the tag the resource actually pulls.");
+    }
+
     [Fact]
     public void AddCentraControlPlane_ProducesAResourceTheOrchestratorCanStart()
     {
