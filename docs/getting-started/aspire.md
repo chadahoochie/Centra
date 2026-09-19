@@ -133,28 +133,18 @@ manifest unknown: manifest unknown
 Resolution: run the `Publish Control Plane Image` workflow for the version in
 `VersionPrefix`, or use route 2 below.
 
-**2. The package exists but rejects an unauthenticated pull.** A GHCR package created by a first
-push is **private by default**, and the AppHost's container pull carries no registry credentials.
-Docker reports:
+**2. The package rejects an unauthenticated pull.** The `centra-controlplane` package is
+**public**, so `AddCentraControlPlane` pulls it with no registry credentials — Centra's AppHost
+path deliberately carries none. A GHCR package is private at the moment its first push creates
+it, though, so the repository owner flips its visibility to public once, after the first publish
+run. Until that one-time step has happened, Docker reports:
 
 ```text
 denied: denied
 unauthorized: unauthenticated: User cannot be authenticated with the token provided.
 ```
 
-Resolution depends on an ownership decision that is **still pending with the repository owner**:
-
-- **Public-package route (preferred, pending):** the GHCR package's visibility is set to public,
-  after which unauthenticated pulls succeed and no consumer configuration is needed.
-- **Documented-credential route:** the package stays private and consumers authenticate their
-  local Docker daemon before running the AppHost —
-  `echo $GHCR_PAT | docker login ghcr.io -u <username> --password-stdin`, using a PAT with
-  `read:packages` and access to this repository's packages. Centra's AppHost path deliberately
-  carries no registry credentials of its own, so this is a machine-level `docker login` rather
-  than anything added to `AddCentraControlPlane`.
-
-Until that decision lands, route 2 is the reliable path for consumers without access to this
-repository's packages.
+Resolution: ask the repository owner to make the package public, or use route 2 below.
 
 ### Route 2 — Orchestrate the packaged project
 
