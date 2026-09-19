@@ -10,6 +10,7 @@ public interface IRedeliveryBudget
     /// <summary>
     /// Charges one failed delivery of <paramref name="key"/> against <paramref name="policy"/> and
     /// returns how the delivery should be settled. Implementations forget the message once its budget is spent.
+    /// Only meaningful for an enabled policy; a subscription that opted out of the budget never charges it.
     /// </summary>
     RedeliveryDecision ChargeFailure(in RedeliveryBudgetKey key, in RedeliveryBudgetPolicy policy);
 
@@ -18,4 +19,10 @@ public interface IRedeliveryBudget
     /// terminally so a later message reusing the id starts with a full budget.
     /// </summary>
     void Forget(in RedeliveryBudgetKey key);
+
+    /// <summary>
+    /// Discards the attempt history of every message tracked for <paramref name="queueName"/>, called when a
+    /// subscription is torn down and its in-flight deliveries will never be settled by this consumer.
+    /// </summary>
+    void ForgetQueue(string queueName);
 }

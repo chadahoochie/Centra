@@ -99,14 +99,31 @@ public sealed class BoundedRedeliveryBudgetTests
     }
 
     [Fact]
-    public void ChargeFailure_DeadLetters_Immediately_When_The_Budget_Is_Zero()
+    public void ForgetQueue_Restores_The_Full_Budget_For_That_Queue_Only()
     {
         var budget = new BoundedRedeliveryBudget();
-        var key = new RedeliveryBudgetKey(Queue, "evt-1");
-        var noRetries = DefaultPolicy with { MaxRetryAttempts = 0 };
+        var torndown = new RedeliveryBudgetKey("centra.a.orders.created", "evt-1");
+        var surviving = new RedeliveryBudgetKey("centra.b.orders.created", "evt-1");
 
-        budget.ChargeFailure(key, noRetries).ShouldBe(RedeliveryDecision.DeadLetterImmediately);
-        budget.ChargeFailure(key, noRetries).ShouldBe(RedeliveryDecision.DeadLetterImmediately);
+        budget.ChargeFailure(torndown, DefaultPolicy);
+        budget.ChargeFailure(torndown, DefaultPolicy);
+        budget.ChargeFailure(surviving, DefaultPolicy);
+        budget.ChargeFailure(surviving, DefaultPolicy);
+
+        budget.ForgetQueue(torndown.QueueName);
+
+        budget.ChargeFailure(torndown, DefaultPolicy)
+            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(1)));
+        budget.ChargeFailure(surviving, DefaultPolicy)
+            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(4)));
+    }
+
+    [Fact]
+    public void ForgetQueue_Rejects_A_Missing_QueueName()
+    {
+        var budget = new BoundedRedeliveryBudget();
+
+        Should.Throw<ArgumentException>(() => budget.ForgetQueue(" "));
     }
 
     [Fact]

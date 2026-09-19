@@ -217,4 +217,22 @@ public sealed class InMemoryPubSubDriverTests
 
         ex.Message.ShouldContain(nameof(InMemoryPubSubDriver));
     }
+
+    [Fact]
+    public async Task Should_Accept_A_Subscription_That_Explicitly_Disables_The_Redelivery_Budget()
+    {
+        var options = new PubSubSubscribeOptions { MaxRetryAttempts = 0 };
+
+        await _driver.SubscribeAsync(
+            "pubsub",
+            "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            options: options);
+
+        await _driver.PublishAsync(
+            "pubsub",
+            "orders.created",
+            Encoding.UTF8.GetBytes("{}"),
+            new Dictionary<string, string>());
+    }
 }

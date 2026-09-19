@@ -19,8 +19,10 @@ public sealed class RabbitMQMessageAcknowledger : IRabbitMQMessageAcknowledger
 
         return result switch
         {
-            EventHandlingResult.Success => channel.BasicAckAsync(deliveryTag, multiple: false),
-            EventHandlingResult.Drop or EventHandlingResult.DeadLetter => channel.BasicRejectAsync(deliveryTag, requeue: false),
+            // Drop discards the message, so it acknowledges: rejecting instead would route it to the queue's
+            // dead-letter exchange, which is indistinguishable from DeadLetter.
+            EventHandlingResult.Success or EventHandlingResult.Drop => channel.BasicAckAsync(deliveryTag, multiple: false),
+            EventHandlingResult.DeadLetter => channel.BasicRejectAsync(deliveryTag, requeue: false),
             _ => channel.BasicNackAsync(deliveryTag, multiple: false, requeue: true)
         };
     }

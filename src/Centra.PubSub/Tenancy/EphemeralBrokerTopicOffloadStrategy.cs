@@ -60,7 +60,10 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
             var subOptions = new PubSubSubscribeOptions
             {
                 AutoDelete = true,
-                MaxConcurrentCalls = _options.MaxConcurrencyPerTenant > 0 ? _options.MaxConcurrencyPerTenant : null
+                MaxConcurrentCalls = _options.MaxConcurrencyPerTenant > 0 ? _options.MaxConcurrencyPerTenant : null,
+                // Unbudgeted on purpose: this offload queue is AutoDelete and dies with the tenant burst, so a
+                // dead-letter queue outliving the queue it serves would have nobody to drain it.
+                MaxRetryAttempts = 0
             };
 
             var subscriptionTask = _topicSubscriptions.GetOrAdd(topicKey, key =>
@@ -138,7 +141,10 @@ public sealed class EphemeralBrokerTopicOffloadStrategy : ITenantOffloadStrategy
         var subOptions = new PubSubSubscribeOptions
         {
             AutoDelete = true,
-            MaxConcurrentCalls = _options.MaxConcurrencyPerTenant > 0 ? _options.MaxConcurrencyPerTenant : null
+            MaxConcurrentCalls = _options.MaxConcurrencyPerTenant > 0 ? _options.MaxConcurrencyPerTenant : null,
+            // Unbudgeted on purpose: this offload queue is AutoDelete and dies with the tenant burst, so a
+            // dead-letter queue outliving the queue it serves would have nobody to drain it.
+            MaxRetryAttempts = 0
         };
         var task = _topicSubscriptions.GetOrAdd(key, k => _subscriber.SubscribeAsync(
             k.PubSubName,

@@ -230,6 +230,7 @@ public sealed class RabbitMQPubSubDriverTests
                 (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success)));
 
         ex.Message.ShouldContain("deadLetterTopic");
+        ex.Message.ShouldContain("MaxRetryAttempts");
         await _channel.DidNotReceive().QueueDeclareAsync(
             queue: Arg.Any<string>(),
             durable: Arg.Any<bool>(),
@@ -240,20 +241,37 @@ public sealed class RabbitMQPubSubDriverTests
     }
 
     [Fact]
-    public async Task SubscribeAsync_With_A_Custom_DeadLetter_Exchange_Argument_Should_Be_Accepted()
+    public async Task SubscribeAsync_With_The_Budget_Disabled_Should_Be_Accepted_Without_A_DeadLetter_Route()
     {
-        var options = new PubSubSubscribeOptions
-        {
-            CustomArguments = new Dictionary<string, object?>
-            {
-                ["x-dead-letter-exchange"] = "centra.dlx"
-            }
-        };
+        var options = new PubSubSubscribeOptions { MaxRetryAttempts = 0 };
 
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
             options: options);
+
+        await _channel.Received(1).BasicConsumeAsync(
+            queue: Arg.Any<string>(),
+            autoAck: false,
+            consumer: Arg.Any<IAsyncBasicConsumer>(),
+            cancellationToken: Arg.Any<CancellationToken>());
+        await _channel.Received(1).QueueDeclareAsync(
+            queue: Arg.Any<string>(),
+            durable: Arg.Any<bool>(),
+            exclusive: Arg.Any<bool>(),
+            autoDelete: Arg.Any<bool>(),
+            arguments: Arg.Is<IDictionary<string, object?>?>(a => a == null || !a.ContainsKey("x-dead-letter-exchange")),
+            cancellationToken: Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_With_The_Provider_Budget_Disabled_Should_Be_Accepted_Without_A_DeadLetter_Route()
+    {
+        _options.DefaultMaxRetryAttempts = 0;
+
+        await _sut.SubscribeAsync(
+            "pubsub", "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
 
         await _channel.Received(1).BasicConsumeAsync(
             queue: Arg.Any<string>(),

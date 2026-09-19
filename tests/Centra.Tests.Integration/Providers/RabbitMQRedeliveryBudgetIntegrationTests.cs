@@ -71,9 +71,12 @@ public sealed class RabbitMQRedeliveryBudgetIntegrationTests : IAsyncLifetime
             deadLettered.TrySetResult(true);
             return ValueTask.FromResult(EventHandlingResult.Success);
         },
-        // Every subscription needs a dead-letter route of its own, including this one: the driver refuses
-        // to accept a subscription whose budget could only be spent by discarding the message.
-        deadLetterTopic: $"{deadLetterTopic}.parked");
+        options: new PubSubSubscribeOptions
+        {
+            // Unbudgeted on purpose: this consumer drains the dead-letter queue, so there is no further
+            // dead-letter queue to exhaust into.
+            MaxRetryAttempts = 0
+        });
 
         // x-delivery-limit stays on the queue as a backstop against channel-failure loops only -
         // nothing below depends on it for application-level retry.

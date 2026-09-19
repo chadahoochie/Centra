@@ -149,7 +149,7 @@ public sealed class PaymentNotificationHandler : IEventHandler<OrderCreatedEvent
 ### Event Handling Return Statuses:
 - **`EventHandlingResult.Success`**: Acknowledges message receipt (`Complete` / `Ack`).
 - **`EventHandlingResult.Retry`**: Rejects and returns message to broker for redelivery (`Nack` / `Abandon`), bounded by the consumer's redelivery budget - after `MaxRetryAttempts` redeliveries with exponential backoff the message is dead-lettered instead (see [Bounded Redelivery Budget](#-bounded-redelivery-budget)).
-- **`EventHandlingResult.Drop`**: Silently drops message without retry.
+- **`EventHandlingResult.Drop`**: Silently drops message without retry - it is acknowledged, so it is discarded outright and never reaches the dead-letter queue.
 - **`EventHandlingResult.DeadLetter`**: Routes message to dead-letter queue / topic.
 
 ---
@@ -225,13 +225,20 @@ their own budget. Because the count is process-local, the budget restarts if the
 message is redelivered to a different replica - the loop stays bounded per consumer, which is what the budget
 guarantees.
 
-### A dead-letter route is required
+### A budgeted subscription requires a dead-letter route
 
 A spent budget settles as reject-without-requeue, which the broker discards outright unless the queue carries
 a dead-letter route. RabbitMQ fixes queue arguments at declare time, so the route cannot be added afterwards -
-the RabbitMQ driver therefore **refuses the subscription** with an `InvalidOperationException` when neither
-`deadLetterTopic` nor an `x-dead-letter-exchange` entry in `CustomArguments` is supplied. Losing messages is
-never the quieter default.
+the RabbitMQ driver therefore **refuses the subscription** with an `InvalidOperationException` when a budget is
+in effect and no `deadLetterTopic` is supplied. Losing messages is never the quieter default.
+
+### Opting out: `MaxRetryAttempts = 0`
+
+`MaxRetryAttempts = 0` disables the budget for that subscription: `Retry` means unbounded nack-requeue again,
+nothing is dead-lettered for exhaustion, and no dead-letter route is required. Use it only where dead-lettering
+is genuinely meaningless - Centra's own ephemeral tenant-offload queues are the example, because an AutoDelete
+queue that dies with the tenant burst cannot be served by a dead-letter queue that outlives it. Everywhere else
+declare a dead-letter topic; the opt-out is a decision to retry forever, not a way to silence the error.
 
 ### Backoff delays the subscription, not just the message
 

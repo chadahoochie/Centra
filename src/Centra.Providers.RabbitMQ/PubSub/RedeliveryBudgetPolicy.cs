@@ -10,6 +10,7 @@ namespace Centra.Providers.RabbitMQ.PubSub;
 /// </summary>
 /// <param name="MaxRetryAttempts">
 /// Redeliveries granted before dead-lettering. A budget of 3 yields at most 4 handler invocations.
+/// Zero or less disables the budget entirely, restoring unbounded redelivery.
 /// </param>
 /// <param name="InitialBackoff">Delay preceding the first redelivery. Non-positive disables backoff.</param>
 /// <param name="MaxBackoff">Ceiling applied to the doubling backoff. Non-positive disables the ceiling.</param>
@@ -20,6 +21,13 @@ public readonly record struct RedeliveryBudgetPolicy(int MaxRetryAttempts, TimeS
     /// saturated <see cref="MaxBackoff"/> and further shifting would only risk overflowing the tick count.
     /// </summary>
     public const int MaxBackoffDoublings = 30;
+
+    /// <summary>
+    /// Whether this subscription has a redelivery budget at all. A non-positive <see cref="MaxRetryAttempts"/>
+    /// is a deliberate opt-out: the handler's <see cref="EventHandlingResult.Retry"/> requeues forever, no
+    /// delivery is ever dead-lettered for budget exhaustion, and nothing needs a dead-letter route.
+    /// </summary>
+    public bool IsEnabled => MaxRetryAttempts > 0;
 
     /// <summary>
     /// Resolves the effective policy for a subscription, preferring per-subscription overrides and falling

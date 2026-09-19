@@ -16,7 +16,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     private readonly IConnectionFactory _connectionFactory;
     private readonly RabbitMQProviderOptions _options;
     private readonly ILogger<RabbitMQPubSubDriver> _logger;
-    private readonly ConcurrentDictionary<string, (IChannel Channel, string ConsumerTag, SemaphoreSlim? Limiter, CancellationTokenSource Shutdown)> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (IChannel Channel, string ConsumerTag, SemaphoreSlim? Limiter, CancellationTokenSource Shutdown, string QueueName)> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly IRabbitMQHeaderExtractor _headerExtractor;
     private readonly IRabbitMQMessageAcknowledger _acknowledger;
@@ -185,14 +185,13 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         // queue carries a dead-letter route. Queue arguments are fixed at declare time, so the route cannot
         // be retrofitted once the queue exists - refusing here is the only point where the caller can still
         // act on it, and it is strictly better than accepting the subscription and losing messages later.
-        if (string.IsNullOrWhiteSpace(deadLetterTopic) &&
-            options?.CustomArguments?.ContainsKey("x-dead-letter-exchange") is not true)
+        if (redeliveryPolicy.IsEnabled && string.IsNullOrWhiteSpace(deadLetterTopic))
         {
             throw new InvalidOperationException(
                 $"Subscription '{pubSubName}/{topic}' enforces a redelivery budget of {redeliveryPolicy.MaxRetryAttempts}, "
                 + "so a message whose budget is spent must be dead-lettered, but the queue would have no dead-letter route "
-                + "and the broker would discard the message instead. Pass a non-empty deadLetterTopic, or supply an "
-                + "'x-dead-letter-exchange' entry in PubSubSubscribeOptions.CustomArguments.");
+                + "and the broker would discard the message instead. Pass a non-empty deadLetterTopic, or set "
+                + "PubSubSubscribeOptions.MaxRetryAttempts to 0 to disable the budget and retry forever.");
         }
 
         var conn = await GetConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -314,7 +313,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _subscriptions[subKey] = (channel, tag, limiter, shutdown);
+        _subscriptions[subKey] = (channel, tag, limiter, shutdown, queueName);
     }
 
     internal async Task ProcessAndAckAsync(
@@ -348,6 +347,10 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             {
                 _redeliveryBudget.Forget(new RedeliveryBudgetKey(queueName, messageId));
             }
+        }
+        else if (!redeliveryPolicy.IsEnabled)
+        {
+            // The subscription opted out of the budget, so Retry keeps its unbounded nack-requeue meaning.
         }
         else if (messageId is null)
         {
@@ -388,6 +391,11 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 // The subscription is draining. Leaving the delivery unacknowledged is the correct settlement:
                 // the broker requeues it when the channel closes, and the alternative is holding the drain open
                 // for the whole backoff.
+                if (messageId is not null)
+                {
+                    _redeliveryBudget.Forget(new RedeliveryBudgetKey(queueName, messageId));
+                }
+
                 return;
             }
         }
@@ -444,6 +452,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
 
             sub.Limiter?.Dispose();
             sub.Shutdown.Dispose();
+            _redeliveryBudget.ForgetQueue(sub.QueueName);
         }
     }
 
@@ -492,6 +501,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
 
             sub.Limiter?.Dispose();
             sub.Shutdown.Dispose();
+            _redeliveryBudget.ForgetQueue(sub.QueueName);
         }
         _subscriptions.Clear();
 

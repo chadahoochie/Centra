@@ -44,6 +44,12 @@ public sealed record PubSubSubscribeOptions
     /// Only the RabbitMQ driver enforces a redelivery budget today. Drivers that do not enforce it reject
     /// this option at subscribe time rather than ignoring it. Because a spent budget dead-letters, the RabbitMQ
     /// driver also refuses a subscription that has no dead-letter route to exhaust into.
+    /// <para>
+    /// Setting this to 0 disables the budget for the subscription and restores unbounded redelivery: a handler
+    /// returning <see cref="EventHandlingResult.Retry"/> is redelivered forever and nothing is ever
+    /// dead-lettered for exhaustion, so no dead-letter route is required. That is a deliberate decision to
+    /// retry indefinitely, not a way to silence the missing-dead-letter-route error.
+    /// </para>
     /// </remarks>
     public int? MaxRetryAttempts { get; init; }
 

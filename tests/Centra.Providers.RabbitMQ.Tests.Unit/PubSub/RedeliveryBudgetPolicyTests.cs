@@ -99,4 +99,16 @@ public sealed class RedeliveryBudgetPolicyTests
         policy.BackoffFor(1).ShouldBe(TimeSpan.Zero);
         policy.BackoffFor(3).ShouldBe(TimeSpan.Zero);
     }
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(3, true)]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    public void IsEnabled_Is_True_Only_For_A_Positive_Budget(int maxRetryAttempts, bool expected)
+    {
+        var policy = new RedeliveryBudgetPolicy(maxRetryAttempts, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30));
+
+        policy.IsEnabled.ShouldBe(expected);
+    }
 }

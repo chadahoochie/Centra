@@ -27,17 +27,27 @@ public sealed class RabbitMQMessageAcknowledgerTests
         await channel.Received(1).BasicAckAsync(tag, multiple: false);
     }
 
-    [Theory]
-    [InlineData(EventHandlingResult.Drop)]
-    [InlineData(EventHandlingResult.DeadLetter)]
-    public async Task AcknowledgeMessageAsync_CallsBasicReject_OnDropOrDeadLetter(EventHandlingResult result)
+    [Fact]
+    public async Task AcknowledgeMessageAsync_CallsBasicReject_OnDeadLetter()
     {
         var channel = Substitute.For<IChannel>();
         const ulong tag = 43;
 
-        await RabbitMQMessageAcknowledger.Instance.AcknowledgeMessageAsync(channel, tag, result);
+        await RabbitMQMessageAcknowledger.Instance.AcknowledgeMessageAsync(channel, tag, EventHandlingResult.DeadLetter);
 
         await channel.Received(1).BasicRejectAsync(tag, requeue: false);
+    }
+
+    [Fact]
+    public async Task AcknowledgeMessageAsync_CallsBasicAck_OnDrop_SoTheMessageIsDiscardedNotDeadLettered()
+    {
+        var channel = Substitute.For<IChannel>();
+        const ulong tag = 45;
+
+        await RabbitMQMessageAcknowledger.Instance.AcknowledgeMessageAsync(channel, tag, EventHandlingResult.Drop);
+
+        await channel.Received(1).BasicAckAsync(tag, multiple: false);
+        await channel.DidNotReceive().BasicRejectAsync(Arg.Any<ulong>(), Arg.Any<bool>());
     }
 
     [Fact]

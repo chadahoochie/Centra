@@ -133,7 +133,8 @@ builder.Services.AddSingleton<IClusterNodeLocalState, ClusterNodeLocalState>();
 builder.Services.AddCentraServiceClient<IPeerClient>();
 builder.Services.AddCentraEventHandler<ClusterTaskEventHandler, ClusterTaskEvent>(
     pubSubName: "pubsub",
-    topic: "cluster.tasks");
+    topic: "cluster.tasks",
+    deadLetterTopic: "cluster.tasks.dead");
 
 var app = builder.Build();
 

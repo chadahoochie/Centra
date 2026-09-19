@@ -28,7 +28,9 @@ public sealed class RabbitMQProviderOptions
     /// <summary>
     /// Default number of redeliveries granted to a handler returning <c>Retry</c> before the message is
     /// dead-lettered, when not overridden by subscription options. Defaults to 3, so a failing message is
-    /// handed to the handler at most 4 times in total. Set to 0 to dead-letter on first failure.
+    /// handed to the handler at most 4 times in total. Set to 0 to disable the budget entirely, which restores
+    /// unbounded redelivery for every subscription that does not override it - a deliberate choice to retry
+    /// forever, not a way to avoid configuring a dead-letter topic.
     /// </summary>
     /// <remarks>
     /// The budget is enforced by the consumer. RabbitMQ only advances <c>x-delivery-count</c> when a delivery
