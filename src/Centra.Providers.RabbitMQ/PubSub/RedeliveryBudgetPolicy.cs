@@ -30,6 +30,47 @@ public readonly record struct RedeliveryBudgetPolicy(int MaxRetryAttempts, TimeS
     public bool IsEnabled => MaxRetryAttempts > 0;
 
     /// <summary>
+    /// Multiple of the retry schedule an attempt counter is kept for beyond the point the message could still
+    /// legitimately come back, so a live counter is never reclaimed early.
+    /// </summary>
+    public const int StalenessSafetyFactor = 4;
+
+    /// <summary>
+    /// Floor applied to <see cref="StaleAfter"/>, so a subscription with little or no backoff still keeps its
+    /// counters long enough to survive ordinary redelivery latency.
+    /// </summary>
+    public static readonly TimeSpan MinStaleAfter = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Ceiling applied to <see cref="StaleAfter"/>, bounding how long an abandoned counter can occupy memory
+    /// however extreme the configured backoff is.
+    /// </summary>
+    public static readonly TimeSpan MaxStaleAfter = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// How long an attempt counter survives without being charged again before it is treated as stale. Sized
+    /// off the retry schedule - the whole remaining backoff sequence times
+    /// <see cref="StalenessSafetyFactor"/> - so a message that could still legitimately be redelivered always
+    /// finds its counter, while a message that never comes back stops occupying memory.
+    /// </summary>
+    public TimeSpan StaleAfter
+    {
+        get
+        {
+            var retries = Math.Max(MaxRetryAttempts, 1);
+            var perRetryTicks = BackoffFor(MaxRetryAttempts).Ticks;
+            var scheduleTicks = perRetryTicks >= MaxStaleAfter.Ticks / retries
+                ? MaxStaleAfter.Ticks
+                : perRetryTicks * retries;
+            var slackedTicks = scheduleTicks >= MaxStaleAfter.Ticks / StalenessSafetyFactor
+                ? MaxStaleAfter.Ticks
+                : scheduleTicks * StalenessSafetyFactor;
+
+            return TimeSpan.FromTicks(Math.Max(slackedTicks, MinStaleAfter.Ticks));
+        }
+    }
+
+    /// <summary>
     /// Resolves the effective policy for a subscription, preferring per-subscription overrides and falling
     /// back to the provider-wide defaults.
     /// </summary>

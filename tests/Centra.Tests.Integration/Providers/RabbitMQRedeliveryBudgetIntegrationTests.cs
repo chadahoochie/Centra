@@ -72,8 +72,9 @@ public sealed class RabbitMQRedeliveryBudgetIntegrationTests : IAsyncLifetime
             return ValueTask.FromResult(EventHandlingResult.Success);
         });
 
-        // x-delivery-limit stays on the queue as a backstop against channel-failure loops only -
-        // nothing below depends on it for application-level retry.
+        // x-delivery-limit stays on the queue as a backstop against channel-failure loops only, set far above
+        // the consumer budget so a quorum queue - which does count an application nack-requeue - cannot be
+        // what bounds this loop. Every assertion below is attributable to the consumer-enforced budget.
         await _driver.SubscribeAsync(
             pubSub,
             topic,
@@ -91,7 +92,7 @@ public sealed class RabbitMQRedeliveryBudgetIntegrationTests : IAsyncLifetime
                 CustomArguments = new Dictionary<string, object?>
                 {
                     ["x-queue-type"] = "quorum",
-                    ["x-delivery-limit"] = 3
+                    ["x-delivery-limit"] = 100
                 }
             });
 
@@ -107,8 +108,8 @@ public sealed class RabbitMQRedeliveryBudgetIntegrationTests : IAsyncLifetime
                 ["ce-specversion"] = "1.0"
             });
 
-        // Without a consumer-enforced budget this never completes: the nack-requeue loop was measured at
-        // 2,710 handler invocations inside this same window, with nothing ever reaching the dead-letter queue.
+        // Without a consumer-enforced budget this never completes inside the window: the nack-requeue loop runs
+        // hot against a delivery limit it cannot reach, with nothing ever landing on the dead-letter queue.
         await deadLettered.Task.WaitAsync(TimeSpan.FromSeconds(20));
 
         Volatile.Read(ref handlerInvocations).ShouldBe(4);

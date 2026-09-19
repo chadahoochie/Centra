@@ -148,8 +148,8 @@ public sealed class PaymentNotificationHandler : IEventHandler<OrderCreatedEvent
 
 ### Event Handling Return Statuses:
 - **`EventHandlingResult.Success`**: Acknowledges message receipt (`Complete` / `Ack`).
-- **`EventHandlingResult.Retry`**: Rejects and returns message to broker for redelivery (`Nack` / `Abandon`), bounded by the consumer's redelivery budget - after `MaxRetryAttempts` redeliveries with exponential backoff the message is dead-lettered instead (see [Bounded Redelivery Budget](#-bounded-redelivery-budget)).
-- **`EventHandlingResult.Drop`**: Silently drops message without retry - it is acknowledged, so it is discarded outright and never reaches the dead-letter queue.
+- **`EventHandlingResult.Retry`**: Rejects and returns message to broker for redelivery (`Nack` / `Abandon`), unbounded unless the subscription configures a redelivery budget - when one is configured, the message is dead-lettered after `MaxRetryAttempts` redeliveries with exponential backoff (see [Bounded Redelivery Budget](#-bounded-redelivery-budget)).
+- **`EventHandlingResult.Drop`**: Drops the message without retry. It is rejected without requeue, so a queue configured with a dead-letter route captures it there for audit; without one the broker discards it.
 - **`EventHandlingResult.DeadLetter`**: Routes message to dead-letter queue / topic.
 
 ---
