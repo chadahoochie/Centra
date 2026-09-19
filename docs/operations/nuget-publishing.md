@@ -113,6 +113,16 @@ gh workflow run publish-nuget.yml --ref main \
    * **Prerelease tag suffix**: e.g., `preview`, `beta`, `rc`, or leave blank for stable releases.
 4. Click **Run workflow**.
 
+### The Control Plane Container Image
+
+The Control Plane is also published as a container image, which this workflow does **not** build.
+It has its own manual workflow
+([`.github/workflows/publish-controlplane-image.yml`](../../.github/workflows/publish-controlplane-image.yml))
+and must be run separately whenever `VersionPrefix` changes, otherwise `AddCentraControlPlane`
+pulls a tag that does not exist. See
+[.NET Aspire Cloud-Native Orchestration](../getting-started/aspire.md#route-1--pull-the-published-image-default)
+for the image coordinates, tag policy, and pull failure modes.
+
 ---
 
 ## 📦 Published Packages
