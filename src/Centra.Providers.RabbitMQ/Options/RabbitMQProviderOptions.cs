@@ -26,11 +26,17 @@ public sealed class RabbitMQProviderOptions
     public int DefaultMaxConcurrentCalls { get; set; } = 1;
 
     /// <summary>
-    /// Maximum time <see cref="PubSub.RabbitMQPubSubDriver.UnsubscribeAsync"/> and
-    /// <see cref="PubSub.RabbitMQPubSubDriver.DisposeAsync"/> wait for in-flight handlers to finish
-    /// after the consumer has been cancelled, before the subscription channel is closed anyway.
-    /// Defaults to 10 seconds: comfortably longer than a typical handler, and short enough that
-    /// several subscriptions can still drain inside the 30 second default host shutdown budget.
+    /// Time budget for draining in-flight handlers after a consumer has been cancelled and before its
+    /// channel is closed anyway. <see cref="PubSub.RabbitMQPubSubDriver.UnsubscribeAsync"/> tears down a
+    /// single subscription, so it gets the whole budget.
+    /// <see cref="PubSub.RabbitMQPubSubDriver.DisposeAsync"/> tears down every subscription
+    /// sequentially and shares one budget across all of them, so disposal never costs
+    /// subscription-count multiples of this value. When the host drains topic by topic (via
+    /// <c>CentraRuntimeHostedService.StopAsync</c>) each subscription gets its own budget, and the
+    /// overall bound is the shutdown <see cref="System.Threading.CancellationToken"/> the host
+    /// supplies - cancelling it ends the drain immediately.
+    /// Defaults to 10 seconds: comfortably longer than a typical handler, and a third of the 30 second
+    /// default host shutdown budget, so a handful of topics still drain within it.
     /// Exceeding it is logged as an error, never silently ignored.
     /// </summary>
     public TimeSpan ShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(10);

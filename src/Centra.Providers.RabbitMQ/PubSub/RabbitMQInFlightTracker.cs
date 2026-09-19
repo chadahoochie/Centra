@@ -11,8 +11,6 @@ internal sealed class RabbitMQInFlightTracker
     private TaskCompletionSource? _drained;
     private int _inFlight;
 
-    public int InFlightCount => Volatile.Read(ref _inFlight);
-
     public void BeginDelivery() => Interlocked.Increment(ref _inFlight);
 
     public void CompleteDelivery()
@@ -25,16 +23,20 @@ internal sealed class RabbitMQInFlightTracker
 
     /// <summary>
     /// Waits until every in-flight handler has completed or <paramref name="timeout"/> elapses.
-    /// Returns the number of handlers still running when the wait ended - 0 means a clean drain.
     /// A cancelled <paramref name="cancellationToken"/> ends the wait the same way a timeout does:
-    /// the residual count is returned so the caller can report it rather than having it disappear
-    /// into an exception thrown from a shutdown path.
+    /// the outcome reports the residual count so the caller can log it rather than having it
+    /// disappear into an exception thrown from a shutdown path.
     /// </summary>
-    public async ValueTask<int> WaitForDrainAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    public async ValueTask<RabbitMQDrainOutcome> WaitForDrainAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
-        if (Volatile.Read(ref _inFlight) == 0 || timeout <= TimeSpan.Zero)
+        if (Volatile.Read(ref _inFlight) == 0)
         {
-            return Volatile.Read(ref _inFlight);
+            return new RabbitMQDrainOutcome(true, 0);
+        }
+
+        if (timeout <= TimeSpan.Zero)
+        {
+            return new RabbitMQDrainOutcome(false, Volatile.Read(ref _inFlight));
         }
 
         var created = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -50,6 +52,7 @@ internal sealed class RabbitMQInFlightTracker
         try
         {
             await signal.Task.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+            return new RabbitMQDrainOutcome(true, 0);
         }
         catch (TimeoutException)
         {
@@ -58,6 +61,6 @@ internal sealed class RabbitMQInFlightTracker
         {
         }
 
-        return Volatile.Read(ref _inFlight);
+        return new RabbitMQDrainOutcome(false, Volatile.Read(ref _inFlight));
     }
 }

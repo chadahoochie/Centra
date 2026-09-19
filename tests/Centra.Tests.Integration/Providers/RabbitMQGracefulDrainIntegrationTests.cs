@@ -109,4 +109,49 @@ public sealed class RabbitMQGracefulDrainIntegrationTests : IAsyncLifetime
         await Task.Delay(3000);
         Volatile.Read(ref redelivered).ShouldBe(0);
     }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Drain_Prefetched_Messages_Not_Yet_Handed_To_A_Handler()
+    {
+        _driver.ShouldNotBeNull();
+        const string topic = "orders.drain.prefetched";
+        const int messageCount = 12;
+
+        var completed = 0;
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Prefetch far above the concurrency limit - the shipped default shape - so most messages sit
+        // in the client's consumer dispatcher, buffered but never handed to a handler, at shutdown.
+        await _driver.SubscribeAsync(
+            PubSub,
+            topic,
+            async (payload, headers, ct) =>
+            {
+                firstStarted.TrySetResult();
+                await Task.Delay(150, CancellationToken.None).ConfigureAwait(false);
+                Interlocked.Increment(ref completed);
+                return EventHandlingResult.Success;
+            },
+            options: new PubSubSubscribeOptions { MaxConcurrentCalls = 1, PrefetchCount = messageCount * 4 });
+
+        for (var i = 0; i < messageCount; i++)
+        {
+            await _driver.PublishAsync(
+                PubSub,
+                topic,
+                Encoding.UTF8.GetBytes($"{{\"n\":{i}}}"),
+                new Dictionary<string, string> { ["ce-id"] = $"prefetched-{i}" });
+        }
+
+        var reachedFirstStarted = await Task.WhenAny(firstStarted.Task, Task.Delay(30_000));
+        reachedFirstStarted.ShouldBe(firstStarted.Task);
+
+        await _driver.UnsubscribeAsync(PubSub, topic);
+
+        Volatile.Read(ref completed).ShouldBe(messageCount);
+
+        var stats = await _driver.GetQueueStatsAsync(PubSub, topic);
+        stats.ShouldNotBeNull();
+        stats.Value.MessageCount.ShouldBe(0);
+    }
 }

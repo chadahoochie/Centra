@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Centra.Providers.RabbitMQ.Options;
 using Centra.Providers.RabbitMQ.PubSub;
 using Centra.PubSub;
@@ -10,20 +11,20 @@ using Xunit;
 namespace Centra.Providers.RabbitMQ.Tests.Unit.PubSub;
 
 /// <summary>
-/// Covers the subscription shutdown contract: cancel the consumer so no new deliveries arrive,
-/// then await in-flight handlers up to a configurable timeout before the channel is closed.
+/// Covers the subscription shutdown contract: cancel the consumer so no new deliveries arrive, let the
+/// client finish handing over the deliveries it had already buffered, then await those handlers up to a
+/// configurable budget before the channel is closed.
 /// </summary>
 public sealed class RabbitMQPubSubDriverDrainTests
 {
     private const string PubSubName = "pubsub";
     private const string Topic = "orders.created";
-    private const string ConsumerTag = "consumer-tag";
 
     private readonly IChannel _channel;
     private readonly RabbitMQProviderOptions _options;
     private readonly RecordingLogger<RabbitMQPubSubDriver> _logger;
     private readonly RabbitMQPubSubDriver _sut;
-    private IAsyncBasicConsumer? _consumer;
+    private readonly Dictionary<string, IAsyncBasicConsumer> _consumers = new(StringComparer.Ordinal);
 
     public RabbitMQPubSubDriverDrainTests()
     {
@@ -36,9 +37,26 @@ public sealed class RabbitMQPubSubDriverDrainTests
         _channel.BasicConsumeAsync(
             Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<bool>(),
             Arg.Any<IDictionary<string, object?>>(),
-            Arg.Do<IAsyncBasicConsumer>(c => _consumer = c),
+            Arg.Any<IAsyncBasicConsumer>(),
             Arg.Any<CancellationToken>())
-            .Returns(ConsumerTag);
+            .Returns(call =>
+            {
+                var tag = $"consumer-tag-{_consumers.Count + 1}";
+                _consumers[tag] = call.Arg<IAsyncBasicConsumer>();
+                return tag;
+            });
+
+        // The real client routes cancel-ok back through the consumer, which is what tells the driver
+        // that nothing more will be dispatched. Tests that need cancel-ok ordered behind buffered
+        // deliveries re-stub this to enqueue it on a ConsumerDispatchQueue instead.
+        _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var tag = call.Arg<string>();
+                return _consumers.TryGetValue(tag, out var consumer)
+                    ? consumer.HandleBasicCancelOkAsync(tag)
+                    : Task.CompletedTask;
+            });
 
         _options = new RabbitMQProviderOptions();
         _logger = new RecordingLogger<RabbitMQPubSubDriver>();
@@ -66,8 +84,8 @@ public sealed class RabbitMQPubSubDriverDrainTests
             },
             options: new PubSubSubscribeOptions { MaxConcurrentCalls = k * 2 });
 
-        _consumer.ShouldNotBeNull();
-        await new ConsumerDeliverySource(_consumer, ConsumerTag).DeliverAsync(k, _options.ExchangeName, Topic);
+        var (tag, consumer) = _consumers.Single();
+        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(k, _options.ExchangeName, Topic);
 
         await _sut.UnsubscribeAsync(PubSubName, Topic);
 
@@ -75,6 +93,52 @@ public sealed class RabbitMQPubSubDriverDrainTests
         completedWhenChannelClosed.ShouldBe(k);
         await _channel.Received(k).BasicAckAsync(Arg.Any<ulong>(), multiple: false, Arg.Any<CancellationToken>());
         await _channel.DidNotReceive().BasicNackAsync(Arg.Any<ulong>(), Arg.Any<bool>(), requeue: true, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Drain_Deliveries_Still_Queued_In_The_Consumer_Dispatcher()
+    {
+        // The shipped default shape: prefetch far above the concurrency limit, so at shutdown most
+        // deliveries have been read off the socket but not yet handed to a handler.
+        const int prefetched = 20;
+        var completed = 0;
+        var completedWhenChannelClosed = -1;
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _channel
+            .When(c => c.CloseAsync(Arg.Any<ushort>(), Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()))
+            .Do(_ => completedWhenChannelClosed = Volatile.Read(ref completed));
+
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            async (payload, headers, ct) =>
+            {
+                firstStarted.TrySetResult();
+                await Task.Delay(20, CancellationToken.None).ConfigureAwait(false);
+                Interlocked.Increment(ref completed);
+                return EventHandlingResult.Success;
+            },
+            options: new PubSubSubscribeOptions { PrefetchCount = prefetched, MaxConcurrentCalls = 1 });
+
+        var (tag, consumer) = _consumers.Single();
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                dispatcher.EnqueueCancelOk();
+                return Task.CompletedTask;
+            });
+
+        dispatcher.EnqueueDeliveries(prefetched, _options.ExchangeName, Topic);
+        await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        await _sut.UnsubscribeAsync(PubSubName, Topic);
+
+        Volatile.Read(ref completed).ShouldBe(prefetched);
+        completedWhenChannelClosed.ShouldBe(prefetched);
+        await _channel.Received(prefetched).BasicAckAsync(Arg.Any<ulong>(), multiple: false, Arg.Any<CancellationToken>());
+        _logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error);
     }
 
     [Fact]
@@ -94,14 +158,50 @@ public sealed class RabbitMQPubSubDriverDrainTests
             },
             options: new PubSubSubscribeOptions { MaxConcurrentCalls = k * 2 });
 
-        _consumer.ShouldNotBeNull();
-        await new ConsumerDeliverySource(_consumer, ConsumerTag).DeliverAsync(k, _options.ExchangeName, Topic);
+        var (tag, consumer) = _consumers.Single();
+        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(k, _options.ExchangeName, Topic);
 
         await _sut.DisposeAsync();
 
         Volatile.Read(ref completed).ShouldBe(k);
-        await _channel.Received(1).BasicCancelAsync(ConsumerTag, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _channel.Received(1).BasicCancelAsync(tag, Arg.Any<bool>(), Arg.Any<CancellationToken>());
         await _channel.Received(k).BasicAckAsync(Arg.Any<ulong>(), multiple: false, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DisposeAsync_Should_Share_One_Drain_Budget_Across_Every_Subscription()
+    {
+        const int subscriptionCount = 4;
+        var budget = TimeSpan.FromMilliseconds(500);
+        _options.ShutdownDrainTimeout = budget;
+        using var release = new SemaphoreSlim(0, subscriptionCount);
+
+        for (var i = 0; i < subscriptionCount; i++)
+        {
+            await _sut.SubscribeAsync(
+                PubSubName,
+                $"{Topic}.{i}",
+                async (payload, headers, ct) =>
+                {
+                    await release.WaitAsync(TimeSpan.FromSeconds(30), CancellationToken.None).ConfigureAwait(false);
+                    return EventHandlingResult.Success;
+                },
+                options: new PubSubSubscribeOptions { MaxConcurrentCalls = 2 });
+        }
+
+        _consumers.Count.ShouldBe(subscriptionCount);
+        foreach (var (tag, consumer) in _consumers)
+        {
+            await new ConsumerDeliverySource(consumer, tag).DeliverAsync(1, _options.ExchangeName, Topic);
+        }
+
+        var elapsed = Stopwatch.StartNew();
+        await _sut.DisposeAsync();
+        elapsed.Stop();
+
+        // One shared budget, not one per subscription: two budgets is already a generous ceiling.
+        elapsed.Elapsed.ShouldBeLessThan(budget * 2);
+        release.Release(subscriptionCount);
     }
 
     [Fact]
@@ -120,8 +220,8 @@ public sealed class RabbitMQPubSubDriverDrainTests
             },
             options: new PubSubSubscribeOptions { MaxConcurrentCalls = 2 });
 
-        _consumer.ShouldNotBeNull();
-        await new ConsumerDeliverySource(_consumer, ConsumerTag).DeliverAsync(1, _options.ExchangeName, Topic);
+        var (tag, consumer) = _consumers.Single();
+        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(1, _options.ExchangeName, Topic);
 
         await _sut.UnsubscribeAsync(PubSubName, Topic);
 

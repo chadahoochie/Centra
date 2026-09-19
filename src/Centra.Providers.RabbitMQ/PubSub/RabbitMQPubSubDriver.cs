@@ -260,23 +260,27 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         var inFlight = new RabbitMQInFlightTracker();
 
         var consumer = new AsyncEventingBasicConsumer(channel);
+
+        // Completed once the client has dispatched cancel-ok, which the consumer's serial work queue
+        // orders *after* every delivery it had already buffered - the signal the drain waits on.
+        var consumerCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        consumer.UnregisteredAsync += (_, _) =>
+        {
+            consumerCancelled.TrySetResult();
+            return Task.CompletedTask;
+        };
+        consumer.ShutdownAsync += (_, _) =>
+        {
+            consumerCancelled.TrySetResult();
+            return Task.CompletedTask;
+        };
+
         if (limiter is not null)
         {
             consumer.ReceivedAsync += async (_, ea) =>
             {
                 inFlight.BeginDelivery();
-                try
-                {
-                    await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (ObjectDisposedException)
-                {
-                    // The subscription was torn down while this delivery waited for a permit. The
-                    // channel is already closing, so release the tracking instead of stranding the
-                    // drain counter on work that will never start.
-                    inFlight.CompleteDelivery();
-                    return;
-                }
+                await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 
                 _ = Task.Run(async () =>
                 {
@@ -286,8 +290,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                     }
                     finally
                     {
-                        limiter.Release();
                         inFlight.CompleteDelivery();
+                        limiter.Release();
                     }
                 });
             };
@@ -315,7 +319,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, limiter, inFlight);
+        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, limiter, inFlight, consumerCancelled);
     }
 
     internal async Task ProcessAndAckAsync(
@@ -381,9 +385,13 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             return;
         }
 
+        // One budget for the whole disposal, not one per subscription: subscriptions are drained
+        // sequentially, so a per-subscription timeout would multiply by the number of topics.
+        var drainDeadline = Environment.TickCount64 + (long)Math.Max(0d, _options.ShutdownDrainTimeout.TotalMilliseconds);
         foreach (var (_, sub) in _subscriptions)
         {
-            await sub.ShutdownAsync(_options.ShutdownDrainTimeout, _logger, CancellationToken.None).ConfigureAwait(false);
+            var remaining = TimeSpan.FromMilliseconds(Math.Max(0L, drainDeadline - Environment.TickCount64));
+            await sub.ShutdownAsync(remaining, _logger, CancellationToken.None).ConfigureAwait(false);
         }
         _subscriptions.Clear();
 
