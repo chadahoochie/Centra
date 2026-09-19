@@ -151,17 +151,25 @@ public sealed class ActorClusterIntegrationTests
             coordinator1.RegisterReminder(identity, AccountActor.InterestReminderName, TimeSpan.Zero, TimeSpan.FromMinutes(1), null);
             coordinator2.RegisterReminder(identity, AccountActor.InterestReminderName, TimeSpan.Zero, TimeSpan.FromMinutes(1), null);
 
-            // Act: Both nodes simultaneously execute coordinator.TickAsync()
-            var tick1Task = coordinator1.TickAsync().AsTask();
-            var tick2Task = coordinator2.TickAsync().AsTask();
+            // Arrange: a third replica already holds the reminder lock for this tick
+            var lockKey = ActorReminderKeyFormatter.Instance.FormatLockKey(identity, AccountActor.InterestReminderName);
+            var heldLock = await sharedLockDriver.TryAcquireLockAsync("shared-lockstore", lockKey, TimeSpan.FromMinutes(1));
+            heldLock.ShouldNotBeNull();
 
-            var ticks = await Task.WhenAll(tick1Task, tick2Task);
+            // Act: both nodes tick while the lock is held elsewhere
+            var contendedTicks = await Task.WhenAll(coordinator1.TickAsync().AsTask(), coordinator2.TickAsync().AsTask());
 
-            // Assert: Exactly ONE node acquired the distributed lock and executed the reminder
-            var totalExecuted = ticks[0] + ticks[1];
-            totalExecuted.ShouldBe(1);
+            // Assert: neither node executed the reminder, and no interest was applied
+            (contendedTicks[0] + contendedTicks[1]).ShouldBe(0);
+            (await proxy1.GetBalanceAsync()).ShouldBe(1000m);
 
-            // Balance has 5% interest applied exactly once ($1000 * 1.05 = $1050)
+            // Act: the holder releases, and a single node ticks a freshly due reminder
+            await heldLock.DisposeAsync();
+            coordinator1.RegisterReminder(identity, AccountActor.InterestReminderName, TimeSpan.Zero, TimeSpan.FromMinutes(1), null);
+            var executed = await coordinator1.TickAsync();
+
+            // Assert: the reminder ran once, applying 5% interest ($1000 * 1.05 = $1050)
+            executed.ShouldBe(1);
             var finalBalance = await proxy1.GetBalanceAsync();
             finalBalance.ShouldBe(1050m);
         }
