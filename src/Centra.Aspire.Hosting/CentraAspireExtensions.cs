@@ -14,7 +14,9 @@ public static class CentraAspireExtensions
     /// <param name="name">Aspire resource name.</param>
     /// <param name="port">Optional fixed host port; omit to let Aspire allocate one.</param>
     /// <remarks>
-    /// The image defaults to <see cref="CentraControlPlaneImage"/>. Override it with Aspire's own
+    /// The resource pulls <c>ghcr.io/chadahoochie/centra-controlplane:1.0.0</c> by default; the
+    /// tag tracks <c>VersionPrefix</c> in <c>Directory.Build.props</c>, so the tag the resource
+    /// pulls is the tag the publish workflow pushes. Override the coordinates with Aspire's own
     /// container builder extensions — <c>WithImage</c>, <c>WithImageTag</c>,
     /// <c>WithImageRegistry</c>, <c>WithImagePullPolicy</c>.
     /// Aspire injects OTLP exporter configuration into project resources automatically but not
@@ -34,12 +36,12 @@ public static class CentraAspireExtensions
         var resource = new CentraControlPlaneResource(name);
 
         return builder.AddResource(resource)
-            .WithImage(CentraControlPlaneImage.Image, CentraControlPlaneImage.Tag)
-            .WithImageRegistry(CentraControlPlaneImage.Registry)
+            .WithImage("chadahoochie/centra-controlplane", "1.0.0")
+            .WithImageRegistry("ghcr.io")
             .WithOtlpExporter()
             .WithHttpEndpoint(
                 port: port,
-                targetPort: CentraControlPlaneImage.ContainerHttpPort,
+                targetPort: 8080,
                 name: CentraControlPlaneResource.HttpEndpointName);
     }
 

@@ -82,7 +82,7 @@ Use this when Centra is a dependency, not part of your solution — you referenc
 var controlPlane = builder.AddCentraControlPlane("control-plane");
 ```
 
-The defaults come from [`CentraControlPlaneImage`](../../src/Centra.Aspire.Hosting/CentraControlPlaneImage.cs):
+The resource pulls `ghcr.io/chadahoochie/centra-controlplane:1.0.0` by default:
 
 | Setting | Default |
 | --- | --- |

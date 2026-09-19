@@ -22,12 +22,16 @@ namespace Centra.Tests.Unit.Hosting;
 public sealed class CentraControlPlaneLaunchabilityTests
 {
     [Fact]
-    public void CentraControlPlaneImage_DefaultTagTracksTheFrameworkVersion()
+    public void AddCentraControlPlane_DefaultTagTracksTheFrameworkVersion()
     {
-        var frameworkVersion = typeof(CentraControlPlaneImage).Assembly.GetName().Version;
+        var builder = DistributedApplication.CreateBuilder();
+        var frameworkVersion = typeof(CentraAspireExtensions).Assembly.GetName().Version;
+
+        builder.AddCentraControlPlane().Resource.TryGetContainerImageName(out var imageName).ShouldBeTrue();
 
         frameworkVersion.ShouldNotBeNull();
-        CentraControlPlaneImage.Tag.ShouldBe(
+        imageName.ShouldNotBeNull();
+        imageName[(imageName.LastIndexOf(':') + 1)..].ShouldBe(
             $"{frameworkVersion.Major}.{frameworkVersion.Minor}.{frameworkVersion.Build}",
             "The published image tag must match the version Centra ships its assemblies and "
             + "packages under (VersionPrefix in Directory.Build.props, recorded in RELEASE_NOTES.md), "
@@ -52,8 +56,7 @@ public sealed class CentraControlPlaneLaunchabilityTests
         var controlPlane = builder.AddCentraControlPlane();
 
         controlPlane.Resource.TryGetContainerImageName(out var imageName).ShouldBeTrue();
-        imageName.ShouldBe(
-            $"{CentraControlPlaneImage.Registry}/{CentraControlPlaneImage.Image}:{CentraControlPlaneImage.Tag}");
+        imageName.ShouldBe("ghcr.io/chadahoochie/centra-controlplane:1.0.0");
     }
 
     [Fact]
@@ -66,7 +69,7 @@ public sealed class CentraControlPlaneLaunchabilityTests
             .WithImageTag("2.3.4");
 
         controlPlane.Resource.TryGetContainerImageName(out var imageName).ShouldBeTrue();
-        imageName.ShouldBe($"internal.registry.example/{CentraControlPlaneImage.Image}:2.3.4");
+        imageName.ShouldBe("internal.registry.example/chadahoochie/centra-controlplane:2.3.4");
     }
 
     [Fact]
@@ -96,6 +99,6 @@ public sealed class CentraControlPlaneLaunchabilityTests
         var http = endpoints.ShouldHaveSingleItem();
         http.Name.ShouldBe(CentraControlPlaneResource.HttpEndpointName);
         http.Port.ShouldBe(18080);
-        http.TargetPort.ShouldBe(CentraControlPlaneImage.ContainerHttpPort);
+        http.TargetPort.ShouldBe(8080);
     }
 }
