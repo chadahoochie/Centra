@@ -35,6 +35,26 @@ public sealed record PubSubSubscribeOptions
     public bool AutoDelete { get; init; } = false;
 
     /// <summary>
+    /// The number of times a handler returning <see cref="EventHandlingResult.Retry"/> may have the message
+    /// redelivered before it is dead-lettered instead. The budget is enforced by the consumer, never by a
+    /// broker delivery limit, because brokers do not count application-initiated requeues.
+    /// When null, the provider's default budget is used (Centra providers default to 3).
+    /// </summary>
+    public int? MaxRetryAttempts { get; init; }
+
+    /// <summary>
+    /// The delay applied before the first redelivery. Each subsequent retry doubles the previous delay,
+    /// clamped to <see cref="RetryMaxBackoff"/>. When null, the provider's default initial backoff is used.
+    /// </summary>
+    public TimeSpan? RetryInitialBackoff { get; init; }
+
+    /// <summary>
+    /// The ceiling applied to the exponentially growing redelivery backoff.
+    /// When null, the provider's default maximum backoff is used.
+    /// </summary>
+    public TimeSpan? RetryMaxBackoff { get; init; }
+
+    /// <summary>
     /// Optional provider-specific custom queue or subscription arguments (e.g., RabbitMQ x-arguments like quorum queues or max-length).
     /// </summary>
     public IReadOnlyDictionary<string, object?>? CustomArguments { get; init; }

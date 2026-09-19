@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Centra.Runtime\Centra.Runtime.csproj" />
     <ProjectReference Include="..\Centra.PubSub.Abstractions\Centra.PubSub.Abstractions.csproj" />
+    <ProjectReference Include="..\Centra.Events.Abstractions\Centra.Events.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

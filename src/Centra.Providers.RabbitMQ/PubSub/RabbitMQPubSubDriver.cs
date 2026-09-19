@@ -20,6 +20,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly IRabbitMQHeaderExtractor _headerExtractor;
     private readonly IRabbitMQMessageAcknowledger _acknowledger;
+    private readonly IRabbitMQMessageIdentityReader _identityReader;
+    private readonly IRedeliveryBudget _redeliveryBudget;
     private IConnection? _connection;
     private IChannel? _publishChannel;
     private int _disposed;
@@ -29,13 +31,17 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         IOptions<RabbitMQProviderOptions> options,
         ILogger<RabbitMQPubSubDriver>? logger = null,
         IRabbitMQHeaderExtractor? headerExtractor = null,
-        IRabbitMQMessageAcknowledger? acknowledger = null)
+        IRabbitMQMessageAcknowledger? acknowledger = null,
+        IRabbitMQMessageIdentityReader? identityReader = null,
+        IRedeliveryBudget? redeliveryBudget = null)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _options = options?.Value ?? new RabbitMQProviderOptions();
         _logger = logger ?? NullLogger<RabbitMQPubSubDriver>.Instance;
         _headerExtractor = headerExtractor ?? RabbitMQHeaderExtractor.Instance;
         _acknowledger = acknowledger ?? RabbitMQMessageAcknowledger.Instance;
+        _identityReader = identityReader ?? RabbitMQMessageIdentityReader.Instance;
+        _redeliveryBudget = redeliveryBudget ?? new BoundedRedeliveryBudget();
     }
 
     public async ValueTask<IConnection> GetConnectionAsync(CancellationToken cancellationToken)
@@ -255,6 +261,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
 
         var limiter = maxConcurrency > 1 ? new SemaphoreSlim(maxConcurrency, maxConcurrency) : null;
 
+        var redeliveryPolicy = RedeliveryBudgetPolicy.Resolve(options, _options);
+
         var consumer = new AsyncEventingBasicConsumer(channel);
         if (limiter is not null)
         {
@@ -265,7 +273,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 {
                     try
                     {
-                        await ProcessAndAckAsync(channel, queueName, ea, handler).ConfigureAwait(false);
+                        await ProcessAndAckAsync(channel, queueName, ea, handler, redeliveryPolicy).ConfigureAwait(false);
                     }
                     finally
                     {
@@ -278,7 +286,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         {
             consumer.ReceivedAsync += async (_, ea) =>
             {
-                await ProcessAndAckAsync(channel, queueName, ea, handler).ConfigureAwait(false);
+                await ProcessAndAckAsync(channel, queueName, ea, handler, redeliveryPolicy).ConfigureAwait(false);
             };
         }
 
@@ -296,19 +304,65 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         IChannel channel,
         string queueName,
         BasicDeliverEventArgs ea,
-        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler)
+        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
+        RedeliveryBudgetPolicy redeliveryPolicy)
     {
+        IReadOnlyDictionary<string, string>? headers = null;
+        EventHandlingResult result;
         try
         {
-            var headers = _headerExtractor.ExtractHeaders(ea.BasicProperties);
-            var result = await handler(ea.Body, headers, CancellationToken.None).ConfigureAwait(false);
-            await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, result).ConfigureAwait(false);
+            headers = _headerExtractor.ExtractHeaders(ea.BasicProperties);
+            result = await handler(ea.Body, headers, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception thrown while processing RabbitMQ message on queue {Queue}", queueName);
-            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true).ConfigureAwait(false);
+            result = EventHandlingResult.Retry;
         }
+
+        var messageId = _identityReader.ResolveIdentity(headers, ea.BasicProperties);
+
+        if (result is not EventHandlingResult.Retry)
+        {
+            if (messageId is not null)
+            {
+                _redeliveryBudget.Forget(messageId);
+            }
+
+            await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, result).ConfigureAwait(false);
+            return;
+        }
+
+        // The broker cannot bound this loop: x-delivery-count only advances when a delivery is returned by
+        // consumer or channel failure, never on an application nack-requeue. So a message carrying no identity
+        // to count against would requeue forever, and dead-lettering it is the only bounded settlement left.
+        if (messageId is null)
+        {
+            _logger.LogWarning(
+                "Retry requested for a message on queue {Queue} carrying neither ce-id nor message-id; "
+                + "the redelivery budget cannot be enforced without a stable identity, so dead-lettering",
+                queueName);
+
+            await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, EventHandlingResult.DeadLetter).ConfigureAwait(false);
+            return;
+        }
+
+        var decision = _redeliveryBudget.ChargeFailure(messageId, in redeliveryPolicy);
+
+        if (decision.Result is EventHandlingResult.DeadLetter)
+        {
+            _logger.LogWarning(
+                "Redelivery budget of {Budget} exhausted for message {MessageId} on queue {Queue}; dead-lettering",
+                redeliveryPolicy.MaxRetryAttempts,
+                messageId,
+                queueName);
+        }
+        else if (decision.Delay > TimeSpan.Zero)
+        {
+            await Task.Delay(decision.Delay).ConfigureAwait(false);
+        }
+
+        await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, decision.Result).ConfigureAwait(false);
     }
 
     public async ValueTask UnsubscribeAsync(

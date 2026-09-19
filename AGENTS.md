@@ -96,6 +96,7 @@ Repo-level skills are saved in [`.agents/skills/`](.agents/skills) (also mirrore
 10. **Workflow Determinism & Saga Rollback Invariant**: Orchestration turns must be deterministic; side effects, clock checks, and random values must execute within activities or use `IWorkflowContext` (`CurrentUtcDateTime`, `NewGuid()`). On activity failure or cancellation, registered saga compensations must execute in strict reverse (LIFO) order.
 11. **Relative File Paths in Documentation**: Always use relative file paths for markdown links inside repository documentation, guides, and READMEs (e.g., `../../src/...`, `../operations/...`), never absolute machine paths or `file:///` URIs.
 12. **No Private Instance or Static Methods**: Do not use private instance or static methods in classes or structs. Private methods obscure type responsibilities, complicate testing, and signal hidden coupling. Keep public/internal methods cohesive by inlining simple logic directly at the call site, or factor distinct sub-operations into dedicated, single-purpose collaborator types (internal or public, strictly adhering to 1 type per file).
+13. **Consumer-Enforced Redelivery Budget**: Never rely on a broker delivery limit (e.g. RabbitMQ's `x-delivery-limit`) to bound an `EventHandlingResult.Retry` loop - brokers do not count application-initiated requeues, so the loop runs unbounded. Every pub/sub driver's consume path must enforce its own attempt budget with backoff and dead-letter on exhaustion; see [`docs/building-blocks/pubsub.md`](docs/building-blocks/pubsub.md#-bounded-redelivery-budget).
 
 ---
 
@@ -132,3 +133,10 @@ docker compose -f samples/SigNozStack/docker-compose.yml up --build
 # Run with Aspire orchestration
 dotnet run --project samples/Centra.AppHost
 ```
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

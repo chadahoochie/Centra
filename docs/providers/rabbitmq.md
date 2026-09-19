@@ -53,3 +53,8 @@ builder.Services.AddCentraRabbitMQ(options =>
 ### 3. Consumer Groups & Dead-Letter Exchanges (DLX)
 - Handlers declare competing consumer queues bound to the topic routing key.
 - Unhandled failures or `EventHandlingResult.DeadLetter` move messages to a configured Dead Letter Exchange (`centra.events.dlx`) for audit and manual replay.
+
+### 4. Bounded Redelivery Budget
+- `EventHandlingResult.Retry` (and any exception escaping the handler) is charged against a consumer-side budget: `DefaultMaxRetryAttempts` redeliveries (3) with exponentially growing backoff from `DefaultRetryInitialBackoff` (1s) up to `DefaultRetryMaxBackoff` (30s), then the message is dead-lettered.
+- The budget is enforced by the driver rather than by `x-delivery-limit`, because RabbitMQ advances `x-delivery-count` only when a delivery is returned by consumer or channel failure - an application `basic.nack(requeue=true)` never touches it, so a broker delivery limit cannot bound a retry loop. Keep `x-delivery-limit` on the queue only as a backstop against channel-failure loops.
+- Per-subscription overrides: `PubSubSubscribeOptions.MaxRetryAttempts`, `RetryInitialBackoff`, `RetryMaxBackoff`. See [Bounded Redelivery Budget](../building-blocks/pubsub.md#-bounded-redelivery-budget).

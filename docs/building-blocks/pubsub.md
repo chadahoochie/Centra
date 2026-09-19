@@ -148,7 +148,7 @@ public sealed class PaymentNotificationHandler : IEventHandler<OrderCreatedEvent
 
 ### Event Handling Return Statuses:
 - **`EventHandlingResult.Success`**: Acknowledges message receipt (`Complete` / `Ack`).
-- **`EventHandlingResult.Retry`**: Rejects and returns message to broker for redelivery (`Nack` / `Abandon`).
+- **`EventHandlingResult.Retry`**: Rejects and returns message to broker for redelivery (`Nack` / `Abandon`), bounded by the consumer's redelivery budget - after `MaxRetryAttempts` redeliveries with exponential backoff the message is dead-lettered instead (see [Bounded Redelivery Budget](#-bounded-redelivery-budget)).
 - **`EventHandlingResult.Drop`**: Silently drops message without retry.
 - **`EventHandlingResult.DeadLetter`**: Routes message to dead-letter queue / topic.
 
@@ -165,6 +165,9 @@ Centra provides fine-grained control over message prefetching, concurrency, and 
 | **Message TTL** | `MessageTtlSeconds = 60` | `MessageTimeToLive = TimeSpan.FromMinutes(1)` | Expiration duration for queued messages (`x-message-ttl` in RabbitMQ). |
 | **Auto-Delete** | `AutoDelete = true` | `AutoDelete = true` | Automatically destroys the queue when the last consumer disconnects (useful for ephemeral telemetry and test listeners). |
 | **Custom Args** | — | `CustomArguments = new Dictionary<string, object?> { ["x-queue-type"] = "quorum" }` | Universal escape hatch for broker-specific queue arguments without breaking vendor neutrality. |
+| **Retry Budget** | — | `MaxRetryAttempts = 3` | Redeliveries granted to a handler returning `Retry` before the message is dead-lettered. Defaults to 3, so a persistently failing message reaches the handler at most 4 times. |
+| **Retry Backoff** | — | `RetryInitialBackoff = TimeSpan.FromSeconds(1)` | Delay before the first redelivery, doubled on each subsequent retry. |
+| **Retry Backoff Ceiling** | — | `RetryMaxBackoff = TimeSpan.FromSeconds(30)` | Upper bound applied to the doubling retry backoff. |
 
 ### Example: High-Throughput Worker with Bounded Concurrency
 
@@ -182,6 +185,44 @@ public sealed class OrderProcessorHandler : IEventHandler<OrderCreatedEvent>
     }
 }
 ```
+
+---
+
+## 🔁 Bounded Redelivery Budget
+
+`EventHandlingResult.Retry` is bounded **by the consumer**, not by the broker. A handler that keeps returning
+`Retry` - or keeps throwing - gets `MaxRetryAttempts` redeliveries with exponentially growing backoff, and the
+message is then dead-lettered.
+
+This has to live in the consumer because broker delivery limits do not count application-initiated requeues.
+RabbitMQ advances `x-delivery-count` only when a delivery is returned by consumer or channel failure; an
+explicit `basic.nack(requeue=true)` is invisible to it, so `x-delivery-limit` never fires and the retry loop
+runs hot and unbounded. Keep `x-delivery-limit` on the queue if you want a backstop against channel-failure
+loops, but never rely on it for application-level retry.
+
+```csharp
+await subscriber.SubscribeAsync(
+    "pubsub",
+    "orders.created",
+    handler,
+    deadLetterTopic: "orders.created.dead",
+    options: new PubSubSubscribeOptions
+    {
+        MaxRetryAttempts = 3,                                // 3 redeliveries, so 4 handler invocations
+        RetryInitialBackoff = TimeSpan.FromSeconds(1),       // 1s, 2s, 4s, ...
+        RetryMaxBackoff = TimeSpan.FromSeconds(30)
+    });
+```
+
+Provider-wide defaults live on the provider options (`RabbitMQProviderOptions.DefaultMaxRetryAttempts`,
+`DefaultRetryInitialBackoff`, `DefaultRetryMaxBackoff`); per-subscription values override them property by
+property. `MaxRetryAttempts = 0` dead-letters on first failure.
+
+Attempts are counted per message id (the CloudEvents `ce-id` header, falling back to the AMQP `message-id`
+property) in a bounded in-process tracker, so a message that carries neither cannot be counted and is
+dead-lettered rather than requeued forever. Because the count is process-local, the budget restarts if the
+consumer restarts or the message is redelivered to a different replica - the loop stays bounded per consumer,
+which is what the budget guarantees.
 
 ---
 
