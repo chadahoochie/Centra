@@ -45,11 +45,7 @@ public sealed class RedisStreamProcessorTests
         await db.Received(1).StreamAddAsync(
             (RedisKey)"test-stream",
             (RedisValue)"envelope",
-            Arg.Any<RedisValue>(),
-            null,
-            null,
-            false,
-            CommandFlags.None);
+            Arg.Any<RedisValue>());
     }
 
     [Fact]
@@ -117,11 +113,7 @@ public sealed class RedisStreamProcessorTests
         await db.Received(1).StreamAddAsync(
             (RedisKey)"stream-dlq",
             (RedisValue)"envelope",
-            Arg.Any<RedisValue>(),
-            null,
-            null,
-            false,
-            CommandFlags.None);
+            Arg.Any<RedisValue>());
 
         await db.Received(1).StreamAcknowledgeAsync(
             (RedisKey)"stream-key",
@@ -170,9 +162,7 @@ public sealed class RedisStreamProcessorTests
             (RedisValue)"grp-1",
             (RedisValue)"cons-1",
             StreamPosition.NewMessages,
-            10,
-            false,
-            CommandFlags.None)
+            count: 10)
             .Returns(Task.FromResult(new[] { entry }));
 
         var processed = false;
@@ -219,9 +209,7 @@ public sealed class RedisStreamProcessorTests
             (RedisValue)"grp-1",
             (RedisValue)"cons-1",
             StreamPosition.NewMessages,
-            10,
-            false,
-            CommandFlags.None)
+            count: 10)
             .Returns(Task.FromResult(Array.Empty<StreamEntry>()));
 
         var loopTask = RedisStreamProcessor.Instance.RunStreamLoopAsync(
