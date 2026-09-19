@@ -73,6 +73,24 @@ public sealed class CentraControlPlaneLaunchabilityTests
     }
 
     [Fact]
+    public void AddCentraControlPlane_ResolvesALocallyBuiltImageOnlyWhenTheRegistryIsCleared()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        var controlPlane = builder.AddCentraControlPlane()
+            .WithImage("centra-controlplane", "local")
+            .WithImageRegistry(null);
+
+        controlPlane.Resource.TryGetContainerImageName(out var imageName).ShouldBeTrue();
+        imageName.ShouldBe(
+            "centra-controlplane:local",
+            "WithImage assigns only Image and Tag, so the registry AddCentraControlPlane applied "
+            + "survives it; the arm64 local-build workaround documented in "
+            + "docs/getting-started/aspire.md only resolves to the locally built image because it "
+            + "clears the registry as well.");
+    }
+
+    [Fact]
     public void AddCentraControlPlane_OptsIntoOtlpExportSoTelemetryReachesTheDashboard()
     {
         var builder = DistributedApplication.CreateBuilder();

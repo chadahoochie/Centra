@@ -133,9 +133,22 @@ no matching manifest for linux/arm64/v8 in the manifest list entries
 ```
 
 or, where emulation is enabled, pulls the amd64 image and runs it under QEMU — functional but
-noticeably slower to start. arm64 developers should prefer route 2, or build the image locally
-from [`src/Centra.ControlPlane/Dockerfile`](../../src/Centra.ControlPlane/Dockerfile) and point at
-it with `WithImage`/`WithImageRegistry`.
+noticeably slower to start. arm64 developers should prefer route 2, or build the image locally:
+
+```bash
+docker build -t centra-controlplane:local -f src/Centra.ControlPlane/Dockerfile .
+```
+
+`WithImage` assigns only the image and tag; it leaves the registry `AddCentraControlPlane` already
+applied in place, so clear that too — otherwise the resource resolves to
+`ghcr.io/centra-controlplane:local` and fails with the `manifest unknown` described below rather
+than using the image you just built:
+
+```csharp
+var controlPlane = builder.AddCentraControlPlane("control-plane")
+    .WithImage("centra-controlplane", "local")
+    .WithImageRegistry(null);   // without this the reference stays under ghcr.io
+```
 
 #### When the pull fails
 
