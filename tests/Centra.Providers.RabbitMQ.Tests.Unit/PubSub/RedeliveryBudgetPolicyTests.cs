@@ -9,9 +9,20 @@ namespace Centra.Providers.RabbitMQ.Tests.Unit.PubSub;
 public sealed class RedeliveryBudgetPolicyTests
 {
     [Fact]
-    public void Resolve_Defaults_To_Budget_Of_Three_With_Exponential_Backoff()
+    public void Resolve_Defaults_To_No_Budget_Because_The_Feature_Is_Opt_In()
     {
         var policy = RedeliveryBudgetPolicy.Resolve(options: null, new RabbitMQProviderOptions());
+
+        policy.MaxRetryAttempts.ShouldBe(0);
+        policy.IsEnabled.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Resolve_Applies_Exponential_Backoff_Once_A_Budget_Is_Opted_Into()
+    {
+        var policy = RedeliveryBudgetPolicy.Resolve(
+            new PubSubSubscribeOptions { MaxRetryAttempts = 3 },
+            new RabbitMQProviderOptions());
 
         policy.MaxRetryAttempts.ShouldBe(3);
         policy.InitialBackoff.ShouldBe(TimeSpan.FromSeconds(1));

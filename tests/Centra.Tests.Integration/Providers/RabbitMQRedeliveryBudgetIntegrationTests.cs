@@ -70,12 +70,6 @@ public sealed class RabbitMQRedeliveryBudgetIntegrationTests : IAsyncLifetime
             Interlocked.Increment(ref deadLetterCount);
             deadLettered.TrySetResult(true);
             return ValueTask.FromResult(EventHandlingResult.Success);
-        },
-        options: new PubSubSubscribeOptions
-        {
-            // Unbudgeted on purpose: this consumer drains the dead-letter queue, so there is no further
-            // dead-letter queue to exhaust into.
-            MaxRetryAttempts = 0
         });
 
         // x-delivery-limit stays on the queue as a backstop against channel-failure loops only -
@@ -91,6 +85,7 @@ public sealed class RabbitMQRedeliveryBudgetIntegrationTests : IAsyncLifetime
             deadLetterTopic: deadLetterTopic,
             options: new PubSubSubscribeOptions
             {
+                MaxRetryAttempts = 3,
                 RetryInitialBackoff = TimeSpan.FromMilliseconds(50),
                 RetryMaxBackoff = TimeSpan.FromMilliseconds(200),
                 CustomArguments = new Dictionary<string, object?>

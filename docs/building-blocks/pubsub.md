@@ -165,7 +165,7 @@ Centra provides fine-grained control over message prefetching, concurrency, and 
 | **Message TTL** | `MessageTtlSeconds = 60` | `MessageTimeToLive = TimeSpan.FromMinutes(1)` | Expiration duration for queued messages (`x-message-ttl` in RabbitMQ). |
 | **Auto-Delete** | `AutoDelete = true` | `AutoDelete = true` | Automatically destroys the queue when the last consumer disconnects (useful for ephemeral telemetry and test listeners). |
 | **Custom Args** | — | `CustomArguments = new Dictionary<string, object?> { ["x-queue-type"] = "quorum" }` | Universal escape hatch for broker-specific queue arguments without breaking vendor neutrality. |
-| **Retry Budget** | — | `MaxRetryAttempts = 3` | Redeliveries granted to a handler returning `Retry` before the message is dead-lettered. Defaults to 3, so a persistently failing message reaches the handler at most 4 times. |
+| **Retry Budget** | — | `MaxRetryAttempts = 3` | Redeliveries granted to a handler returning `Retry` before the message is dead-lettered. Opt-in: unset means no budget at all. A budget of 3 lets a persistently failing message reach the handler at most 4 times. |
 | **Retry Backoff** | — | `RetryInitialBackoff = TimeSpan.FromSeconds(1)` | Delay before the first redelivery, doubled on each subsequent retry. |
 | **Retry Backoff Ceiling** | — | `RetryMaxBackoff = TimeSpan.FromSeconds(30)` | Upper bound applied to the doubling retry backoff. |
 
@@ -190,9 +190,12 @@ public sealed class OrderProcessorHandler : IEventHandler<OrderCreatedEvent>
 
 ## 🔁 Bounded Redelivery Budget
 
-`EventHandlingResult.Retry` is bounded **by the consumer**, not by the broker. A handler that keeps returning
-`Retry` - or keeps throwing - gets `MaxRetryAttempts` redeliveries with exponentially growing backoff, and the
-message is then dead-lettered.
+The redelivery budget is **opt-in**. Unless a subscription sets `MaxRetryAttempts`, `EventHandlingResult.Retry`
+keeps its plain meaning - nack-requeue, unbounded - and the queue is declared exactly as it was before this
+feature existed. A subscription that does set it gets that many redeliveries with exponentially growing
+backoff, and the message is then dead-lettered.
+
+The bound is enforced **by the consumer**, not by the broker.
 
 This has to live in the consumer because broker delivery limits do not count application-initiated requeues.
 RabbitMQ advances `x-delivery-count` only when a delivery is returned by consumer or channel failure; an
@@ -216,7 +219,9 @@ await subscriber.SubscribeAsync(
 
 Provider-wide defaults live on the provider options (`RabbitMQProviderOptions.DefaultMaxRetryAttempts`,
 `DefaultRetryInitialBackoff`, `DefaultRetryMaxBackoff`); per-subscription values override them property by
-property. `MaxRetryAttempts = 0` dead-letters on first failure.
+property. `DefaultMaxRetryAttempts` is 0, which is what makes the feature opt-in; raise it to bound every
+subscription that does not override it, and give each of those a dead-letter topic. An explicit
+`MaxRetryAttempts = 0` means the same thing as leaving it unset: no budget.
 
 Attempts are counted per subscription queue and message id (the CloudEvents `ce-id` header, falling back to
 the AMQP `message-id` property) in an in-process tracker, so a message that carries neither cannot be counted
@@ -230,15 +235,22 @@ guarantees.
 A spent budget settles as reject-without-requeue, which the broker discards outright unless the queue carries
 a dead-letter route. RabbitMQ fixes queue arguments at declare time, so the route cannot be added afterwards -
 the RabbitMQ driver therefore **refuses the subscription** with an `InvalidOperationException` when a budget is
-in effect and no `deadLetterTopic` is supplied. Losing messages is never the quieter default.
+in effect and no `deadLetterTopic` is supplied. Losing messages is never the quieter default. A subscription
+with no budget is never refused and never gets dead-letter queue arguments it did not ask for.
 
-### Opting out: `MaxRetryAttempts = 0`
+### Opting an existing queue in
 
-`MaxRetryAttempts = 0` disables the budget for that subscription: `Retry` means unbounded nack-requeue again,
-nothing is dead-lettered for exhaustion, and no dead-letter route is required. Use it only where dead-lettering
-is genuinely meaningless - Centra's own ephemeral tenant-offload queues are the example, because an AutoDelete
-queue that dies with the tenant burst cannot be served by a dead-letter queue that outlives it. Everywhere else
-declare a dead-letter topic; the opt-out is a decision to retry forever, not a way to silence the error.
+Because `x-dead-letter-exchange` and `x-dead-letter-routing-key` are fixed when the queue is declared, adding a
+budget plus a `deadLetterTopic` to a subscription whose **durable queue already exists** makes RabbitMQ answer
+the redeclare with `406 PRECONDITION_FAILED`. The remedy is to delete and recreate that queue; there is no
+in-place migration. Subscriptions that stay unbudgeted are unaffected, because their declare is byte-for-byte
+what it was before.
+
+### Limitation: `[Topic]` and `AddCentraEventHandler` cannot opt in
+
+The attribute and registration surfaces expose no retry-budget setting, so a handler registered that way is
+always unbudgeted. Opting in today means calling `IPubSubSubscriber.SubscribeAsync` directly with both
+`MaxRetryAttempts` and a `deadLetterTopic`.
 
 ### Backoff delays the subscription, not just the message
 

@@ -27,17 +27,17 @@ public sealed class RabbitMQProviderOptions
 
     /// <summary>
     /// Default number of redeliveries granted to a handler returning <c>Retry</c> before the message is
-    /// dead-lettered, when not overridden by subscription options. Defaults to 3, so a failing message is
-    /// handed to the handler at most 4 times in total. Set to 0 to disable the budget entirely, which restores
-    /// unbounded redelivery for every subscription that does not override it - a deliberate choice to retry
-    /// forever, not a way to avoid configuring a dead-letter topic.
+    /// dead-lettered, when not overridden by subscription options. Defaults to 0: the redelivery budget is
+    /// opt-in, so an unconfigured subscription keeps RabbitMQ's plain unbounded nack-requeue behaviour and its
+    /// queue is declared with no dead-letter arguments. Raise it to bound every subscription that does not
+    /// override it - each of those subscriptions then needs a dead-letter topic.
     /// </summary>
     /// <remarks>
     /// The budget is enforced by the consumer. RabbitMQ only advances <c>x-delivery-count</c> when a delivery
     /// is returned by consumer or channel failure, never on an application <c>basic.nack(requeue=true)</c>, so
     /// <c>x-delivery-limit</c> cannot bound this loop and is only a backstop against channel-failure loops.
     /// </remarks>
-    public int DefaultMaxRetryAttempts { get; set; } = 3;
+    public int DefaultMaxRetryAttempts { get; set; }
 
     /// <summary>
     /// Default delay before the first redelivery, doubled on each subsequent retry and clamped to

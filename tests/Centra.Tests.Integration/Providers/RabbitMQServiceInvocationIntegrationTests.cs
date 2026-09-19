@@ -104,7 +104,7 @@ public sealed class RabbitMQServiceInvocationIntegrationTests : IAsyncLifetime
         var completionTcs = new TaskCompletionSource<OrderProcessResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // 3. Subscribe consumer handler to 'orders.new'
-        await _rabbitDriver.SubscribeAsync("pubsub", "orders.new", deadLetterTopic: "orders.new.dead", handler: async (payload, headers, ct) =>
+        await _rabbitDriver.SubscribeAsync("pubsub", "orders.new", async (payload, headers, ct) =>
         {
             try
             {

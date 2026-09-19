@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Centra.Sample.TenantOffload.Domain;
 
-[Topic("pubsub", "tenant.orders", "tenant.orders.dead", EnableTenantOffload = true)]
+[Topic("pubsub", "tenant.orders", EnableTenantOffload = true)]
 public sealed class TenantOrderEventHandler : IEventHandler<TenantOrderEvent>
 {
     public static readonly ConcurrentDictionary<string, int> HandledCounts = new();

@@ -50,10 +50,7 @@ public sealed class RabbitMQPubSubDriverTests
     [Fact]
     public async Task SubscribeAsync_With_CompetingConsumer_Should_Not_Set_SingleActiveConsumer_Arg()
     {
-        await _sut.SubscribeAsync(
-            "pubsub", "orders.created",
-            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic);
+        await _sut.SubscribeAsync("pubsub", "orders.created", (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
 
         await _channel.Received(1).QueueDeclareAsync(
             queue: Arg.Any<string>(),
@@ -72,7 +69,6 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).QueueDeclareAsync(
@@ -92,7 +88,6 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).BasicQosAsync(
@@ -105,10 +100,7 @@ public sealed class RabbitMQPubSubDriverTests
     [Fact]
     public async Task SubscribeAsync_Without_Options_Should_Call_BasicQosAsync_With_DefaultPrefetchCount_50()
     {
-        await _sut.SubscribeAsync(
-            "pubsub", "orders.created",
-            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic);
+        await _sut.SubscribeAsync("pubsub", "orders.created", (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
 
         await _channel.Received(1).BasicQosAsync(
             prefetchSize: 0,
@@ -126,7 +118,6 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.DidNotReceive().BasicQosAsync(
@@ -144,7 +135,6 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).QueueDeclareAsync(
@@ -164,7 +154,6 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).QueueDeclareAsync(
@@ -191,7 +180,6 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).QueueDeclareAsync(
@@ -211,7 +199,6 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
-            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).BasicConsumeAsync(
@@ -222,12 +209,15 @@ public sealed class RabbitMQPubSubDriverTests
     }
 
     [Fact]
-    public async Task SubscribeAsync_Without_A_DeadLetter_Route_Should_Refuse_The_Subscription()
+    public async Task SubscribeAsync_Opting_Into_A_Budget_Without_A_DeadLetter_Route_Should_Refuse_The_Subscription()
     {
+        var options = new PubSubSubscribeOptions { MaxRetryAttempts = 3 };
+
         var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
             await _sut.SubscribeAsync(
                 "pubsub", "orders.created",
-                (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success)));
+                (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+                options: options));
 
         ex.Message.ShouldContain("deadLetterTopic");
         ex.Message.ShouldContain("MaxRetryAttempts");
@@ -241,14 +231,54 @@ public sealed class RabbitMQPubSubDriverTests
     }
 
     [Fact]
-    public async Task SubscribeAsync_With_The_Budget_Disabled_Should_Be_Accepted_Without_A_DeadLetter_Route()
+    public async Task SubscribeAsync_Without_Options_Should_Declare_The_Queue_With_No_DeadLetter_Arguments()
     {
-        var options = new PubSubSubscribeOptions { MaxRetryAttempts = 0 };
+        await _sut.SubscribeAsync("pubsub", "orders.created", (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
+
+        await _channel.Received(1).QueueDeclareAsync(
+            queue: Arg.Any<string>(),
+            durable: Arg.Any<bool>(),
+            exclusive: Arg.Any<bool>(),
+            autoDelete: Arg.Any<bool>(),
+            arguments: Arg.Is<IDictionary<string, object?>?>(a =>
+                a == null || (!a.ContainsKey("x-dead-letter-exchange") && !a.ContainsKey("x-dead-letter-routing-key"))),
+            cancellationToken: Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_Opting_Into_A_Budget_With_A_DeadLetter_Route_Should_Be_Accepted()
+    {
+        var options = new PubSubSubscribeOptions { MaxRetryAttempts = 3 };
 
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic,
             options: options);
+
+        await _channel.Received(1).BasicConsumeAsync(
+            queue: Arg.Any<string>(),
+            autoAck: false,
+            consumer: Arg.Any<IAsyncBasicConsumer>(),
+            cancellationToken: Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_With_Options_Carrying_No_Retry_Settings_Should_Be_Accepted_Without_A_DeadLetter_Route()
+    {
+        var attributeRegistrationShape = new PubSubSubscribeOptions
+        {
+            ConsumerMode = ConsumerMode.CompetingConsumer,
+            PrefetchCount = 20,
+            MaxConcurrentCalls = 4,
+            MessageTimeToLive = TimeSpan.FromSeconds(300),
+            AutoDelete = false
+        };
+
+        await _sut.SubscribeAsync(
+            "pubsub", "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            options: attributeRegistrationShape);
 
         await _channel.Received(1).BasicConsumeAsync(
             queue: Arg.Any<string>(),
@@ -265,18 +295,30 @@ public sealed class RabbitMQPubSubDriverTests
     }
 
     [Fact]
-    public async Task SubscribeAsync_With_The_Provider_Budget_Disabled_Should_Be_Accepted_Without_A_DeadLetter_Route()
+    public async Task SubscribeAsync_With_An_Explicit_Zero_Budget_Should_Be_Accepted_Without_A_DeadLetter_Route()
     {
-        _options.DefaultMaxRetryAttempts = 0;
+        var options = new PubSubSubscribeOptions { MaxRetryAttempts = 0 };
 
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
-            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            options: options);
 
         await _channel.Received(1).BasicConsumeAsync(
             queue: Arg.Any<string>(),
             autoAck: false,
             consumer: Arg.Any<IAsyncBasicConsumer>(),
             cancellationToken: Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_With_A_Raised_Provider_Budget_And_No_DeadLetter_Route_Should_Refuse_The_Subscription()
+    {
+        _options.DefaultMaxRetryAttempts = 3;
+
+        await Should.ThrowAsync<InvalidOperationException>(async () =>
+            await _sut.SubscribeAsync(
+                "pubsub", "orders.created",
+                (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success)));
     }
 }

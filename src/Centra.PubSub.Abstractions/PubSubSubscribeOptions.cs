@@ -38,17 +38,23 @@ public sealed record PubSubSubscribeOptions
     /// The number of times a handler returning <see cref="EventHandlingResult.Retry"/> may have the message
     /// redelivered before it is dead-lettered instead. The budget is enforced by the consumer, never by a
     /// broker delivery limit, because brokers do not count application-initiated requeues.
-    /// When null, the provider's default budget is used (Centra providers default to 3).
+    /// When null, the provider's default budget is used, which is no budget at all - this feature is opt-in.
     /// </summary>
     /// <remarks>
     /// Only the RabbitMQ driver enforces a redelivery budget today. Drivers that do not enforce it reject
     /// this option at subscribe time rather than ignoring it. Because a spent budget dead-letters, the RabbitMQ
     /// driver also refuses a subscription that has no dead-letter route to exhaust into.
     /// <para>
-    /// Setting this to 0 disables the budget for the subscription and restores unbounded redelivery: a handler
-    /// returning <see cref="EventHandlingResult.Retry"/> is redelivered forever and nothing is ever
-    /// dead-lettered for exhaustion, so no dead-letter route is required. That is a deliberate decision to
-    /// retry indefinitely, not a way to silence the missing-dead-letter-route error.
+    /// 0 means exactly what leaving this unset means: no budget. A handler returning
+    /// <see cref="EventHandlingResult.Retry"/> is redelivered indefinitely, nothing is dead-lettered for
+    /// exhaustion, and no dead-letter route is required.
+    /// </para>
+    /// <para>
+    /// RabbitMQ fixes queue arguments at declare time, so adding a budget - and with it the dead-letter
+    /// topic it requires - to a subscription whose durable queue already exists fails the redeclare with
+    /// <c>406 PRECONDITION_FAILED</c>. Recreate that queue; there is no in-place migration. Handlers
+    /// registered through <see cref="TopicAttribute"/> or <c>AddCentraEventHandler</c> cannot opt in at all
+    /// today - those surfaces expose no retry-budget setting.
     /// </para>
     /// </remarks>
     public int? MaxRetryAttempts { get; init; }

@@ -64,7 +64,6 @@ builder.Services.AddCentraServiceClient<IInventoryClient>();
 builder.Services.AddCentraEventHandler<HighValueOrderNotificationHandler, OrderCreatedEvent>(
     pubSubName: "orders-pubsub",
     topic: "orders.created",
-    deadLetterTopic: "orders.created.dead",
     ruleFilter: "data.totalAmount >= 500",
     priority: 10);
 
@@ -72,7 +71,6 @@ builder.Services.AddCentraEventHandler<HighValueOrderNotificationHandler, OrderC
 builder.Services.AddCentraEventHandler<PaymentNotificationHandler, OrderCreatedEvent>(
     pubSubName: "orders-pubsub",
     topic: "orders.created",
-    deadLetterTopic: "orders.created.dead",
     priority: 0);
 
 var app = builder.Build();

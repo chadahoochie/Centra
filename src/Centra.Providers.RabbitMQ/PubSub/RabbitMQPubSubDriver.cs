@@ -188,10 +188,11 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         if (redeliveryPolicy.IsEnabled && string.IsNullOrWhiteSpace(deadLetterTopic))
         {
             throw new InvalidOperationException(
-                $"Subscription '{pubSubName}/{topic}' enforces a redelivery budget of {redeliveryPolicy.MaxRetryAttempts}, "
+                $"Subscription '{pubSubName}/{topic}' asks for a redelivery budget of {redeliveryPolicy.MaxRetryAttempts}, "
                 + "so a message whose budget is spent must be dead-lettered, but the queue would have no dead-letter route "
-                + "and the broker would discard the message instead. Pass a non-empty deadLetterTopic, or set "
-                + "PubSubSubscribeOptions.MaxRetryAttempts to 0 to disable the budget and retry forever.");
+                + "and the broker would discard the message instead. Pass a non-empty deadLetterTopic to the same "
+                + "SubscribeAsync call that set MaxRetryAttempts, or drop MaxRetryAttempts to leave the subscription "
+                + "unbudgeted.");
         }
 
         var conn = await GetConnectionAsync(cancellationToken).ConfigureAwait(false);
