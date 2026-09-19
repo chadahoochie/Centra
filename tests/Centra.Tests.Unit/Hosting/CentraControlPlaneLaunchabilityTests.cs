@@ -70,6 +70,22 @@ public sealed class CentraControlPlaneLaunchabilityTests
     }
 
     [Fact]
+    public void AddCentraControlPlane_OptsIntoOtlpExportSoTelemetryReachesTheDashboard()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        var controlPlane = builder.AddCentraControlPlane();
+
+        controlPlane.Resource
+            .TryGetAnnotationsOfType<OtlpExporterAnnotation>(out _)
+            .ShouldBeTrue(
+                "Aspire injects OTLP exporter configuration into project resources automatically "
+                + "but not into containers, so without an explicit opt-in the control plane would "
+                + "export to its own loopback inside the container and the dashboard would show "
+                + "no traces, metrics, or logs for it.");
+    }
+
+    [Fact]
     public void AddCentraControlPlane_ExposesTheContainerHttpPortThroughTheHttpEndpoint()
     {
         var builder = DistributedApplication.CreateBuilder();

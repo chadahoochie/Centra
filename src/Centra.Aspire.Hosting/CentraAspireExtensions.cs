@@ -17,6 +17,9 @@ public static class CentraAspireExtensions
     /// The image defaults to <see cref="CentraControlPlaneImage"/>. Override it with Aspire's own
     /// container builder extensions — <c>WithImage</c>, <c>WithImageTag</c>,
     /// <c>WithImageRegistry</c>, <c>WithImagePullPolicy</c>.
+    /// Aspire injects OTLP exporter configuration into project resources automatically but not
+    /// into containers, so the resource opts in explicitly and its telemetry reaches the
+    /// dashboard on both routes.
     /// Teams that already carry Centra's source in their solution can instead orchestrate the
     /// project directly with <c>AddProject&lt;Projects.Centra_ControlPlane&gt;</c> and wire
     /// services to it through the <see cref="IResourceWithEndpoints"/> overload of
@@ -33,6 +36,7 @@ public static class CentraAspireExtensions
         return builder.AddResource(resource)
             .WithImage(CentraControlPlaneImage.Image, CentraControlPlaneImage.Tag)
             .WithImageRegistry(CentraControlPlaneImage.Registry)
+            .WithOtlpExporter()
             .WithHttpEndpoint(
                 port: port,
                 targetPort: CentraControlPlaneImage.ContainerHttpPort,
@@ -73,10 +77,8 @@ public static class CentraAspireExtensions
         ArgumentNullException.ThrowIfNull(controlPlane);
 
         return builder
-            .WithEnvironment(
-                CentraEnvironmentVariableNames.ControlPlaneEndpoint,
-                controlPlane.GetEndpoint(endpointName))
-            .WithEnvironment(CentraEnvironmentVariableNames.AppId, builder.Resource.Name);
+            .WithEnvironment("Centra__ControlPlaneEndpoint", controlPlane.GetEndpoint(endpointName))
+            .WithEnvironment("Centra__AppId", builder.Resource.Name);
     }
 
     public static IResourceBuilder<T> WithCentraRedis<T>(

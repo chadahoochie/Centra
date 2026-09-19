@@ -33,8 +33,9 @@ jobs:
 
       - name: Verify version matches the repository versioning scheme
         id: tags
+        env:
+          VERSION: ${{ github.event.inputs.version }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "::error::Version '$VERSION' is not a valid semantic version."
             exit 1

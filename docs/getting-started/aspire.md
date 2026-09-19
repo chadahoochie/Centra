@@ -106,9 +106,55 @@ The image is published by the
 which builds [`src/Centra.ControlPlane/Dockerfile`](../../src/Centra.ControlPlane/Dockerfile) and
 refuses any version that does not match `VersionPrefix`.
 
-> **Availability:** the image is published by a manual `workflow_dispatch` run. A given tag is
-> pullable only after that workflow has been run for it. If `AddCentraControlPlane` fails to pull,
-> check the tag has been published, or use route 2 below.
+The published image is **`linux/amd64` only** — the publish workflow runs on an `ubuntu-latest`
+runner and passes no `platforms:` list, so no arm64 manifest is pushed. On an arm64 host (Apple
+Silicon, arm64 Linux, an arm64 cloud runner) Docker either refuses the manifest with
+
+```text
+no matching manifest for linux/arm64/v8 in the manifest list entries
+```
+
+or, where emulation is enabled, pulls the amd64 image and runs it under QEMU — functional but
+noticeably slower to start. arm64 developers should prefer route 2, or build the image locally
+from [`src/Centra.ControlPlane/Dockerfile`](../../src/Centra.ControlPlane/Dockerfile) and point at
+it with `WithImage`/`WithImageRegistry`.
+
+#### When the pull fails
+
+Two distinct failures look similar in the Aspire dashboard but have different resolutions.
+
+**1. The tag does not exist yet.** The image is published by a manual `workflow_dispatch` run, so
+a given tag is pullable only after that workflow has been run for it. Docker reports:
+
+```text
+manifest unknown: manifest unknown
+```
+
+Resolution: run the `Publish Control Plane Image` workflow for the version in
+`VersionPrefix`, or use route 2 below.
+
+**2. The package exists but rejects an unauthenticated pull.** A GHCR package created by a first
+push is **private by default**, and the AppHost's container pull carries no registry credentials.
+Docker reports:
+
+```text
+denied: denied
+unauthorized: unauthenticated: User cannot be authenticated with the token provided.
+```
+
+Resolution depends on an ownership decision that is **still pending with the repository owner**:
+
+- **Public-package route (preferred, pending):** the GHCR package's visibility is set to public,
+  after which unauthenticated pulls succeed and no consumer configuration is needed.
+- **Documented-credential route:** the package stays private and consumers authenticate their
+  local Docker daemon before running the AppHost —
+  `echo $GHCR_PAT | docker login ghcr.io -u <username> --password-stdin`, using a PAT with
+  `read:packages` and access to this repository's packages. Centra's AppHost path deliberately
+  carries no registry credentials of its own, so this is a machine-level `docker login` rather
+  than anything added to `AddCentraControlPlane`.
+
+Until that decision lands, route 2 is the reliable path for consumers without access to this
+repository's packages.
 
 ### Route 2 — Orchestrate the packaged project
 
