@@ -91,9 +91,20 @@ The resource pulls `ghcr.io/chadahoochie/centra-controlplane:1.0.0` by default:
 | Tag | `1.0.0` — the Centra framework version (`VersionPrefix`, see `RELEASE_NOTES.md`) |
 | Container port | `8080` |
 
-The tag is immutable and moves only when the framework version does, so the default needs no
-pull-policy tuning. Override any of the coordinates with Aspire's own container extensions — no
-Centra-specific API required:
+The tag is **not** immutable. The publish workflow refuses any version other than the current
+`VersionPrefix`, so every rerun at the same framework version republishes `:1.0.0` in place,
+pointing it at a new digest. Aspire's default pull policy reuses a tagged image that is already
+cached locally, so a developer who has run the AppHost before keeps running the old control plane
+after a republish — and the dashboard still reports the resource as healthy, because from Aspire's
+point of view nothing is wrong. Opt into re-resolving the tag on every start with:
+
+```csharp
+var controlPlane = builder.AddCentraControlPlane("control-plane")
+    .WithImagePullPolicy(ImagePullPolicy.Always);
+```
+
+Override any of the coordinates with Aspire's own container extensions — no Centra-specific API
+required:
 
 ```csharp
 var controlPlane = builder.AddCentraControlPlane("control-plane")
@@ -105,6 +116,12 @@ The image is published by the
 [`Publish Control Plane Image`](../../.github/workflows/publish-controlplane-image.yml) workflow,
 which builds [`src/Centra.ControlPlane/Dockerfile`](../../src/Centra.ControlPlane/Dockerfile) and
 refuses any version that does not match `VersionPrefix`.
+
+This route has not yet been exercised end to end against a published image — nothing in this
+repository pulls and starts the container, so a broken Dockerfile, a wrong `targetPort`, or a
+control plane that fails to boot without configuration would not be caught here today. The
+in-repo coverage is application-model unit tests plus route 2, which runs the same control plane
+as a project.
 
 The published image is **`linux/amd64` only** — the publish workflow runs on an `ubuntu-latest`
 runner and passes no `platforms:` list, so no arm64 manifest is pushed. On an arm64 host (Apple
