@@ -5,6 +5,8 @@ using Centra.PubSub;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
+using RabbitMQ.Client.Exceptions;
 using Shouldly;
 using Xunit;
 
@@ -460,6 +462,60 @@ public sealed class RabbitMQPubSubDriverDrainTests
         completedWhenChannelClosed.ShouldBe(3);
         await _channel.Received(3).BasicAckAsync(Arg.Any<ulong>(), multiple: false, Arg.Any<CancellationToken>());
         _logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Await_Handlers_When_The_Budget_Is_Longer_Than_A_Timer_Can_Wait()
+    {
+        // TimeSpan.MaxValue is a plausible spelling of "never give up"; it is far beyond what
+        // Task.WaitAsync accepts, so it must resolve to unbounded rather than throw mid-shutdown.
+        _options.TotalShutdownDrainTimeout = TimeSpan.MaxValue;
+        var completed = 0;
+
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            async (payload, headers, ct) =>
+            {
+                await Task.Delay(300, CancellationToken.None).ConfigureAwait(false);
+                Interlocked.Increment(ref completed);
+                return EventHandlingResult.Success;
+            },
+            options: new PubSubSubscribeOptions { MaxConcurrentCalls = 4 });
+
+        var (tag, consumer) = _consumers.Single();
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        dispatcher.EnqueueDeliveries(3, _options.ExchangeName, Topic);
+        await dispatcher.HandedOverAsync();
+
+        await _sut.UnsubscribeAsync(PubSubName, Topic);
+
+        Volatile.Read(ref completed).ShouldBe(3);
+        await _channel.Received(3).BasicAckAsync(Arg.Any<ulong>(), multiple: false, Arg.Any<CancellationToken>());
+        _logger.Entries.ShouldNotContain(e => e.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Error_When_The_Channel_Died_Before_The_Consumer_Was_Cancelled()
+    {
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
+
+        var (tag, consumer) = _consumers.Single();
+
+        // A dropped connection raises the consumer's channel-shutdown event. That is not cancel-ok:
+        // the consumer was never cancelled and every buffered delivery on the channel is gone.
+        var reason = new ShutdownEventArgs(ShutdownInitiator.Peer, 320, "connection closed");
+        await consumer.HandleChannelShutdownAsync(_channel, reason);
+        _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException(new AlreadyClosedException(reason)));
+
+        await _sut.UnsubscribeAsync(PubSubName, Topic);
+
+        _logger.Entries.ShouldContain(e =>
+            e.Level == LogLevel.Error && e.Message.Contains("buffered", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -24,9 +24,6 @@ public static class CentraRabbitMQServiceCollectionExtensions
             services.AddOptions<RabbitMQProviderOptions>();
         }
 
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IValidateOptions<RabbitMQProviderOptions>, RabbitMQProviderOptionsValidator>());
-
         services.TryAddSingleton<IConnectionFactory>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<RabbitMQProviderOptions>>().Value;
@@ -70,9 +67,6 @@ public static class CentraRabbitMQServiceCollectionExtensions
         {
             services.AddOptions<RabbitMQProviderOptions>();
         }
-
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IValidateOptions<RabbitMQProviderOptions>, RabbitMQProviderOptionsValidator>());
 
         services.TryAddSingleton<IConnectionFactory>(sp =>
         {

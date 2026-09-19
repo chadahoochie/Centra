@@ -266,15 +266,11 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
 
         var consumer = new AsyncEventingBasicConsumer(channel);
 
-        // Completed once the client has dispatched cancel-ok, which the consumer's serial work queue
-        // orders *after* every delivery it had already buffered - the signal the drain waits on.
+        // Completed by cancel-ok, which the consumer's serial work queue orders *after* every delivery
+        // it had already buffered - the signal the drain waits on. The client raises the same event on
+        // channel death, which RabbitMQSubscription separates out via the consumer's ShutdownReason.
         var consumerCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         consumer.UnregisteredAsync += (_, _) =>
-        {
-            consumerCancelled.TrySetResult();
-            return Task.CompletedTask;
-        };
-        consumer.ShutdownAsync += (_, _) =>
         {
             consumerCancelled.TrySetResult();
             return Task.CompletedTask;
@@ -324,7 +320,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, inFlight, consumerCancelled);
+        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, consumer, inFlight, consumerCancelled);
     }
 
     internal async Task ProcessAndAckAsync(
