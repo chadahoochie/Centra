@@ -218,11 +218,35 @@ Provider-wide defaults live on the provider options (`RabbitMQProviderOptions.De
 `DefaultRetryInitialBackoff`, `DefaultRetryMaxBackoff`); per-subscription values override them property by
 property. `MaxRetryAttempts = 0` dead-letters on first failure.
 
-Attempts are counted per message id (the CloudEvents `ce-id` header, falling back to the AMQP `message-id`
-property) in a bounded in-process tracker, so a message that carries neither cannot be counted and is
-dead-lettered rather than requeued forever. Because the count is process-local, the budget restarts if the
-consumer restarts or the message is redelivered to a different replica - the loop stays bounded per consumer,
-which is what the budget guarantees.
+Attempts are counted per subscription queue and message id (the CloudEvents `ce-id` header, falling back to
+the AMQP `message-id` property) in an in-process tracker, so a message that carries neither cannot be counted
+and is dead-lettered rather than requeued forever, and two subscriptions receiving the same event each spend
+their own budget. Because the count is process-local, the budget restarts if the consumer restarts or the
+message is redelivered to a different replica - the loop stays bounded per consumer, which is what the budget
+guarantees.
+
+### A dead-letter route is required
+
+A spent budget settles as reject-without-requeue, which the broker discards outright unless the queue carries
+a dead-letter route. RabbitMQ fixes queue arguments at declare time, so the route cannot be added afterwards -
+the RabbitMQ driver therefore **refuses the subscription** with an `InvalidOperationException` when neither
+`deadLetterTopic` nor an `x-dead-letter-exchange` entry in `CustomArguments` is supplied. Losing messages is
+never the quieter default.
+
+### Backoff delays the subscription, not just the message
+
+The backoff is awaited inside the consumer callback, and RabbitMQ dispatches callbacks sequentially per
+channel. With the default `MaxConcurrentCalls = 1`, a persistently failing message therefore stalls every
+other delivery on that subscription for the duration of its backoff: `RetryMaxBackoff` is a direct bound on
+worst-case head-of-line delay. Raise `MaxConcurrentCalls` above 1 if other messages must keep flowing while
+one retries. The delay observes subscription shutdown - `UnsubscribeAsync` / `DisposeAsync` interrupt it and
+leave the delivery unacknowledged for the broker to redeliver.
+
+### Other providers reject the options
+
+Only the RabbitMQ driver enforces the budget today. The Redis, in-memory and Azure Service Bus drivers throw
+`NotSupportedException` when a subscription sets `MaxRetryAttempts`, `RetryInitialBackoff` or
+`RetryMaxBackoff`, rather than accepting options they would ignore.
 
 ---
 

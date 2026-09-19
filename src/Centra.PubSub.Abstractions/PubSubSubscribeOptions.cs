@@ -40,6 +40,11 @@ public sealed record PubSubSubscribeOptions
     /// broker delivery limit, because brokers do not count application-initiated requeues.
     /// When null, the provider's default budget is used (Centra providers default to 3).
     /// </summary>
+    /// <remarks>
+    /// Only the RabbitMQ driver enforces a redelivery budget today. Drivers that do not enforce it reject
+    /// this option at subscribe time rather than ignoring it. Because a spent budget dead-letters, the RabbitMQ
+    /// driver also refuses a subscription that has no dead-letter route to exhaust into.
+    /// </remarks>
     public int? MaxRetryAttempts { get; init; }
 
     /// <summary>
@@ -52,6 +57,12 @@ public sealed record PubSubSubscribeOptions
     /// The ceiling applied to the exponentially growing redelivery backoff.
     /// When null, the provider's default maximum backoff is used.
     /// </summary>
+    /// <remarks>
+    /// The backoff is awaited inside the consumer callback, and brokers dispatch callbacks sequentially per
+    /// channel, so with <see cref="MaxConcurrentCalls"/> left at 1 a retrying message also delays the other
+    /// deliveries on that subscription: this value directly bounds the worst-case head-of-line delay. Raise
+    /// <see cref="MaxConcurrentCalls"/> above 1 to keep other messages flowing while one retries.
+    /// </remarks>
     public TimeSpan? RetryMaxBackoff { get; init; }
 
     /// <summary>

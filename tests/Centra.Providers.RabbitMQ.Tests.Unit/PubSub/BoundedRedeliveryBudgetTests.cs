@@ -7,6 +7,8 @@ namespace Centra.Providers.RabbitMQ.Tests.Unit.PubSub;
 
 public sealed class BoundedRedeliveryBudgetTests
 {
+    private const string Queue = "centra.pubsub.orders.created";
+
     private static readonly RedeliveryBudgetPolicy DefaultPolicy =
         new(MaxRetryAttempts: 3, InitialBackoff: TimeSpan.FromSeconds(1), MaxBackoff: TimeSpan.FromSeconds(30));
 
@@ -14,14 +16,15 @@ public sealed class BoundedRedeliveryBudgetTests
     public void ChargeFailure_Grants_Three_Retries_With_Doubling_Backoff_Then_DeadLetters()
     {
         var budget = new BoundedRedeliveryBudget();
+        var key = new RedeliveryBudgetKey(Queue, "evt-1");
 
-        budget.ChargeFailure("evt-1", DefaultPolicy)
+        budget.ChargeFailure(key, DefaultPolicy)
             .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(1)));
-        budget.ChargeFailure("evt-1", DefaultPolicy)
+        budget.ChargeFailure(key, DefaultPolicy)
             .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(2)));
-        budget.ChargeFailure("evt-1", DefaultPolicy)
+        budget.ChargeFailure(key, DefaultPolicy)
             .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(4)));
-        budget.ChargeFailure("evt-1", DefaultPolicy)
+        budget.ChargeFailure(key, DefaultPolicy)
             .ShouldBe(RedeliveryDecision.DeadLetterImmediately);
     }
 
@@ -30,24 +33,68 @@ public sealed class BoundedRedeliveryBudgetTests
     {
         var budget = new BoundedRedeliveryBudget();
 
-        budget.ChargeFailure("evt-1", DefaultPolicy);
-        budget.ChargeFailure("evt-1", DefaultPolicy);
+        budget.ChargeFailure(new RedeliveryBudgetKey(Queue, "evt-1"), DefaultPolicy);
+        budget.ChargeFailure(new RedeliveryBudgetKey(Queue, "evt-1"), DefaultPolicy);
 
-        budget.ChargeFailure("evt-2", DefaultPolicy)
+        budget.ChargeFailure(new RedeliveryBudgetKey(Queue, "evt-2"), DefaultPolicy)
             .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(1)));
+    }
+
+    [Fact]
+    public void ChargeFailure_Tracks_The_Same_Message_Separately_Per_Subscription_Queue()
+    {
+        var budget = new BoundedRedeliveryBudget();
+        var subscriptionA = new RedeliveryBudgetKey("centra.a.orders.created", "evt-1");
+        var subscriptionB = new RedeliveryBudgetKey("centra.b.orders.created", "evt-1");
+
+        // Both subscriptions receive the same event and both keep failing; interleaving their charges must
+        // not let one spend the other's budget.
+        budget.ChargeFailure(subscriptionA, DefaultPolicy);
+        budget.ChargeFailure(subscriptionB, DefaultPolicy)
+            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(1)));
+        budget.ChargeFailure(subscriptionA, DefaultPolicy);
+        budget.ChargeFailure(subscriptionB, DefaultPolicy)
+            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(2)));
+        budget.ChargeFailure(subscriptionA, DefaultPolicy);
+        budget.ChargeFailure(subscriptionA, DefaultPolicy)
+            .ShouldBe(RedeliveryDecision.DeadLetterImmediately);
+
+        // A settling on its own does not hand B a fresh budget mid-loop.
+        budget.ChargeFailure(subscriptionB, DefaultPolicy)
+            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(4)));
+        budget.ChargeFailure(subscriptionB, DefaultPolicy)
+            .ShouldBe(RedeliveryDecision.DeadLetterImmediately);
+    }
+
+    [Fact]
+    public void Forget_On_One_Subscription_Leaves_Another_Subscriptions_Count_Intact()
+    {
+        var budget = new BoundedRedeliveryBudget();
+        var subscriptionA = new RedeliveryBudgetKey("centra.a.orders.created", "evt-1");
+        var subscriptionB = new RedeliveryBudgetKey("centra.b.orders.created", "evt-1");
+
+        budget.ChargeFailure(subscriptionA, DefaultPolicy);
+        budget.ChargeFailure(subscriptionB, DefaultPolicy);
+        budget.ChargeFailure(subscriptionB, DefaultPolicy);
+
+        budget.Forget(subscriptionA);
+
+        budget.ChargeFailure(subscriptionB, DefaultPolicy)
+            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(4)));
     }
 
     [Fact]
     public void ChargeFailure_Restores_The_Full_Budget_After_The_Budget_Is_Spent()
     {
         var budget = new BoundedRedeliveryBudget();
+        var key = new RedeliveryBudgetKey(Queue, "evt-1");
 
         for (var i = 0; i < 4; i++)
         {
-            budget.ChargeFailure("evt-1", DefaultPolicy);
+            budget.ChargeFailure(key, DefaultPolicy);
         }
 
-        budget.ChargeFailure("evt-1", DefaultPolicy)
+        budget.ChargeFailure(key, DefaultPolicy)
             .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(1)));
     }
 
@@ -55,63 +102,49 @@ public sealed class BoundedRedeliveryBudgetTests
     public void ChargeFailure_DeadLetters_Immediately_When_The_Budget_Is_Zero()
     {
         var budget = new BoundedRedeliveryBudget();
+        var key = new RedeliveryBudgetKey(Queue, "evt-1");
         var noRetries = DefaultPolicy with { MaxRetryAttempts = 0 };
 
-        budget.ChargeFailure("evt-1", noRetries).ShouldBe(RedeliveryDecision.DeadLetterImmediately);
-        budget.ChargeFailure("evt-1", noRetries).ShouldBe(RedeliveryDecision.DeadLetterImmediately);
+        budget.ChargeFailure(key, noRetries).ShouldBe(RedeliveryDecision.DeadLetterImmediately);
+        budget.ChargeFailure(key, noRetries).ShouldBe(RedeliveryDecision.DeadLetterImmediately);
     }
 
     [Fact]
     public void Forget_Restores_The_Full_Budget_For_A_Reused_Message_Id()
     {
         var budget = new BoundedRedeliveryBudget();
-        budget.ChargeFailure("evt-1", DefaultPolicy);
-        budget.ChargeFailure("evt-1", DefaultPolicy);
+        var key = new RedeliveryBudgetKey(Queue, "evt-1");
+        budget.ChargeFailure(key, DefaultPolicy);
+        budget.ChargeFailure(key, DefaultPolicy);
 
-        budget.Forget("evt-1");
+        budget.Forget(key);
 
-        budget.ChargeFailure("evt-1", DefaultPolicy)
+        budget.ChargeFailure(key, DefaultPolicy)
             .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(1)));
     }
 
     [Fact]
-    public void ChargeFailure_Evicts_The_Oldest_Entries_Once_Capacity_Is_Exceeded()
+    public void ChargeFailure_Terminates_Every_Message_Under_A_Large_Poison_Backlog()
     {
-        var budget = new BoundedRedeliveryBudget(capacity: 2);
+        var budget = new BoundedRedeliveryBudget();
+        const int backlog = 20_000;
 
-        budget.ChargeFailure("evt-1", DefaultPolicy);
-        budget.ChargeFailure("evt-1", DefaultPolicy);
-        budget.ChargeFailure("evt-2", DefaultPolicy);
-        budget.ChargeFailure("evt-3", DefaultPolicy);
-
-        // evt-1 was the oldest tracked message, so its attempt history is the first discarded.
-        budget.ChargeFailure("evt-1", DefaultPolicy)
-            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(1)));
-        budget.ChargeFailure("evt-3", DefaultPolicy)
-            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(2)));
-    }
-
-    [Fact]
-    public void ChargeFailure_Keeps_Tracking_Bounded_Under_A_Flood_Of_Distinct_Messages()
-    {
-        var budget = new BoundedRedeliveryBudget(capacity: 8);
-
-        for (var i = 0; i < 5_000; i++)
+        // Every message fails once before any of them is retried - the interleaving that a capacity-evicting
+        // tracker resolved by discarding the oldest live counters, handing them a fresh budget forever.
+        for (var round = 0; round < 3; round++)
         {
-            budget.ChargeFailure($"evt-{i}", DefaultPolicy);
+            for (var i = 0; i < backlog; i++)
+            {
+                budget.ChargeFailure(new RedeliveryBudgetKey(Queue, $"evt-{i}"), DefaultPolicy)
+                    .Result.ShouldBe(EventHandlingResult.Retry);
+            }
         }
 
-        // Nothing observable leaked: the most recent message still has its full budget accounted for.
-        budget.ChargeFailure("evt-4999", DefaultPolicy)
-            .ShouldBe(new RedeliveryDecision(EventHandlingResult.Retry, TimeSpan.FromSeconds(2)));
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    public void Constructor_Rejects_NonPositive_Capacity(int capacity)
-    {
-        Should.Throw<ArgumentOutOfRangeException>(() => new BoundedRedeliveryBudget(capacity));
+        for (var i = 0; i < backlog; i++)
+        {
+            budget.ChargeFailure(new RedeliveryBudgetKey(Queue, $"evt-{i}"), DefaultPolicy)
+                .ShouldBe(RedeliveryDecision.DeadLetterImmediately);
+        }
     }
 
     [Fact]
@@ -119,7 +152,15 @@ public sealed class BoundedRedeliveryBudgetTests
     {
         var budget = new BoundedRedeliveryBudget();
 
-        Should.Throw<ArgumentException>(() => budget.ChargeFailure(" ", DefaultPolicy));
+        Should.Throw<ArgumentException>(() => budget.ChargeFailure(new RedeliveryBudgetKey(Queue, " "), DefaultPolicy));
+    }
+
+    [Fact]
+    public void ChargeFailure_Rejects_A_Missing_QueueName()
+    {
+        var budget = new BoundedRedeliveryBudget();
+
+        Should.Throw<ArgumentException>(() => budget.ChargeFailure(new RedeliveryBudgetKey(null!, "evt-1"), DefaultPolicy));
     }
 
     [Fact]
@@ -127,6 +168,6 @@ public sealed class BoundedRedeliveryBudgetTests
     {
         var budget = new BoundedRedeliveryBudget();
 
-        Should.Throw<ArgumentException>(() => budget.Forget(null!));
+        Should.Throw<ArgumentException>(() => budget.Forget(new RedeliveryBudgetKey(Queue, null!)));
     }
 }

@@ -70,7 +70,8 @@ public sealed class RabbitMQProviderIntegrationTests : IAsyncLifetime
         {
             receivedTcs.TrySetResult((body.ToArray(), hdrs));
             return ValueTask.FromResult(EventHandlingResult.Success);
-        });
+        },
+        deadLetterTopic: $"{topic}.dead");
 
         // 2. Publish CloudEvent
         await _driver.PublishAsync(pubSub, topic, payload, headers);

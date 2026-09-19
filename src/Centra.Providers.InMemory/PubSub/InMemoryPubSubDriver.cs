@@ -72,6 +72,8 @@ public sealed class InMemoryPubSubDriver : IPubSubDriver, IPubSubQueueInspector
         PubSubSubscribeOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(handler);
+        RedeliveryBudgetOptionsGuard.ThrowIfConfigured(options, nameof(InMemoryPubSubDriver));
+
         var pubSubTopics = _topics.GetOrAdd(pubSubName, static _ => new ConcurrentDictionary<string, ConcurrentBag<InMemorySubscription>>(StringComparer.OrdinalIgnoreCase));
         var subs = pubSubTopics.GetOrAdd(topic, static _ => new ConcurrentBag<InMemorySubscription>());
 

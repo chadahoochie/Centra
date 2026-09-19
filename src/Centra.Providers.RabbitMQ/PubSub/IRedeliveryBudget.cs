@@ -8,14 +8,14 @@ namespace Centra.Providers.RabbitMQ.PubSub;
 public interface IRedeliveryBudget
 {
     /// <summary>
-    /// Charges one failed delivery of <paramref name="messageId"/> against <paramref name="policy"/> and
+    /// Charges one failed delivery of <paramref name="key"/> against <paramref name="policy"/> and
     /// returns how the delivery should be settled. Implementations forget the message once its budget is spent.
     /// </summary>
-    RedeliveryDecision ChargeFailure(string messageId, in RedeliveryBudgetPolicy policy);
+    RedeliveryDecision ChargeFailure(in RedeliveryBudgetKey key, in RedeliveryBudgetPolicy policy);
 
     /// <summary>
-    /// Discards any attempt history for <paramref name="messageId"/>, called once a delivery is settled
+    /// Discards any attempt history for <paramref name="key"/>, called once a delivery is settled
     /// terminally so a later message reusing the id starts with a full budget.
     /// </summary>
-    void Forget(string messageId);
+    void Forget(in RedeliveryBudgetKey key);
 }

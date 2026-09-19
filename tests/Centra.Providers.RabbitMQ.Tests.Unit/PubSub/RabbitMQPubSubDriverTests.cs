@@ -11,6 +11,8 @@ namespace Centra.Providers.RabbitMQ.Tests.Unit.PubSub;
 
 public sealed class RabbitMQPubSubDriverTests
 {
+    private const string DeadLetterTopic = "orders.created.dead";
+
     private readonly IConnectionFactory _connectionFactory;
     private readonly IConnection _connection;
     private readonly IChannel _channel;
@@ -48,7 +50,10 @@ public sealed class RabbitMQPubSubDriverTests
     [Fact]
     public async Task SubscribeAsync_With_CompetingConsumer_Should_Not_Set_SingleActiveConsumer_Arg()
     {
-        await _sut.SubscribeAsync("pubsub", "orders.created", (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
+        await _sut.SubscribeAsync(
+            "pubsub", "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic);
 
         await _channel.Received(1).QueueDeclareAsync(
             queue: Arg.Any<string>(),
@@ -67,6 +72,7 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).QueueDeclareAsync(
@@ -86,6 +92,7 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).BasicQosAsync(
@@ -98,7 +105,10 @@ public sealed class RabbitMQPubSubDriverTests
     [Fact]
     public async Task SubscribeAsync_Without_Options_Should_Call_BasicQosAsync_With_DefaultPrefetchCount_50()
     {
-        await _sut.SubscribeAsync("pubsub", "orders.created", (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success));
+        await _sut.SubscribeAsync(
+            "pubsub", "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic);
 
         await _channel.Received(1).BasicQosAsync(
             prefetchSize: 0,
@@ -116,6 +126,7 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.DidNotReceive().BasicQosAsync(
@@ -133,6 +144,7 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).QueueDeclareAsync(
@@ -152,6 +164,7 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).QueueDeclareAsync(
@@ -178,6 +191,7 @@ public sealed class RabbitMQPubSubDriverTests
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
             (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic,
             options: options);
 
         await _channel.Received(1).QueueDeclareAsync(
@@ -193,6 +207,48 @@ public sealed class RabbitMQPubSubDriverTests
     public async Task SubscribeAsync_With_MaxConcurrentCalls_Greater_Than_1_Should_Attach_Consumer()
     {
         var options = new PubSubSubscribeOptions { MaxConcurrentCalls = 4 };
+
+        await _sut.SubscribeAsync(
+            "pubsub", "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            deadLetterTopic: DeadLetterTopic,
+            options: options);
+
+        await _channel.Received(1).BasicConsumeAsync(
+            queue: Arg.Any<string>(),
+            autoAck: false,
+            consumer: Arg.Any<IAsyncBasicConsumer>(),
+            cancellationToken: Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_Without_A_DeadLetter_Route_Should_Refuse_The_Subscription()
+    {
+        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
+            await _sut.SubscribeAsync(
+                "pubsub", "orders.created",
+                (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success)));
+
+        ex.Message.ShouldContain("deadLetterTopic");
+        await _channel.DidNotReceive().QueueDeclareAsync(
+            queue: Arg.Any<string>(),
+            durable: Arg.Any<bool>(),
+            exclusive: Arg.Any<bool>(),
+            autoDelete: Arg.Any<bool>(),
+            arguments: Arg.Any<IDictionary<string, object?>?>(),
+            cancellationToken: Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_With_A_Custom_DeadLetter_Exchange_Argument_Should_Be_Accepted()
+    {
+        var options = new PubSubSubscribeOptions
+        {
+            CustomArguments = new Dictionary<string, object?>
+            {
+                ["x-dead-letter-exchange"] = "centra.dlx"
+            }
+        };
 
         await _sut.SubscribeAsync(
             "pubsub", "orders.created",
