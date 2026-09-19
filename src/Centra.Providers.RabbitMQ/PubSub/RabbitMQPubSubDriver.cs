@@ -283,14 +283,22 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 inFlight.BeginDelivery();
                 await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 
+                // The client may recycle ea.Body the moment this callback returns, and it returns as
+                // soon as the work is handed over - so the continuation reads an owned copy instead.
+                // Basic properties are a per-delivery object, not pooled memory, so they travel as is.
+                var body = new PooledDeliveryBody(ea.Body);
+                var deliveryTag = ea.DeliveryTag;
+                var properties = ea.BasicProperties;
+
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        await ProcessAndAckAsync(channel, queueName, ea, handler).ConfigureAwait(false);
+                        await ProcessAndAckAsync(channel, queueName, deliveryTag, properties, body.Memory, handler).ConfigureAwait(false);
                     }
                     finally
                     {
+                        body.Return();
                         limiter.Release();
                         inFlight.CompleteDelivery();
                     }
@@ -304,7 +312,9 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 inFlight.BeginDelivery();
                 try
                 {
-                    await ProcessAndAckAsync(channel, queueName, ea, handler).ConfigureAwait(false);
+                    // Sequential path: the body is fully consumed before this callback returns, which
+                    // is the client's contract, so it needs no copy.
+                    await ProcessAndAckAsync(channel, queueName, ea.DeliveryTag, ea.BasicProperties, ea.Body, handler).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -323,22 +333,29 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, consumer, inFlight, consumerCancelled);
     }
 
+    /// <summary>
+    /// Invokes the handler for one delivery and applies its acknowledgement decision. Takes the
+    /// delivery's parts rather than the event args so a caller that had to copy the body out of the
+    /// client's pooled buffer can pass its own copy.
+    /// </summary>
     internal async Task ProcessAndAckAsync(
         IChannel channel,
         string queueName,
-        BasicDeliverEventArgs ea,
+        ulong deliveryTag,
+        IReadOnlyBasicProperties? properties,
+        ReadOnlyMemory<byte> body,
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler)
     {
         try
         {
-            var headers = _headerExtractor.ExtractHeaders(ea.BasicProperties);
-            var result = await handler(ea.Body, headers, CancellationToken.None).ConfigureAwait(false);
-            await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, result).ConfigureAwait(false);
+            var headers = _headerExtractor.ExtractHeaders(properties);
+            var result = await handler(body, headers, CancellationToken.None).ConfigureAwait(false);
+            await _acknowledger.AcknowledgeMessageAsync(channel, deliveryTag, result).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception thrown while processing RabbitMQ message on queue {Queue}", queueName);
-            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true).ConfigureAwait(false);
+            await channel.BasicNackAsync(deliveryTag, multiple: false, requeue: true).ConfigureAwait(false);
         }
     }
 

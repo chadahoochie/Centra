@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Globalization;
 using Centra.Providers.RabbitMQ.Options;
 using Centra.Providers.RabbitMQ.PubSub;
 using Centra.PubSub;
@@ -548,5 +550,46 @@ public sealed class RabbitMQPubSubDriverDrainTests
         await _sut.UnsubscribeAsync(PubSubName, Topic);
 
         _logger.Entries.ShouldNotContain(e => e.Level == LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Drained_Handlers_Should_Read_The_Body_They_Were_Delivered_After_The_Dispatcher_Recycles_It()
+    {
+        // The client only guarantees the delivery body until the ReceivedAsync callback returns. The
+        // concurrent path hands the delivery to the thread pool and returns immediately, and the drain
+        // now keeps every one of those continuations alive to completion - so the deferred read has to
+        // see an owned copy, not whatever the dispatcher has since written into the same buffer.
+        const int k = 4;
+        var mismatches = 0;
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            async (payload, headers, ct) =>
+            {
+                await released.Task.ConfigureAwait(false);
+
+                var expected = ulong.Parse(headers[ConsumerDispatchQueue.DeliveryTagHeader], CultureInfo.InvariantCulture);
+                if (BinaryPrimitives.ReadUInt64LittleEndian(payload.Span) != expected)
+                {
+                    Interlocked.Increment(ref mismatches);
+                }
+
+                return EventHandlingResult.Success;
+            },
+            options: new PubSubSubscribeOptions { MaxConcurrentCalls = k });
+
+        var (tag, consumer) = _consumers.Single();
+        await using var dispatcher = new ConsumerDispatchQueue(consumer, tag);
+        dispatcher.EnqueueSharedBodyDeliveries(k, _options.ExchangeName, Topic);
+        dispatcher.EnqueueSharedBodyRecycle();
+        await dispatcher.HandedOverAsync();
+
+        released.SetResult();
+        await _sut.UnsubscribeAsync(PubSubName, Topic);
+
+        Volatile.Read(ref mismatches).ShouldBe(0);
+        await _channel.Received(k).BasicAckAsync(Arg.Any<ulong>(), multiple: false, Arg.Any<CancellationToken>());
     }
 }
