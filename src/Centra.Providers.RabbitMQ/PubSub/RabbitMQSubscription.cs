@@ -11,6 +11,10 @@ namespace Centra.Providers.RabbitMQ.PubSub;
 /// </summary>
 internal sealed class RabbitMQSubscription
 {
+    private readonly IChannel _channel;
+    private readonly string _consumerTag;
+    private readonly SemaphoreSlim? _limiter;
+    private readonly RabbitMQInFlightTracker _inFlight;
     private readonly TaskCompletionSource _consumerCancelled;
 
     public RabbitMQSubscription(
@@ -20,25 +24,19 @@ internal sealed class RabbitMQSubscription
         RabbitMQInFlightTracker inFlight,
         TaskCompletionSource consumerCancelled)
     {
-        Channel = channel;
-        ConsumerTag = consumerTag;
-        Limiter = limiter;
-        InFlight = inFlight;
+        _channel = channel;
+        _consumerTag = consumerTag;
+        _limiter = limiter;
+        _inFlight = inFlight;
         _consumerCancelled = consumerCancelled;
     }
-
-    public IChannel Channel { get; }
-
-    public string ConsumerTag { get; }
-
-    public SemaphoreSlim? Limiter { get; }
-
-    public RabbitMQInFlightTracker InFlight { get; }
 
     /// <summary>
     /// Cancels the consumer, waits for the client to finish dispatching the deliveries it had already
     /// read off the socket, drains the resulting in-flight handlers, and then closes and disposes the
-    /// channel - all inside a single <paramref name="drainTimeout"/> budget. A drain that does not
+    /// channel. Every wait - including the basic.cancel RPC, which would otherwise be bounded only by
+    /// the client's own continuation timeout - draws from the single <paramref name="drainTimeout"/>
+    /// budget, so this method cannot outlive it by more than the channel close. A drain that does not
     /// finish in time is reported as an error; the channel still closes, because holding it open
     /// indefinitely would wedge shutdown. The concurrency limiter is only disposed once the drain
     /// completed, so a handler that outlived the budget cannot observe a disposed limiter.
@@ -47,14 +45,18 @@ internal sealed class RabbitMQSubscription
     {
         var deadline = Environment.TickCount64 + (long)Math.Max(0d, drainTimeout.TotalMilliseconds);
 
-        try
+        using (var cancelRpc = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            await Channel.BasicCancelAsync(ConsumerTag, cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Error canceling consumer tag {Tag} during subscription shutdown", ConsumerTag);
-            _consumerCancelled.TrySetResult();
+            cancelRpc.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(0L, deadline - Environment.TickCount64)));
+            try
+            {
+                await _channel.BasicCancelAsync(_consumerTag, cancellationToken: cancelRpc.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Error canceling consumer tag {Tag} during subscription shutdown", _consumerTag);
+                _consumerCancelled.TrySetResult();
+            }
         }
 
         // BasicCancelAsync only stops the broker from dispatching *new* messages. Deliveries the client
@@ -73,7 +75,7 @@ internal sealed class RabbitMQSubscription
         {
         }
 
-        var outcome = await InFlight
+        var outcome = await _inFlight
             .WaitForDrainAsync(TimeSpan.FromMilliseconds(Math.Max(0L, deadline - Environment.TickCount64)), cancellationToken)
             .ConfigureAwait(false);
 
@@ -81,24 +83,27 @@ internal sealed class RabbitMQSubscription
         {
             logger.LogError(
                 "Gave up draining RabbitMQ subscription {Tag} after {DrainTimeout}; {Outstanding} handler(s) were still in flight when the channel closed, so those messages will be redelivered",
-                ConsumerTag,
+                _consumerTag,
                 drainTimeout,
                 outcome.Outstanding);
         }
 
         try
         {
-            await Channel.CloseAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-            Channel.Dispose();
+            await _channel.CloseAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Error closing subscription channel during shutdown");
         }
+        finally
+        {
+            _channel.Dispose();
+        }
 
         if (outcome.Drained)
         {
-            Limiter?.Dispose();
+            _limiter?.Dispose();
         }
     }
 }

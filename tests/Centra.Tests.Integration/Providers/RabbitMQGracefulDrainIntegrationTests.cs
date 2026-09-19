@@ -32,7 +32,7 @@ public sealed class RabbitMQGracefulDrainIntegrationTests : IAsyncLifetime
             ExchangeName = "centra.pubsub.drain.it",
             DefaultPubSubName = PubSub,
             QueuePrefix = "centra-drain-it",
-            ShutdownDrainTimeout = TimeSpan.FromSeconds(30)
+            TotalShutdownDrainTimeout = TimeSpan.FromSeconds(30)
         });
 
         _driver = new RabbitMQPubSubDriver(factory, options);

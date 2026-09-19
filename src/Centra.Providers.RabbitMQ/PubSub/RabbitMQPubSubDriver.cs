@@ -11,7 +11,7 @@ using RabbitMQ.Client.Events;
 
 namespace Centra.Providers.RabbitMQ.PubSub;
 
-public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector, IAsyncDisposable
+public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector, IPubSubShutdownDrain, IAsyncDisposable
 {
     private readonly IConnectionFactory _connectionFactory;
     private readonly RabbitMQProviderOptions _options;
@@ -22,6 +22,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     private readonly IRabbitMQMessageAcknowledger _acknowledger;
     private IConnection? _connection;
     private IChannel? _publishChannel;
+    private ShutdownDrainWindow? _drainWindow;
     private int _disposed;
 
     public RabbitMQPubSubDriver(
@@ -352,8 +353,18 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         var subKey = $"{pubSubName}:{topic}";
         if (_subscriptions.TryRemove(subKey, out var sub))
         {
-            await sub.ShutdownAsync(_options.ShutdownDrainTimeout, _logger, cancellationToken).ConfigureAwait(false);
+            var window = Volatile.Read(ref _drainWindow);
+            var budget = window is { IsOpen: true } ? window.Remaining : _options.TotalShutdownDrainTimeout;
+            await sub.ShutdownAsync(budget, _logger, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <inheritdoc />
+    public IDisposable BeginShutdownDrain()
+    {
+        var window = new ShutdownDrainWindow(_options.TotalShutdownDrainTimeout);
+        Volatile.Write(ref _drainWindow, window);
+        return window;
     }
 
     public async ValueTask<PubSubQueueStats?> GetQueueStatsAsync(
@@ -386,12 +397,18 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         }
 
         // One budget for the whole disposal, not one per subscription: subscriptions are drained
-        // sequentially, so a per-subscription timeout would multiply by the number of topics.
-        var drainDeadline = Environment.TickCount64 + (long)Math.Max(0d, _options.ShutdownDrainTimeout.TotalMilliseconds);
+        // sequentially, so a per-subscription timeout would multiply by the number of topics. A window
+        // the host already opened is reused, because that is the same shutdown.
+        var window = Volatile.Read(ref _drainWindow);
+        if (window is not { IsOpen: true })
+        {
+            window = new ShutdownDrainWindow(_options.TotalShutdownDrainTimeout);
+            Volatile.Write(ref _drainWindow, window);
+        }
+
         foreach (var (_, sub) in _subscriptions)
         {
-            var remaining = TimeSpan.FromMilliseconds(Math.Max(0L, drainDeadline - Environment.TickCount64));
-            await sub.ShutdownAsync(remaining, _logger, CancellationToken.None).ConfigureAwait(false);
+            await sub.ShutdownAsync(window.Remaining, _logger, CancellationToken.None).ConfigureAwait(false);
         }
         _subscriptions.Clear();
 

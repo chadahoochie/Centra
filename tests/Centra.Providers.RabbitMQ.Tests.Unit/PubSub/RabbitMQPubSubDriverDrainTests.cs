@@ -173,7 +173,7 @@ public sealed class RabbitMQPubSubDriverDrainTests
     {
         const int subscriptionCount = 4;
         var budget = TimeSpan.FromMilliseconds(500);
-        _options.ShutdownDrainTimeout = budget;
+        _options.TotalShutdownDrainTimeout = budget;
         using var release = new SemaphoreSlim(0, subscriptionCount);
 
         for (var i = 0; i < subscriptionCount; i++)
@@ -205,9 +205,84 @@ public sealed class RabbitMQPubSubDriverDrainTests
     }
 
     [Fact]
+    public async Task UnsubscribeAsync_Should_Share_One_Drain_Budget_Across_An_Open_Shutdown_Window()
+    {
+        // The host teardown shape: one UnsubscribeAsync per topic, inside a single shutdown window.
+        const int subscriptionCount = 4;
+        var budget = TimeSpan.FromMilliseconds(500);
+        _options.TotalShutdownDrainTimeout = budget;
+        using var release = new SemaphoreSlim(0, subscriptionCount);
+        var topics = new List<string>();
+
+        for (var i = 0; i < subscriptionCount; i++)
+        {
+            var topic = $"{Topic}.{i}";
+            topics.Add(topic);
+            await _sut.SubscribeAsync(
+                PubSubName,
+                topic,
+                async (payload, headers, ct) =>
+                {
+                    await release.WaitAsync(TimeSpan.FromSeconds(30), CancellationToken.None).ConfigureAwait(false);
+                    return EventHandlingResult.Success;
+                },
+                options: new PubSubSubscribeOptions { MaxConcurrentCalls = 2 });
+        }
+
+        _consumers.Count.ShouldBe(subscriptionCount);
+        foreach (var (tag, consumer) in _consumers)
+        {
+            await new ConsumerDeliverySource(consumer, tag).DeliverAsync(1, _options.ExchangeName, Topic);
+        }
+
+        var elapsed = Stopwatch.StartNew();
+        using (_sut.BeginShutdownDrain())
+        {
+            foreach (var topic in topics)
+            {
+                await _sut.UnsubscribeAsync(PubSubName, topic);
+            }
+        }
+        elapsed.Stop();
+
+        elapsed.Elapsed.ShouldBeLessThan(budget * 2);
+        release.Release(subscriptionCount);
+    }
+
+    [Fact]
+    public async Task UnsubscribeAsync_Should_Get_The_Whole_Budget_Once_The_Shutdown_Window_Is_Closed()
+    {
+        var budget = TimeSpan.FromMilliseconds(400);
+        _options.TotalShutdownDrainTimeout = budget;
+        using var release = new SemaphoreSlim(0, 1);
+
+        _sut.BeginShutdownDrain().Dispose();
+
+        await _sut.SubscribeAsync(
+            PubSubName,
+            Topic,
+            async (payload, headers, ct) =>
+            {
+                await release.WaitAsync(TimeSpan.FromSeconds(30), CancellationToken.None).ConfigureAwait(false);
+                return EventHandlingResult.Success;
+            },
+            options: new PubSubSubscribeOptions { MaxConcurrentCalls = 2 });
+
+        var (tag, consumer) = _consumers.Single();
+        await new ConsumerDeliverySource(consumer, tag).DeliverAsync(1, _options.ExchangeName, Topic);
+
+        var elapsed = Stopwatch.StartNew();
+        await _sut.UnsubscribeAsync(PubSubName, Topic);
+        elapsed.Stop();
+
+        elapsed.Elapsed.ShouldBeGreaterThanOrEqualTo(budget - TimeSpan.FromMilliseconds(100));
+        release.Release();
+    }
+
+    [Fact]
     public async Task UnsubscribeAsync_Should_Report_When_The_Drain_Timeout_Is_Exceeded()
     {
-        _options.ShutdownDrainTimeout = TimeSpan.FromMilliseconds(100);
+        _options.TotalShutdownDrainTimeout = TimeSpan.FromMilliseconds(100);
         using var release = new SemaphoreSlim(0, 1);
 
         await _sut.SubscribeAsync(

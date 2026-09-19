@@ -26,18 +26,18 @@ public sealed class RabbitMQProviderOptions
     public int DefaultMaxConcurrentCalls { get; set; } = 1;
 
     /// <summary>
-    /// Time budget for draining in-flight handlers after a consumer has been cancelled and before its
-    /// channel is closed anyway. <see cref="PubSub.RabbitMQPubSubDriver.UnsubscribeAsync"/> tears down a
-    /// single subscription, so it gets the whole budget.
-    /// <see cref="PubSub.RabbitMQPubSubDriver.DisposeAsync"/> tears down every subscription
-    /// sequentially and shares one budget across all of them, so disposal never costs
-    /// subscription-count multiples of this value. When the host drains topic by topic (via
-    /// <c>CentraRuntimeHostedService.StopAsync</c>) each subscription gets its own budget, and the
-    /// overall bound is the shutdown <see cref="System.Threading.CancellationToken"/> the host
-    /// supplies - cancelling it ends the drain immediately.
-    /// Defaults to 10 seconds: comfortably longer than a typical handler, and a third of the 30 second
-    /// default host shutdown budget, so a handful of topics still drain within it.
+    /// Total time budget for draining in-flight handlers across a whole shutdown, after each consumer
+    /// has been cancelled and before its channel is closed anyway. It is an allowance for every
+    /// subscription combined, not per subscription: a host tears subscriptions down one topic at a
+    /// time, and both that path (via <c>CentraRuntimeHostedService.StopAsync</c>, which opens the
+    /// driver's shutdown drain window first) and
+    /// <see cref="PubSub.RabbitMQPubSubDriver.DisposeAsync"/> share one deadline, so the drain cost
+    /// never scales with the number of topics. A lone
+    /// <see cref="PubSub.RabbitMQPubSubDriver.UnsubscribeAsync"/> outside a shutdown drains one
+    /// subscription and gets the whole allowance.
+    /// Defaults to 10 seconds: comfortably longer than a typical handler, and the whole drain fits
+    /// well inside the 30 second default host shutdown budget no matter how many topics are bound.
     /// Exceeding it is logged as an error, never silently ignored.
     /// </summary>
-    public TimeSpan ShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(10);
+    public TimeSpan TotalShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(10);
 }
