@@ -253,6 +253,84 @@ public sealed class CentraRuntimeHostedServiceTests
         resilienceProvider.Received(1).GetPubSubPipeline("resilient-bus");
     }
 
+    private sealed class DrainRecordingDriver : IPubSubDriver, IPubSubShutdownDrain
+    {
+        private sealed class Window(DrainRecordingDriver owner) : IDisposable
+        {
+            public void Dispose() => owner.WindowOpen = false;
+        }
+
+        public bool WindowOpen { get; private set; }
+
+        public int WindowsOpened { get; private set; }
+
+        public List<(string Topic, bool WindowOpenAtCall)> Unsubscribes { get; } = [];
+
+        public IDisposable BeginShutdownDrain()
+        {
+            WindowOpen = true;
+            WindowsOpened++;
+            return new Window(this);
+        }
+
+        public ValueTask UnsubscribeAsync(string pubSubName, string topic, CancellationToken cancellationToken = default)
+        {
+            Unsubscribes.Add((topic, WindowOpen));
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask SubscribeAsync(
+            string pubSubName,
+            string topic,
+            Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
+            string? deadLetterTopic = null,
+            CancellationToken cancellationToken = default,
+            PubSubSubscribeOptions? options = null) => ValueTask.CompletedTask;
+
+        public ValueTask PublishAsync(
+            string pubSubName,
+            string topic,
+            ReadOnlyMemory<byte> payload,
+            IReadOnlyDictionary<string, string> metadata,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+        public ValueTask PublishBatchAsync(
+            string pubSubName,
+            string topic,
+            IReadOnlyList<PubSubMessage> messages,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    }
+
+    [Fact]
+    public async Task StopAsync_OpensOneSharedDrainWindow_AroundEveryTopicTeardown()
+    {
+        var registry = new ComponentRegistry();
+        var driver = new DrainRecordingDriver();
+        registry.RegisterPubSubDriver("drain-bus", driver);
+
+        var registrations = new[] { "topic.a", "topic.b", "topic.c" }
+            .Select(topic => new CentraTopicRegistration(
+                "drain-bus",
+                topic,
+                typeof(TestEvent),
+                typeof(TestEventHandler)))
+            .ToArray();
+
+        var hostedService = new CentraRuntimeHostedService(
+            registry,
+            new ServiceCollection().BuildServiceProvider(),
+            Options.Create(new CentraOptions { AppId = "test-app" }),
+            registrations,
+            NullLogger<CentraRuntimeHostedService>.Instance);
+
+        await hostedService.StopAsync(CancellationToken.None);
+
+        driver.WindowsOpened.ShouldBe(1);
+        driver.Unsubscribes.Count.ShouldBe(3);
+        driver.Unsubscribes.ShouldAllBe(u => u.WindowOpenAtCall);
+        driver.WindowOpen.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task StartAsync_MissingDriver_SkipsRegistration()
     {
