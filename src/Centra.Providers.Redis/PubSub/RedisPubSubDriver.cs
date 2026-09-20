@@ -114,6 +114,7 @@ public sealed class RedisPubSubDriver : IPubSubDriver, IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
         ArgumentNullException.ThrowIfNull(handler);
+        RedeliveryBudgetOptionsGuard.ThrowIfConfigured(options, nameof(RedisPubSubDriver));
 
         if (_options.EnableConsumerGroups)
         {

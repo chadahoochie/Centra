@@ -50,4 +50,30 @@ public sealed class RabbitMQProviderOptions
     /// <see cref="TimeSpan.Zero"/> means do not wait at all; every duration in between is used as-is.
     /// </summary>
     public TimeSpan TotalShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Default number of redeliveries granted to a handler returning <c>Retry</c> before the message is
+    /// dead-lettered, when not overridden by subscription options. Defaults to 0: the redelivery budget is
+    /// opt-in, so an unconfigured subscription keeps RabbitMQ's plain unbounded nack-requeue behaviour and its
+    /// queue is declared with no dead-letter arguments. Raise it to bound every subscription that does not
+    /// override it - each of those subscriptions then needs a dead-letter topic.
+    /// </summary>
+    /// <remarks>
+    /// The budget is enforced by the consumer. RabbitMQ only advances <c>x-delivery-count</c> when a delivery
+    /// is returned by consumer or channel failure, never on an application <c>basic.nack(requeue=true)</c>, so
+    /// <c>x-delivery-limit</c> cannot bound this loop and is only a backstop against channel-failure loops.
+    /// </remarks>
+    public int DefaultMaxRetryAttempts { get; set; }
+
+    /// <summary>
+    /// Default delay before the first redelivery, doubled on each subsequent retry and clamped to
+    /// <see cref="DefaultRetryMaxBackoff"/>, when not overridden by subscription options. Defaults to 1 second.
+    /// </summary>
+    public TimeSpan DefaultRetryInitialBackoff { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Default ceiling for the exponentially growing redelivery backoff, when not overridden by subscription
+    /// options. Defaults to 30 seconds.
+    /// </summary>
+    public TimeSpan DefaultRetryMaxBackoff { get; set; } = TimeSpan.FromSeconds(30);
 }

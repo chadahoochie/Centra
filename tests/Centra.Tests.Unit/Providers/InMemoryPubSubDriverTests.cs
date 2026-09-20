@@ -191,4 +191,48 @@ public sealed class InMemoryPubSubDriverTests
         await _driver.PublishAsync("unknown-pubsub", "no-subscribers", Encoding.UTF8.GetBytes("payload"), new Dictionary<string, string>());
         // Should complete without error
     }
+
+    [Theory]
+    [InlineData(3, null, null)]
+    [InlineData(null, 1, null)]
+    [InlineData(null, null, 5)]
+    public async Task Should_Refuse_A_Subscription_Requesting_An_Unsupported_Redelivery_Budget(
+        int? maxRetryAttempts,
+        int? initialBackoffSeconds,
+        int? maxBackoffSeconds)
+    {
+        var options = new PubSubSubscribeOptions
+        {
+            MaxRetryAttempts = maxRetryAttempts,
+            RetryInitialBackoff = initialBackoffSeconds is null ? null : TimeSpan.FromSeconds(initialBackoffSeconds.Value),
+            RetryMaxBackoff = maxBackoffSeconds is null ? null : TimeSpan.FromSeconds(maxBackoffSeconds.Value)
+        };
+
+        var ex = await Should.ThrowAsync<NotSupportedException>(async () =>
+            await _driver.SubscribeAsync(
+                "pubsub",
+                "orders.created",
+                (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+                options: options));
+
+        ex.Message.ShouldContain(nameof(InMemoryPubSubDriver));
+    }
+
+    [Fact]
+    public async Task Should_Accept_A_Subscription_That_Explicitly_Disables_The_Redelivery_Budget()
+    {
+        var options = new PubSubSubscribeOptions { MaxRetryAttempts = 0 };
+
+        await _driver.SubscribeAsync(
+            "pubsub",
+            "orders.created",
+            (payload, headers, ct) => ValueTask.FromResult(EventHandlingResult.Success),
+            options: options);
+
+        await _driver.PublishAsync(
+            "pubsub",
+            "orders.created",
+            Encoding.UTF8.GetBytes("{}"),
+            new Dictionary<string, string>());
+    }
 }

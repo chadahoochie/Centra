@@ -20,6 +20,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly IRabbitMQHeaderExtractor _headerExtractor;
     private readonly IRabbitMQMessageAcknowledger _acknowledger;
+    private readonly IRabbitMQMessageIdentityReader _identityReader;
+    private readonly IRedeliveryBudget _redeliveryBudget;
     private IConnection? _connection;
     private IChannel? _publishChannel;
     private ShutdownDrainWindow? _drainWindow;
@@ -30,13 +32,17 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         IOptions<RabbitMQProviderOptions> options,
         ILogger<RabbitMQPubSubDriver>? logger = null,
         IRabbitMQHeaderExtractor? headerExtractor = null,
-        IRabbitMQMessageAcknowledger? acknowledger = null)
+        IRabbitMQMessageAcknowledger? acknowledger = null,
+        IRabbitMQMessageIdentityReader? identityReader = null,
+        IRedeliveryBudget? redeliveryBudget = null)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _options = options?.Value ?? new RabbitMQProviderOptions();
         _logger = logger ?? NullLogger<RabbitMQPubSubDriver>.Instance;
         _headerExtractor = headerExtractor ?? RabbitMQHeaderExtractor.Instance;
         _acknowledger = acknowledger ?? RabbitMQMessageAcknowledger.Instance;
+        _identityReader = identityReader ?? RabbitMQMessageIdentityReader.Instance;
+        _redeliveryBudget = redeliveryBudget ?? new BoundedRedeliveryBudget();
     }
 
     public async ValueTask<IConnection> GetConnectionAsync(CancellationToken cancellationToken)
@@ -174,6 +180,22 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
         ArgumentNullException.ThrowIfNull(handler);
 
+        var redeliveryPolicy = RedeliveryBudgetPolicy.Resolve(options, _options);
+
+        // A spent budget settles as reject-without-requeue, which the broker discards outright unless the
+        // queue carries a dead-letter route. Queue arguments are fixed at declare time, so the route cannot
+        // be retrofitted once the queue exists - refusing here is the only point where the caller can still
+        // act on it, and it is strictly better than accepting the subscription and losing messages later.
+        if (redeliveryPolicy.IsEnabled && string.IsNullOrWhiteSpace(deadLetterTopic))
+        {
+            throw new InvalidOperationException(
+                $"Subscription '{pubSubName}/{topic}' asks for a redelivery budget of {redeliveryPolicy.MaxRetryAttempts}, "
+                + "so a message whose budget is spent must be dead-lettered, but the queue would have no dead-letter route "
+                + "and the broker would discard the message instead. Pass a non-empty deadLetterTopic to the same "
+                + "SubscribeAsync call that set MaxRetryAttempts, or drop MaxRetryAttempts to leave the subscription "
+                + "unbudgeted.");
+        }
+
         var conn = await GetConnectionAsync(cancellationToken).ConfigureAwait(false);
         var channel = await conn.CreateChannelAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -264,6 +286,9 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         // work is handed to the thread pool - so a shutdown that starts mid-dispatch still waits for it.
         var inFlight = new RabbitMQInFlightTracker();
 
+        var shutdown = new CancellationTokenSource();
+        var shutdownToken = shutdown.Token;
+
         var consumer = new AsyncEventingBasicConsumer(channel);
 
         // Completed by cancel-ok, which the consumer's serial work queue orders *after* every delivery
@@ -294,7 +319,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 {
                     try
                     {
-                        await ProcessAndAckAsync(channel, queueName, deliveryTag, properties, body.Memory, handler).ConfigureAwait(false);
+                        await ProcessAndAckAsync(channel, queueName, deliveryTag, properties, body.Memory, handler, redeliveryPolicy, shutdownToken).ConfigureAwait(false);
                     }
                     finally
                     {
@@ -314,7 +339,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 {
                     // Sequential path: the body is fully consumed before this callback returns, which
                     // is the client's contract, so it needs no copy.
-                    await ProcessAndAckAsync(channel, queueName, ea.DeliveryTag, ea.BasicProperties, ea.Body, handler).ConfigureAwait(false);
+                    await ProcessAndAckAsync(channel, queueName, ea.DeliveryTag, ea.BasicProperties, ea.Body, handler, redeliveryPolicy, shutdownToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -330,8 +355,25 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, consumer, inFlight, consumerCancelled);
+        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, consumer, inFlight, consumerCancelled, queueName, shutdown);
     }
+
+    internal Task ProcessAndAckAsync(
+        IChannel channel,
+        string queueName,
+        BasicDeliverEventArgs ea,
+        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
+        RedeliveryBudgetPolicy redeliveryPolicy,
+        CancellationToken shutdownToken) =>
+        ProcessAndAckAsync(
+            channel,
+            queueName,
+            ea.DeliveryTag,
+            ea.BasicProperties,
+            ea.Body,
+            handler,
+            redeliveryPolicy,
+            shutdownToken);
 
     /// <summary>
     /// Invokes the handler for one delivery and applies its acknowledgement decision. Takes the
@@ -344,18 +386,101 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         ulong deliveryTag,
         IReadOnlyBasicProperties? properties,
         ReadOnlyMemory<byte> body,
-        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler)
+        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
+        RedeliveryBudgetPolicy redeliveryPolicy,
+        CancellationToken shutdownToken)
     {
+        IReadOnlyDictionary<string, string>? headers = null;
+        EventHandlingResult result;
         try
         {
-            var headers = _headerExtractor.ExtractHeaders(properties);
-            var result = await handler(body, headers, CancellationToken.None).ConfigureAwait(false);
-            await _acknowledger.AcknowledgeMessageAsync(channel, deliveryTag, result).ConfigureAwait(false);
+            headers = _headerExtractor.ExtractHeaders(properties);
+            result = await handler(body, headers, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception thrown while processing RabbitMQ message on queue {Queue}", queueName);
-            await channel.BasicNackAsync(deliveryTag, multiple: false, requeue: true).ConfigureAwait(false);
+            result = EventHandlingResult.Retry;
+        }
+
+        var messageId = _identityReader.ResolveIdentity(headers, properties);
+        var settlement = result;
+        var backoff = TimeSpan.Zero;
+
+        if (result is not EventHandlingResult.Retry)
+        {
+            if (messageId is not null)
+            {
+                _redeliveryBudget.Forget(new RedeliveryBudgetKey(queueName, messageId));
+            }
+        }
+        else if (!redeliveryPolicy.IsEnabled)
+        {
+            // The subscription opted out of the budget, so Retry keeps its unbounded nack-requeue meaning.
+        }
+        else if (messageId is null)
+        {
+            // The broker cannot bound this loop: x-delivery-count only advances when a delivery is returned by
+            // consumer or channel failure, never on an application nack-requeue. So a message carrying no identity
+            // to count against would requeue forever, and dead-lettering it is the only bounded settlement left.
+            _logger.LogWarning(
+                "Retry requested for a message on queue {Queue} carrying neither ce-id nor message-id; "
+                + "the redelivery budget cannot be enforced without a stable identity, so dead-lettering",
+                queueName);
+
+            settlement = EventHandlingResult.DeadLetter;
+        }
+        else
+        {
+            var decision = _redeliveryBudget.ChargeFailure(new RedeliveryBudgetKey(queueName, messageId), in redeliveryPolicy);
+            settlement = decision.Result;
+            backoff = decision.Delay;
+
+            if (settlement is EventHandlingResult.DeadLetter)
+            {
+                _logger.LogWarning(
+                    "Redelivery budget of {Budget} exhausted for message {MessageId} on queue {Queue}; dead-lettering",
+                    redeliveryPolicy.MaxRetryAttempts,
+                    messageId,
+                    queueName);
+            }
+        }
+
+        if (backoff > TimeSpan.Zero)
+        {
+            try
+            {
+                await Task.Delay(backoff, shutdownToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The subscription is draining. Leaving the delivery unacknowledged is the correct settlement:
+                // the broker requeues it when the channel closes, and the alternative is holding the drain open
+                // for the whole backoff.
+                if (messageId is not null)
+                {
+                    _redeliveryBudget.Forget(new RedeliveryBudgetKey(queueName, messageId));
+                }
+
+                return;
+            }
+        }
+
+        try
+        {
+            await _acknowledger.AcknowledgeMessageAsync(channel, deliveryTag, settlement).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Nothing above this frame can observe a failure here - the sequential path throws into the
+            // RabbitMQ.Client dispatcher and the concurrent path onto an unobserved Task - and a channel closed
+            // underneath us simply means the broker will redeliver.
+            _logger.LogWarning(
+                ex,
+                "Failed to settle RabbitMQ delivery {DeliveryTag} on queue {Queue} as {Settlement}",
+                deliveryTag,
+                queueName,
+                settlement);
         }
     }
 
@@ -373,6 +498,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             var window = Volatile.Read(ref _drainWindow);
             var budget = window is { IsOpen: true } ? window.Remaining : _options.TotalShutdownDrainTimeout;
             await sub.ShutdownAsync(budget, _logger, cancellationToken).ConfigureAwait(false);
+            _redeliveryBudget.ForgetQueue(sub.QueueName);
         }
     }
 
@@ -426,6 +552,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         foreach (var (_, sub) in _subscriptions)
         {
             await sub.ShutdownAsync(window.Remaining, _logger, CancellationToken.None).ConfigureAwait(false);
+            _redeliveryBudget.ForgetQueue(sub.QueueName);
         }
         _subscriptions.Clear();
 

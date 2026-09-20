@@ -38,6 +38,7 @@ public sealed class RabbitMQMessageAcknowledgerTests
         await RabbitMQMessageAcknowledger.Instance.AcknowledgeMessageAsync(channel, tag, result);
 
         await channel.Received(1).BasicRejectAsync(tag, requeue: false);
+        await channel.DidNotReceive().BasicAckAsync(Arg.Any<ulong>(), Arg.Any<bool>());
     }
 
     [Fact]

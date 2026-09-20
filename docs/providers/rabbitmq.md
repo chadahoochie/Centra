@@ -54,16 +54,11 @@ builder.Services.AddCentraRabbitMQ(options =>
 - Handlers declare competing consumer queues bound to the topic routing key.
 - Unhandled failures or `EventHandlingResult.DeadLetter` move messages to a configured Dead Letter Exchange (`centra.events.dlx`) for audit and manual replay.
 
-### 4. Graceful Consumer Drain on Shutdown
-- Unsubscribing or disposing does not simply close the channel. Each subscription is torn down in order: `basic.cancel` the consumer so the broker stops dispatching, wait for `cancel-ok` so the client finishes handing already-prefetched deliveries to handlers, await the in-flight handlers, and only then close the channel.
-- `TotalShutdownDrainTimeout` (default `10s`) bounds the handler drain. It is a **total** allowance for the whole shutdown, not per subscription: [`CentraRuntimeHostedService`](../../src/Centra.Hosting/HostedServices/CentraRuntimeHostedService.cs) opens one shared drain window around its teardown loop (via `IPubSubShutdownDrain`), so the drain cost never scales with the number of subscribed topics. A standalone `UnsubscribeAsync` outside a shutdown gets the full allowance for that one subscription.
-- The `basic.cancel` RPC and the channel close are control-plane steps outside that budget — they are bounded by the caller's cancellation token and the client's own continuation timeout — so a consumer is always cancelled even once the drain allowance is spent.
-- Every configured value has a defined meaning, with no silent degradation and no shutdown-time exception: `Timeout.InfiniteTimeSpan`, any other negative duration, and any duration longer than the timer subsystem can wait (roughly 49.7 days, which includes `TimeSpan.MaxValue`) all mean *drain without any limit*; `TimeSpan.Zero` means *do not wait*; every duration in between is used as-is.
-- Handlers still in flight when the budget runs out — and consumers that could not be confirmed cancelled after receiving at least one delivery — are logged as an **error**, never silently swallowed. The channel closes either way, so shutdown cannot wedge; those messages are redelivered by the broker.
-
-```csharp
-builder.Services.AddCentraRabbitMQ(options =>
-{
-    options.TotalShutdownDrainTimeout = TimeSpan.FromSeconds(30);
-});
-```
+### 4. Bounded Redelivery Budget
+- Opt-in: `DefaultMaxRetryAttempts` is 0, so an unconfigured subscription keeps plain unbounded nack-requeue and declares its queue with no dead-letter arguments. Set `PubSubSubscribeOptions.MaxRetryAttempts` (or raise the provider default) and `EventHandlingResult.Retry` - plus any exception escaping the handler - is charged against a consumer-side budget with exponentially growing backoff from `DefaultRetryInitialBackoff` (1s) up to `DefaultRetryMaxBackoff` (30s), then the message is dead-lettered.
+- The budget is enforced by the driver rather than by `x-delivery-limit`, because RabbitMQ advances `x-delivery-count` only when a delivery is returned by consumer or channel failure - an application `basic.nack(requeue=true)` never touches it, so a broker delivery limit cannot bound a retry loop. Keep `x-delivery-limit` on the queue only as a backstop against channel-failure loops.
+- A dead-letter route is mandatory while the budget is in effect: `SubscribeAsync` throws when no `deadLetterTopic` is supplied, because a budget-exhausted message would otherwise be discarded and queue arguments cannot be changed after declare. Adding a budget to a subscription whose durable queue already exists therefore fails the redeclare with `406 PRECONDITION_FAILED`; recreate that queue.
+- `[Topic]` and `AddCentraEventHandler` expose no retry-budget setting, so handlers registered that way are always unbudgeted; opt in through a direct `SubscribeAsync` call.
+- `EventHandlingResult.Drop`, `EventHandlingResult.DeadLetter` and budget exhaustion all reject without requeue, so on a queue with a dead-letter route all three land there.
+- The backoff is awaited in the consumer callback, so with the default `MaxConcurrentCalls = 1` it also delays the other deliveries on that channel; `RetryMaxBackoff` bounds that head-of-line delay.
+- Per-subscription overrides: `PubSubSubscribeOptions.MaxRetryAttempts`, `RetryInitialBackoff`, `RetryMaxBackoff`. See [Bounded Redelivery Budget](../building-blocks/pubsub.md#-bounded-redelivery-budget).

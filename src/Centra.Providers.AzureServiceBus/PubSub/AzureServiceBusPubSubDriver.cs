@@ -165,6 +165,7 @@ public sealed class AzureServiceBusPubSubDriver : IPubSubDriver, IAsyncDisposabl
         ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
         ArgumentNullException.ThrowIfNull(handler);
+        RedeliveryBudgetOptionsGuard.ThrowIfConfigured(options, nameof(AzureServiceBusPubSubDriver));
 
         var targetTopic = $"{_options.TopicPrefix}{topic}";
         var subKey = $"{pubSubName}:{targetTopic}";

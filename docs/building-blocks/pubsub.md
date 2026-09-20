@@ -148,8 +148,8 @@ public sealed class PaymentNotificationHandler : IEventHandler<OrderCreatedEvent
 
 ### Event Handling Return Statuses:
 - **`EventHandlingResult.Success`**: Acknowledges message receipt (`Complete` / `Ack`).
-- **`EventHandlingResult.Retry`**: Rejects and returns message to broker for redelivery (`Nack` / `Abandon`).
-- **`EventHandlingResult.Drop`**: Silently drops message without retry.
+- **`EventHandlingResult.Retry`**: Rejects and returns message to broker for redelivery (`Nack` / `Abandon`), unbounded unless the subscription configures a redelivery budget - when one is configured, the message is dead-lettered after `MaxRetryAttempts` redeliveries with exponential backoff (see [Bounded Redelivery Budget](#-bounded-redelivery-budget)).
+- **`EventHandlingResult.Drop`**: Drops the message without retry. It is rejected without requeue, so a queue configured with a dead-letter route captures it there for audit; without one the broker discards it.
 - **`EventHandlingResult.DeadLetter`**: Routes message to dead-letter queue / topic.
 
 ---
@@ -165,6 +165,9 @@ Centra provides fine-grained control over message prefetching, concurrency, and 
 | **Message TTL** | `MessageTtlSeconds = 60` | `MessageTimeToLive = TimeSpan.FromMinutes(1)` | Expiration duration for queued messages (`x-message-ttl` in RabbitMQ). |
 | **Auto-Delete** | `AutoDelete = true` | `AutoDelete = true` | Automatically destroys the queue when the last consumer disconnects (useful for ephemeral telemetry and test listeners). |
 | **Custom Args** | — | `CustomArguments = new Dictionary<string, object?> { ["x-queue-type"] = "quorum" }` | Universal escape hatch for broker-specific queue arguments without breaking vendor neutrality. |
+| **Retry Budget** | — | `MaxRetryAttempts = 3` | Redeliveries granted to a handler returning `Retry` before the message is dead-lettered. Opt-in: unset means no budget at all. A budget of 3 lets a persistently failing message reach the handler at most 4 times. |
+| **Retry Backoff** | — | `RetryInitialBackoff = TimeSpan.FromSeconds(1)` | Delay before the first redelivery, doubled on each subsequent retry. |
+| **Retry Backoff Ceiling** | — | `RetryMaxBackoff = TimeSpan.FromSeconds(30)` | Upper bound applied to the doubling retry backoff. |
 
 ### Example: High-Throughput Worker with Bounded Concurrency
 
@@ -182,6 +185,87 @@ public sealed class OrderProcessorHandler : IEventHandler<OrderCreatedEvent>
     }
 }
 ```
+
+---
+
+## 🔁 Bounded Redelivery Budget
+
+The redelivery budget is **opt-in**. Unless a subscription sets `MaxRetryAttempts`, `EventHandlingResult.Retry`
+keeps its plain meaning - nack-requeue, unbounded - and the queue is declared exactly as it was before this
+feature existed. A subscription that does set it gets that many redeliveries with exponentially growing
+backoff, and the message is then dead-lettered.
+
+The bound is enforced **by the consumer**, not by the broker.
+
+This has to live in the consumer because broker delivery limits do not count application-initiated requeues.
+RabbitMQ advances `x-delivery-count` only when a delivery is returned by consumer or channel failure; an
+explicit `basic.nack(requeue=true)` is invisible to it, so `x-delivery-limit` never fires and the retry loop
+runs hot and unbounded. Keep `x-delivery-limit` on the queue if you want a backstop against channel-failure
+loops, but never rely on it for application-level retry.
+
+```csharp
+await subscriber.SubscribeAsync(
+    "pubsub",
+    "orders.created",
+    handler,
+    deadLetterTopic: "orders.created.dead",
+    options: new PubSubSubscribeOptions
+    {
+        MaxRetryAttempts = 3,                                // 3 redeliveries, so 4 handler invocations
+        RetryInitialBackoff = TimeSpan.FromSeconds(1),       // 1s, 2s, 4s, ...
+        RetryMaxBackoff = TimeSpan.FromSeconds(30)
+    });
+```
+
+Provider-wide defaults live on the provider options (`RabbitMQProviderOptions.DefaultMaxRetryAttempts`,
+`DefaultRetryInitialBackoff`, `DefaultRetryMaxBackoff`); per-subscription values override them property by
+property. `DefaultMaxRetryAttempts` is 0, which is what makes the feature opt-in; raise it to bound every
+subscription that does not override it, and give each of those a dead-letter topic. An explicit
+`MaxRetryAttempts = 0` means the same thing as leaving it unset: no budget.
+
+Attempts are counted per subscription queue and message id (the CloudEvents `ce-id` header, falling back to
+the AMQP `message-id` property) in an in-process tracker, so a message that carries neither cannot be counted
+and is dead-lettered rather than requeued forever, and two subscriptions receiving the same event each spend
+their own budget. Because the count is process-local, the budget restarts if the consumer restarts or the
+message is redelivered to a different replica - the loop stays bounded per consumer, which is what the budget
+guarantees.
+
+### A budgeted subscription requires a dead-letter route
+
+A spent budget settles as reject-without-requeue, which the broker discards outright unless the queue carries
+a dead-letter route. RabbitMQ fixes queue arguments at declare time, so the route cannot be added afterwards -
+the RabbitMQ driver therefore **refuses the subscription** with an `InvalidOperationException` when a budget is
+in effect and no `deadLetterTopic` is supplied. Losing messages is never the quieter default. A subscription
+with no budget is never refused and never gets dead-letter queue arguments it did not ask for.
+
+### Opting an existing queue in
+
+Because `x-dead-letter-exchange` and `x-dead-letter-routing-key` are fixed when the queue is declared, adding a
+budget plus a `deadLetterTopic` to a subscription whose **durable queue already exists** makes RabbitMQ answer
+the redeclare with `406 PRECONDITION_FAILED`. The remedy is to delete and recreate that queue; there is no
+in-place migration. Subscriptions that stay unbudgeted are unaffected, because their declare is byte-for-byte
+what it was before.
+
+### Limitation: `[Topic]` and `AddCentraEventHandler` cannot opt in
+
+The attribute and registration surfaces expose no retry-budget setting, so a handler registered that way is
+always unbudgeted. Opting in today means calling `IPubSubSubscriber.SubscribeAsync` directly with both
+`MaxRetryAttempts` and a `deadLetterTopic`.
+
+### Backoff delays the subscription, not just the message
+
+The backoff is awaited inside the consumer callback, and RabbitMQ dispatches callbacks sequentially per
+channel. With the default `MaxConcurrentCalls = 1`, a persistently failing message therefore stalls every
+other delivery on that subscription for the duration of its backoff: `RetryMaxBackoff` is a direct bound on
+worst-case head-of-line delay. Raise `MaxConcurrentCalls` above 1 if other messages must keep flowing while
+one retries. The delay observes subscription shutdown - `UnsubscribeAsync` / `DisposeAsync` interrupt it and
+leave the delivery unacknowledged for the broker to redeliver.
+
+### Other providers reject the options
+
+Only the RabbitMQ driver enforces the budget today. The Redis, in-memory and Azure Service Bus drivers throw
+`NotSupportedException` when a subscription sets `MaxRetryAttempts`, `RetryInitialBackoff` or
+`RetryMaxBackoff`, rather than accepting options they would ignore.
 
 ---
 
