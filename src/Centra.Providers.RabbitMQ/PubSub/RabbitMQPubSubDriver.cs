@@ -16,7 +16,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     private readonly IConnectionFactory _connectionFactory;
     private readonly RabbitMQProviderOptions _options;
     private readonly ILogger<RabbitMQPubSubDriver> _logger;
-    private readonly ConcurrentDictionary<string, (IChannel Channel, string ConsumerTag, SemaphoreSlim? Limiter, CancellationTokenSource Shutdown, string QueueName)> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, RabbitMQSubscription> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly IRabbitMQHeaderExtractor _headerExtractor;
     private readonly IRabbitMQMessageAcknowledger _acknowledger;
@@ -282,6 +282,10 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         // semaphore. Do not reinstate a Dispose here.
         var limiter = maxConcurrency > 1 ? new SemaphoreSlim(maxConcurrency, maxConcurrency) : null;
 
+        // Tracked from the moment the delivery arrives - before the concurrency permit and before the
+        // work is handed to the thread pool - so a shutdown that starts mid-dispatch still waits for it.
+        var inFlight = new RabbitMQInFlightTracker();
+
         var shutdown = new CancellationTokenSource();
         var shutdownToken = shutdown.Token;
 
@@ -315,7 +319,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 {
                     try
                     {
-                        await ProcessAndAckAsync(channel, queueName, ea, handler, redeliveryPolicy, shutdownToken).ConfigureAwait(false);
+                        await ProcessAndAckAsync(channel, queueName, deliveryTag, properties, body.Memory, handler, redeliveryPolicy, shutdownToken).ConfigureAwait(false);
                     }
                     finally
                     {
@@ -330,7 +334,17 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         {
             consumer.ReceivedAsync += async (_, ea) =>
             {
-                await ProcessAndAckAsync(channel, queueName, ea, handler, redeliveryPolicy, shutdownToken).ConfigureAwait(false);
+                inFlight.BeginDelivery();
+                try
+                {
+                    // Sequential path: the body is fully consumed before this callback returns, which
+                    // is the client's contract, so it needs no copy.
+                    await ProcessAndAckAsync(channel, queueName, ea.DeliveryTag, ea.BasicProperties, ea.Body, handler, redeliveryPolicy, shutdownToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    inFlight.CompleteDelivery();
+                }
             };
         }
 
@@ -341,8 +355,25 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var subKey = $"{pubSubName}:{topic}";
-        _subscriptions[subKey] = (channel, tag, limiter, shutdown, queueName);
+        _subscriptions[subKey] = new RabbitMQSubscription(channel, tag, consumer, inFlight, consumerCancelled, queueName, shutdown);
     }
+
+    internal Task ProcessAndAckAsync(
+        IChannel channel,
+        string queueName,
+        BasicDeliverEventArgs ea,
+        Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
+        RedeliveryBudgetPolicy redeliveryPolicy,
+        CancellationToken shutdownToken) =>
+        ProcessAndAckAsync(
+            channel,
+            queueName,
+            ea.DeliveryTag,
+            ea.BasicProperties,
+            ea.Body,
+            handler,
+            redeliveryPolicy,
+            shutdownToken);
 
     /// <summary>
     /// Invokes the handler for one delivery and applies its acknowledgement decision. Takes the
@@ -352,7 +383,9 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     internal async Task ProcessAndAckAsync(
         IChannel channel,
         string queueName,
-        BasicDeliverEventArgs ea,
+        ulong deliveryTag,
+        IReadOnlyBasicProperties? properties,
+        ReadOnlyMemory<byte> body,
         Func<ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, ValueTask<EventHandlingResult>> handler,
         RedeliveryBudgetPolicy redeliveryPolicy,
         CancellationToken shutdownToken)
@@ -361,8 +394,8 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         EventHandlingResult result;
         try
         {
-            headers = _headerExtractor.ExtractHeaders(ea.BasicProperties);
-            result = await handler(ea.Body, headers, CancellationToken.None).ConfigureAwait(false);
+            headers = _headerExtractor.ExtractHeaders(properties);
+            result = await handler(body, headers, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -370,7 +403,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             result = EventHandlingResult.Retry;
         }
 
-        var messageId = _identityReader.ResolveIdentity(headers, ea.BasicProperties);
+        var messageId = _identityReader.ResolveIdentity(headers, properties);
         var settlement = result;
         var backoff = TimeSpan.Zero;
 
@@ -435,7 +468,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
 
         try
         {
-            await _acknowledger.AcknowledgeMessageAsync(channel, ea.DeliveryTag, settlement).ConfigureAwait(false);
+            await _acknowledger.AcknowledgeMessageAsync(channel, deliveryTag, settlement).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -445,7 +478,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             _logger.LogWarning(
                 ex,
                 "Failed to settle RabbitMQ delivery {DeliveryTag} on queue {Queue} as {Settlement}",
-                ea.DeliveryTag,
+                deliveryTag,
                 queueName,
                 settlement);
         }
@@ -462,29 +495,9 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         var subKey = $"{pubSubName}:{topic}";
         if (_subscriptions.TryRemove(subKey, out var sub))
         {
-            await sub.Shutdown.CancelAsync().ConfigureAwait(false);
-
-            try
-            {
-                await sub.Channel.BasicCancelAsync(sub.ConsumerTag, cancellationToken: cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error canceling consumer tag {Tag} on unsubscribe", sub.ConsumerTag);
-            }
-
-            try
-            {
-                await sub.Channel.CloseAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-                sub.Channel.Dispose();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error closing subscription channel on unsubscribe");
-            }
-
-            sub.Limiter?.Dispose();
-            sub.Shutdown.Dispose();
+            var window = Volatile.Read(ref _drainWindow);
+            var budget = window is { IsOpen: true } ? window.Remaining : _options.TotalShutdownDrainTimeout;
+            await sub.ShutdownAsync(budget, _logger, cancellationToken).ConfigureAwait(false);
             _redeliveryBudget.ForgetQueue(sub.QueueName);
         }
     }
@@ -532,20 +545,13 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         var window = Volatile.Read(ref _drainWindow);
         if (window is not { IsOpen: true })
         {
-            await sub.Shutdown.CancelAsync().ConfigureAwait(false);
+            window = new ShutdownDrainWindow(_options.TotalShutdownDrainTimeout);
+            Volatile.Write(ref _drainWindow, window);
+        }
 
-            try
-            {
-                await sub.Channel.CloseAsync().ConfigureAwait(false);
-                sub.Channel.Dispose();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error closing subscription channel during disposal");
-            }
-
-            sub.Limiter?.Dispose();
-            sub.Shutdown.Dispose();
+        foreach (var (_, sub) in _subscriptions)
+        {
+            await sub.ShutdownAsync(window.Remaining, _logger, CancellationToken.None).ConfigureAwait(false);
             _redeliveryBudget.ForgetQueue(sub.QueueName);
         }
         _subscriptions.Clear();

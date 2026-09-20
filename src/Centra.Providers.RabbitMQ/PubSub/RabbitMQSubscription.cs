@@ -15,19 +15,26 @@ internal sealed class RabbitMQSubscription
     private readonly AsyncDefaultBasicConsumer _consumer;
     private readonly RabbitMQInFlightTracker _inFlight;
     private readonly TaskCompletionSource _consumerCancelled;
+    private readonly CancellationTokenSource _shutdown;
+
+    public string QueueName { get; }
 
     public RabbitMQSubscription(
         IChannel channel,
         string consumerTag,
         AsyncDefaultBasicConsumer consumer,
         RabbitMQInFlightTracker inFlight,
-        TaskCompletionSource consumerCancelled)
+        TaskCompletionSource consumerCancelled,
+        string queueName,
+        CancellationTokenSource shutdown)
     {
         _channel = channel;
         _consumerTag = consumerTag;
         _consumer = consumer;
         _inFlight = inFlight;
         _consumerCancelled = consumerCancelled;
+        QueueName = queueName;
+        _shutdown = shutdown;
     }
 
     /// <summary>
@@ -52,6 +59,8 @@ internal sealed class RabbitMQSubscription
     /// </summary>
     public async ValueTask ShutdownAsync(TimeSpan drainTimeout, ILogger logger, CancellationToken cancellationToken)
     {
+        await _shutdown.CancelAsync().ConfigureAwait(false);
+
         var budget = ShutdownDrainBudget.Normalize(drainTimeout);
         var unbounded = budget == Timeout.InfiniteTimeSpan;
         var deadline = unbounded ? 0L : Environment.TickCount64 + (long)budget.TotalMilliseconds;
@@ -130,6 +139,7 @@ internal sealed class RabbitMQSubscription
         finally
         {
             _channel.Dispose();
+            _shutdown.Dispose();
         }
     }
 }
