@@ -1,8 +1,8 @@
 using Centra.Drivers;
 using Centra.Events;
-using Centra.Hosting.HostedServices;
-using Centra.Hosting.Options;
-using Centra.Hosting.Routing;
+using Centra;
+using Centra.PubSub.HostedServices;
+using Centra.PubSub.Routing;
 using Centra.PubSub;
 using Centra.Registry;
 using Centra.Resilience;

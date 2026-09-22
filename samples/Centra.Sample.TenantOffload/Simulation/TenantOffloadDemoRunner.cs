@@ -28,7 +28,7 @@ public static class TenantOffloadDemoRunner
         var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<TenantOffloadOptions>>().Value;
 
         var registry = sp.GetService<Centra.Registry.ComponentRegistry>();
-        var centraOpts = sp.GetService<Microsoft.Extensions.Options.IOptions<Centra.Hosting.Options.CentraOptions>>()?.Value;
+        var centraOpts = sp.GetService<Microsoft.Extensions.Options.IOptions<Centra.CentraOptions>>()?.Value;
         var defaultPubSub = centraOpts?.DefaultPubSub ?? "pubsub";
         var driver = registry?.GetPubSubDriver(defaultPubSub) ?? sp.GetService<Centra.Drivers.IPubSubDriver>();
         var publisher = sp.GetService<IPubSubPublisher>() ?? (IPubSubPublisher?)driver;

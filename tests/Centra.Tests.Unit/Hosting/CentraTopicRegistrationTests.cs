@@ -1,5 +1,5 @@
 using Centra.Events;
-using Centra.Hosting.Routing;
+using Centra.PubSub.Routing;
 using Centra.PubSub;
 using Shouldly;
 using Xunit;

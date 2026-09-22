@@ -1,7 +1,7 @@
 using Centra.Actors;
 using Centra.Core.Actors;
 using Centra.Hosting.Extensions;
-using Centra.Hosting.Options;
+using Centra;
 using Centra.Invocation;
 using Centra.Locks;
 using Centra.Providers.PostgreSql.Extensions;

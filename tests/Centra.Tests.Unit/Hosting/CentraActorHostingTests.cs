@@ -1,7 +1,7 @@
 using Centra.Actors;
 using Centra.Core.Actors;
 using Centra.Hosting.Extensions;
-using Centra.Hosting.HostedServices;
+using Centra.Actors.HostedServices;
 using Centra.State;
 using Centra.Sync;
 using Microsoft.Extensions.DependencyInjection;
@@ -84,7 +84,7 @@ public sealed class CentraActorHostingTests
         services.AddLogging();
         services.AddSingleton(Substitute.For<IStateStore>());
 
-        var centraOptions = new Centra.Hosting.Options.CentraOptions
+        var centraOptions = new Centra.CentraOptions
         {
             AppId = "my-service",
             DefaultStateStore = "shared-store"

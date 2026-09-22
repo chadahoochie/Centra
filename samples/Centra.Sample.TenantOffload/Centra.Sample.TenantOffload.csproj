@@ -7,6 +7,8 @@
     <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.InMemory\Centra.Providers.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.InMemory.Hosting\Centra.Providers.InMemory.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ.Hosting\Centra.Providers.RabbitMQ.Hosting.csproj" />
   </ItemGroup>
 </Project>

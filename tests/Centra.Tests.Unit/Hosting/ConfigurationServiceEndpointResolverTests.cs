@@ -1,4 +1,3 @@
-using Centra.Hosting.Invocation;
 using Centra.Invocation;
 using Microsoft.Extensions.Configuration;
 using NSubstitute;

@@ -67,9 +67,9 @@ internal static class CentraAttributeScanner
         }
 
         var eventType = eventHandlerInterface.GetGenericArguments()[0];
-        var method = typeof(Extensions.CentraPubSubServiceCollectionExtensions)
+        var method = typeof(CentraPubSubServiceCollectionExtensions)
             .GetMethods()
-            .First(m => m.Name == nameof(Extensions.CentraPubSubServiceCollectionExtensions.AddCentraEventHandler) &&
+            .First(m => m.Name == nameof(CentraPubSubServiceCollectionExtensions.AddCentraEventHandler) &&
                         m.GetParameters().Any(p => p.Name == "ruleFilter"))
             .MakeGenericMethod(type, eventType);
 
@@ -122,8 +122,8 @@ internal static class CentraAttributeScanner
             return;
         }
 
-        var method = typeof(Extensions.CentraWorkflowServiceCollectionExtensions)
-            .GetMethod(nameof(Extensions.CentraWorkflowServiceCollectionExtensions.AddCentraWorkflow))!
+        var method = typeof(CentraWorkflowServiceCollectionExtensions)
+            .GetMethod(nameof(CentraWorkflowServiceCollectionExtensions.AddCentraWorkflow))!
             .MakeGenericMethod(type);
 
         method.Invoke(null, [services]);
@@ -136,8 +136,8 @@ internal static class CentraAttributeScanner
             return;
         }
 
-        var method = typeof(Extensions.CentraWorkflowServiceCollectionExtensions)
-            .GetMethod(nameof(Extensions.CentraWorkflowServiceCollectionExtensions.AddCentraWorkflowActivity))!
+        var method = typeof(CentraWorkflowServiceCollectionExtensions)
+            .GetMethod(nameof(CentraWorkflowServiceCollectionExtensions.AddCentraWorkflowActivity))!
             .MakeGenericMethod(type);
 
         method.Invoke(null, [services]);
@@ -156,8 +156,8 @@ internal static class CentraAttributeScanner
             return;
         }
 
-        var method = typeof(Extensions.CentraBindingsServiceCollectionExtensions)
-            .GetMethod(nameof(Extensions.CentraBindingsServiceCollectionExtensions.AddCentraCronJob))!
+        var method = typeof(CentraBindingsServiceCollectionExtensions)
+            .GetMethod(nameof(CentraBindingsServiceCollectionExtensions.AddCentraCronJob))!
             .MakeGenericMethod(type);
 
         method.Invoke(null, [services, null, null, null]);
@@ -176,8 +176,8 @@ internal static class CentraAttributeScanner
             return;
         }
 
-        var method = typeof(Extensions.CentraBindingsServiceCollectionExtensions)
-            .GetMethod(nameof(Extensions.CentraBindingsServiceCollectionExtensions.AddCentraInputBindingHandler))!
+        var method = typeof(CentraBindingsServiceCollectionExtensions)
+            .GetMethod(nameof(CentraBindingsServiceCollectionExtensions.AddCentraInputBindingHandler))!
             .MakeGenericMethod(type);
 
         method.Invoke(null, [services, null]);
@@ -190,8 +190,8 @@ internal static class CentraAttributeScanner
             return;
         }
 
-        var method = typeof(Extensions.CentraInvocationServiceCollectionExtensions)
-            .GetMethod(nameof(Extensions.CentraInvocationServiceCollectionExtensions.AddCentraServiceClient))!
+        var method = typeof(CentraInvocationServiceCollectionExtensions)
+            .GetMethod(nameof(CentraInvocationServiceCollectionExtensions.AddCentraServiceClient))!
             .MakeGenericMethod(type);
 
         method.Invoke(null, [services]);
@@ -215,8 +215,8 @@ internal static class CentraAttributeScanner
                 "expected exactly one. Register it explicitly with AddCentraActor<TActor, TActorInterface>() instead.");
         }
 
-        var method = typeof(Extensions.CentraActorServiceCollectionExtensions)
-            .GetMethod(nameof(Extensions.CentraActorServiceCollectionExtensions.AddCentraActor))!
+        var method = typeof(CentraActorServiceCollectionExtensions)
+            .GetMethod(nameof(CentraActorServiceCollectionExtensions.AddCentraActor))!
             .MakeGenericMethod(type, actorInterfaces[0]);
 
         method.Invoke(null, [services]);

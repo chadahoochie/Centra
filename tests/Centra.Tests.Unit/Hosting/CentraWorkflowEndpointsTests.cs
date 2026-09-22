@@ -6,6 +6,7 @@ using Centra.Providers.InMemory.Extensions;
 using Centra.Workflows;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Xunit;
 

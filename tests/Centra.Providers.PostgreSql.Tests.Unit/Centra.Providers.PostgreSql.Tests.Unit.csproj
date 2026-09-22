@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Providers.PostgreSql\Centra.Providers.PostgreSql.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.PostgreSql.Hosting\Centra.Providers.PostgreSql.Hosting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

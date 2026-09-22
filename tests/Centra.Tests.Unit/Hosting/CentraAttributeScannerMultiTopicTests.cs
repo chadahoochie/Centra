@@ -1,6 +1,6 @@
 using Centra.Events;
 using Centra.Hosting.Extensions;
-using Centra.Hosting.Routing;
+using Centra.PubSub.Routing;
 using Centra.PubSub;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;

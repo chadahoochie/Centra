@@ -1,5 +1,5 @@
 using Centra.Core.Workflows;
-using Centra.Hosting.HostedServices;
+using Centra.Workflows.HostedServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;

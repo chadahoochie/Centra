@@ -13,5 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Polly.Core" />
     <PackageReference Include="Polly.RateLimiting" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
 </Project>

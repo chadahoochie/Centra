@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Providers.SqlServer\Centra.Providers.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.SqlServer.Hosting\Centra.Providers.SqlServer.Hosting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

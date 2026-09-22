@@ -1,5 +1,5 @@
 using Centra.Hosting.Extensions;
-using Centra.Hosting.Options;
+using Centra;
 using Centra.Locks;
 using Centra.Providers.InMemory.Extensions;
 using Centra.Providers.Redis.Extensions;
