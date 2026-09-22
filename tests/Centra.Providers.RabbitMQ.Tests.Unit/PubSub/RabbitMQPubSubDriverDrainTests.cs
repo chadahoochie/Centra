@@ -389,11 +389,7 @@ public sealed class RabbitMQPubSubDriverDrainTests
         await dispatcher.HandedOverAsync();
 
         _channel.BasicCancelAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
-            .Returns(_ =>
-            {
-                dispatcher.EnqueueCancelOk();
-                return Task.CompletedTask;
-            });
+            .Returns(Task.CompletedTask);
 
         using (_sut.BeginShutdownDrain())
         {
