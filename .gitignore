@@ -8,3 +8,6 @@ TestResults/
 .DS_Store
 coverage/
 .vscode/
+nupkgs/
+*.nupkg
+*.snupkg

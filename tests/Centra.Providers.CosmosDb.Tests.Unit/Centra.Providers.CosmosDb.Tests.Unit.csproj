@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Providers.CosmosDb\Centra.Providers.CosmosDb.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.CosmosDb.Hosting\Centra.Providers.CosmosDb.Hosting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

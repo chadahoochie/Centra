@@ -1,7 +1,7 @@
 using Centra.Bindings;
 using Centra.Hosting.Extensions;
-using Centra.Hosting.HostedServices;
-using Centra.Hosting.Routing;
+using Centra.Bindings.HostedServices;
+using Centra.Bindings.Routing;
 using Centra.Locks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

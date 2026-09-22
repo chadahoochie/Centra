@@ -1,8 +1,8 @@
+using Centra;
 using Centra.Components;
-using Centra.Hosting.HostedServices;
-using Centra.Hosting.Options;
 using Centra.Resilience;
 using Centra.Sync;
+using Centra.Sync.HostedServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;

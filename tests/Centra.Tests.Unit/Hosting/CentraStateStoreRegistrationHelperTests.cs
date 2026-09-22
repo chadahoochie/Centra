@@ -1,6 +1,6 @@
-using Centra.Hosting.Extensions;
-using Centra.Hosting.Options;
+using Centra;
 using Centra.State;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;

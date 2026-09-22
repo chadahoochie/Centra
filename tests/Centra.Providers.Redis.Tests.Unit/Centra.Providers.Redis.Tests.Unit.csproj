@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Providers.Redis\Centra.Providers.Redis.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Redis.Hosting\Centra.Providers.Redis.Hosting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

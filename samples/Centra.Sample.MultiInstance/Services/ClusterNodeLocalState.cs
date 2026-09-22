@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Centra.Hosting.Options;
+using Centra;
 using Centra.Locks;
 using Centra.Sample.MultiInstance.Domain;
 using Microsoft.Extensions.Options;

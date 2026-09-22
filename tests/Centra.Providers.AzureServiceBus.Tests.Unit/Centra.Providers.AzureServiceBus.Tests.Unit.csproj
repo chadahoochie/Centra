@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Providers.AzureServiceBus\Centra.Providers.AzureServiceBus.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.AzureServiceBus.Hosting\Centra.Providers.AzureServiceBus.Hosting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,5 +1,5 @@
 using Centra.Hosting.Extensions;
-using Centra.Hosting.Routing;
+using Centra.PubSub.Routing;
 using Centra.Sample.RabbitSimulation.Consumer.Handlers;
 using Centra.Sample.RabbitSimulation.Contracts.Clients;
 using Microsoft.Extensions.DependencyInjection;

@@ -1,9 +1,9 @@
 using System.Reflection;
+using Centra;
 using Centra.Hosting.Discovery;
-using Centra.Hosting.Options;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Centra.Hosting.Extensions;
+namespace Microsoft.Extensions.DependencyInjection;
 
 public static class CentraServiceCollectionExtensions
 {
@@ -20,6 +20,7 @@ public static class CentraServiceCollectionExtensions
         params Assembly[] assembliesToScan)
     {
         services.AddCentraCore(configure);
+        services.AddCentraSerialization();
         services.AddCentraResilience();
         services.AddCentraState();
         services.AddCentraPubSub();

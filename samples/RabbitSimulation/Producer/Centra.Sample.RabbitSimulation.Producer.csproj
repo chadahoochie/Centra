@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
     <ProjectReference Include="..\..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\..\src\Centra.Providers.RabbitMQ.Hosting\Centra.Providers.RabbitMQ.Hosting.csproj" />
     <ProjectReference Include="..\Contracts\Centra.Sample.RabbitSimulation.Contracts.csproj" />
   </ItemGroup>
 

@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ.Hosting\Centra.Providers.RabbitMQ.Hosting.csproj" />
   </ItemGroup>
 
   <ItemGroup>

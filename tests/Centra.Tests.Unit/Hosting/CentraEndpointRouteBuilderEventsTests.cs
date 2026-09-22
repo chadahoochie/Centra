@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
 using Centra.Hosting.Extensions;
-using Centra.Hosting.Routing;
+using Centra.PubSub.Routing;
 using Centra.PubSub;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;

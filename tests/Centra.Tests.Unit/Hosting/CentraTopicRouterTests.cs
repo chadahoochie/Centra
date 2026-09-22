@@ -1,6 +1,6 @@
 using System.Text;
 using Centra.Events;
-using Centra.Hosting.Routing;
+using Centra.PubSub.Routing;
 using Centra.PubSub;
 using Centra.PubSub.Routing.Rules;
 using Shouldly;

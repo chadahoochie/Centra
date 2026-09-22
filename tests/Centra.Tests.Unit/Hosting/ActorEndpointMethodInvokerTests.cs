@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Centra.Hosting.Routing;
+using Centra.Actors.Routing;
 using Shouldly;
 using Xunit;
 

@@ -1,5 +1,5 @@
-using Centra.Hosting.HostedServices;
 using Centra.Locks;
+using Centra.PubSub.HostedServices;
 using Centra.PubSub.Tenancy;
 using Microsoft.Extensions.Logging;
 using NSubstitute;

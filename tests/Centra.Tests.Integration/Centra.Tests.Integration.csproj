@@ -10,12 +10,19 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Providers.InMemory\Centra.Providers.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.InMemory.Hosting\Centra.Providers.InMemory.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.Redis\Centra.Providers.Redis.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Redis.Hosting\Centra.Providers.Redis.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.PostgreSql\Centra.Providers.PostgreSql.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.PostgreSql.Hosting\Centra.Providers.PostgreSql.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ.Hosting\Centra.Providers.RabbitMQ.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.SqlServer\Centra.Providers.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.SqlServer.Hosting\Centra.Providers.SqlServer.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.AzureServiceBus\Centra.Providers.AzureServiceBus.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.AzureServiceBus.Hosting\Centra.Providers.AzureServiceBus.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.CosmosDb\Centra.Providers.CosmosDb.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.CosmosDb.Hosting\Centra.Providers.CosmosDb.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
     <ProjectReference Include="..\..\samples\Centra.Sample.MultiInstance\Centra.Sample.MultiInstance.csproj" />

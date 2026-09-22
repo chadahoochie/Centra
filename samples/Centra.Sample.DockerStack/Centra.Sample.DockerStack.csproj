@@ -19,7 +19,10 @@
     <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.Redis\Centra.Providers.Redis.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Redis.Hosting\Centra.Providers.Redis.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ\Centra.Providers.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.RabbitMQ.Hosting\Centra.Providers.RabbitMQ.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Centra.Providers.PostgreSql\Centra.Providers.PostgreSql.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.PostgreSql.Hosting\Centra.Providers.PostgreSql.Hosting.csproj" />
   </ItemGroup>
 </Project>

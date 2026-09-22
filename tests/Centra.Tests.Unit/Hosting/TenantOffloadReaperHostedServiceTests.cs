@@ -1,4 +1,4 @@
-using Centra.Hosting.HostedServices;
+using Centra.PubSub.HostedServices;
 using Centra.PubSub.Tenancy;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;

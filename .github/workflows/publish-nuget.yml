@@ -1,15 +1,13 @@
 name: Publish NuGet Packages
 
 on:
+  release:
+    types:
+      - published
   workflow_dispatch:
     inputs:
-      version_base:
-        description: 'Base version prefix (e.g., 1.0.0)'
-        required: true
-        default: '1.0.0'
-        type: string
-      prerelease_suffix:
-        description: 'Prerelease tag suffix (optional, e.g., preview, beta, rc)'
+      version:
+        description: 'Semantic version to pack and publish (e.g., 1.0.0 or 1.0.0-preview.1). Defaults to release tag if omitted.'
         required: false
         default: ''
         type: string
@@ -38,17 +36,21 @@ jobs:
       - name: Calculate Package Version
         id: versioning
         run: |
-          BASE_VER="${{ github.event.inputs.version_base }}"
-          RUN_NUM="${{ github.run_number }}"
-          SUFFIX="${{ github.event.inputs.prerelease_suffix }}"
-
-          FULL_VER="${BASE_VER}.${RUN_NUM}"
-          if [ -n "$SUFFIX" ]; then
-            FULL_VER="${FULL_VER}-${SUFFIX}"
+          RAW_VERSION="${{ inputs.version }}"
+          if [ -z "$RAW_VERSION" ]; then
+            RAW_VERSION="${{ github.ref_name }}"
           fi
 
-          echo "VERSION=${FULL_VER}" >> $GITHUB_OUTPUT
-          echo "Calculated package version: ${FULL_VER}"
+          # Strip leading 'v' if present (e.g., v1.0.0 -> 1.0.0)
+          VERSION="${RAW_VERSION#v}"
+
+          if [ -z "$VERSION" ]; then
+            echo "::error::Unable to determine package version!"
+            exit 1
+          fi
+
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Calculated package version: ${VERSION}"
 
       - name: Restore Dependencies
         run: dotnet restore Centra.slnx
@@ -66,6 +68,65 @@ jobs:
           --no-build
           /p:PackageVersion="${{ steps.versioning.outputs.VERSION }}"
           --output ./nupkgs
+
+      - name: Verify Expected Packages
+        run: |
+          REQUIRED_PACKAGES=(
+            "Centra.Abstractions"
+            "Centra.Actors.Abstractions"
+            "Centra.Actors"
+            "Centra.Bindings.Abstractions"
+            "Centra.Bindings"
+            "Centra.Components.Abstractions"
+            "Centra.Events.Abstractions"
+            "Centra.Events"
+            "Centra.Hosting"
+            "Centra.Invocation.Abstractions"
+            "Centra.Invocation"
+            "Centra.Locks.Abstractions"
+            "Centra.Locks"
+            "Centra.PubSub.Abstractions"
+            "Centra.PubSub"
+            "Centra.Resilience.Abstractions"
+            "Centra.Resilience"
+            "Centra.Runtime"
+            "Centra.Serialization"
+            "Centra.State.Abstractions"
+            "Centra.State"
+            "Centra.Sync.Abstractions"
+            "Centra.Sync"
+            "Centra.Workflows.Abstractions"
+            "Centra.Workflows"
+            "Centra.Providers.Redis"
+            "Centra.Providers.Redis.Hosting"
+            "Centra.Providers.RabbitMQ"
+            "Centra.Providers.RabbitMQ.Hosting"
+            "Centra.Providers.PostgreSql"
+            "Centra.Providers.PostgreSql.Hosting"
+            "Centra.Providers.SqlServer"
+            "Centra.Providers.SqlServer.Hosting"
+            "Centra.Providers.AzureServiceBus"
+            "Centra.Providers.AzureServiceBus.Hosting"
+            "Centra.Providers.CosmosDb"
+            "Centra.Providers.CosmosDb.Hosting"
+            "Centra.Providers.InMemory"
+            "Centra.Providers.InMemory.Hosting"
+          )
+
+          MISSING=0
+          for pkg in "${REQUIRED_PACKAGES[@]}"; do
+            if ! ls ./nupkgs/${pkg}.${{ steps.versioning.outputs.VERSION }}.nupkg 1>/dev/null 2>&1; then
+              echo "::error::Missing required package: ${pkg}"
+              MISSING=1
+            else
+              echo "Found package: ${pkg}"
+            fi
+          done
+
+          if [ "$MISSING" -ne 0 ]; then
+            echo "::error::Package verification failed. Missing required packages."
+            exit 1
+          fi
 
       - name: NuGet Login (Trusted Publisher OIDC)
         uses: NuGet/login@v1
