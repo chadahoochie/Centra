@@ -1,7 +1,9 @@
 using Centra.ControlPlane.Catalog;
 using Centra.ControlPlane.Secrets;
+using Centra.ControlPlane.Serialization;
 using Centra.ControlPlane.Sync;
 using Centra.ControlPlane.Topology;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Centra.ControlPlane.Extensions;
@@ -10,6 +12,11 @@ public static class ControlPlaneServiceCollectionExtensions
 {
     public static IServiceCollection AddCentraControlPlane(this IServiceCollection services)
     {
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.TypeInfoResolverChain.Insert(0, ControlPlaneJsonSerializerContext.Default);
+        });
+
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<InMemoryComponentCatalog>();
         services.AddSingleton<IComponentCatalog>(sp => sp.GetRequiredService<InMemoryComponentCatalog>());

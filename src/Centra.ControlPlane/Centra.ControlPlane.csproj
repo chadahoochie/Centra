@@ -2,6 +2,9 @@
   <PropertyGroup>
     <Description>Central Control Plane for Centra: centralized component catalog, secret resolution, cluster topology, and real-time streaming sync.</Description>
     <IsPackable>false</IsPackable>
+    <PublishAot>true</PublishAot>
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>

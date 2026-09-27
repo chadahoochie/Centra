@@ -5,11 +5,14 @@ using Centra.Actors;
 using Centra.Core.Actors;
 using Centra.Workflows;
 using Centra.Core.Workflows;
+using Centra.ControlPlane.Actors;
 using Centra.ControlPlane.Catalog;
 using Centra.ControlPlane.Diagnostics;
 using Centra.ControlPlane.Secrets;
+using Centra.ControlPlane.Serialization;
 using Centra.ControlPlane.Sync;
 using Centra.ControlPlane.Topology;
+using Centra.ControlPlane.Workflows;
 using Centra.Sync;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -21,8 +24,6 @@ namespace Centra.ControlPlane.Endpoints;
 
 public static class ControlPlaneEndpoints
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     public static IEndpointRouteBuilder MapCentraControlPlaneEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1");
@@ -201,7 +202,7 @@ public static class ControlPlaneEndpoints
                     Revision = entry.Revision,
                     TimestampUtc = entry.UpdatedAtUtc
                 };
-                var json = JsonSerializer.Serialize(fullSyncPayload, JsonOptions);
+                var json = JsonSerializer.Serialize(fullSyncPayload, ControlPlaneJsonSerializerContext.Default.ResilienceSyncEventDto);
                 await httpContext.Response.WriteAsync($"data: {json}\n\n", ct);
             }
             await httpContext.Response.Body.FlushAsync(ct);
@@ -209,7 +210,7 @@ public static class ControlPlaneEndpoints
             // 2. Stream live mutations
             await foreach (var evt in dispatcher.SubscribeResilienceAsync(effectiveAppId, effectiveInstanceId, ct))
             {
-                var json = JsonSerializer.Serialize(evt, JsonOptions);
+                var json = JsonSerializer.Serialize(evt, ControlPlaneJsonSerializerContext.Default.ResilienceSyncEventDto);
                 await httpContext.Response.WriteAsync($"data: {json}\n\n", ct);
                 await httpContext.Response.Body.FlushAsync(ct);
             }
@@ -248,7 +249,7 @@ public static class ControlPlaneEndpoints
                     Revision = entry.Revision,
                     TimestampUtc = entry.UpdatedAtUtc
                 };
-                var json = JsonSerializer.Serialize(fullSyncPayload, JsonOptions);
+                var json = JsonSerializer.Serialize(fullSyncPayload, ControlPlaneJsonSerializerContext.Default.ComponentSyncEventDto);
                 await httpContext.Response.WriteAsync($"data: {json}\n\n", ct);
             }
             await httpContext.Response.Body.FlushAsync(ct);
@@ -271,7 +272,7 @@ public static class ControlPlaneEndpoints
                     TimestampUtc = evt.TimestampUtc
                 };
 
-                var json = JsonSerializer.Serialize(syncDto, JsonOptions);
+                var json = JsonSerializer.Serialize(syncDto, ControlPlaneJsonSerializerContext.Default.ComponentSyncEventDto);
                 await httpContext.Response.WriteAsync($"data: {json}\n\n", ct);
                 await httpContext.Response.Body.FlushAsync(ct);
             }
@@ -301,13 +302,11 @@ public static class ControlPlaneEndpoints
 
         group.MapGet("/health", (TimeProvider timeProvider) =>
         {
-            return Results.Ok(new
-            {
-                status = "Healthy",
-                service = "Centra.ControlPlane",
-                version = "1.0.0",
-                timestampUtc = timeProvider.GetUtcNow()
-            });
+            return Results.Ok(new ControlPlaneHealthResponse(
+                "Healthy",
+                "Centra.ControlPlane",
+                "1.0.0",
+                timeProvider.GetUtcNow()));
         });
 
         // Actor Runtime Inspection & Lifecycle
@@ -322,7 +321,7 @@ public static class ControlPlaneEndpoints
         {
             var actorManager = serviceProvider.GetService<ActorManager>();
             var count = actorManager?.ActiveCount ?? 0;
-            return Results.Ok(new { activeCount = count });
+            return Results.Ok(new ActorActivationCountResponse(count));
         });
 
         group.MapPost("/actors/{actorType}/{actorId}/passivate", async (
@@ -340,33 +339,29 @@ public static class ControlPlaneEndpoints
                     ct);
             }
 
-            return Results.Ok(new { passivated });
+            return Results.Ok(new ActorPassivateResponse(passivated));
         });
 
         // Workflow Runtime Inspection
         group.MapGet("/workflows/definitions", (IServiceProvider serviceProvider) =>
         {
             var registry = serviceProvider.GetService<IWorkflowRegistry>();
-            var defs = registry?.GetWorkflows().Select(w => new
-            {
-                name = w.Name,
-                workflowType = w.WorkflowType.Name,
-                inputType = w.InputType.Name,
-                outputType = w.OutputType.Name
-            }) ?? [];
+            var defs = registry?.GetWorkflows().Select(w => new WorkflowDefinitionDto(
+                w.Name,
+                w.WorkflowType.Name,
+                w.InputType.Name,
+                w.OutputType.Name)).ToList() ?? [];
             return Results.Ok(defs);
         });
 
         group.MapGet("/workflows/activities", (IServiceProvider serviceProvider) =>
         {
             var registry = serviceProvider.GetService<IWorkflowRegistry>();
-            var activities = registry?.GetActivities().Select(a => new
-            {
-                name = a.Name,
-                activityType = a.ActivityType.Name,
-                inputType = a.InputType.Name,
-                outputType = a.OutputType.Name
-            }) ?? [];
+            var activities = registry?.GetActivities().Select(a => new WorkflowActivityDto(
+                a.Name,
+                a.ActivityType.Name,
+                a.InputType.Name,
+                a.OutputType.Name)).ToList() ?? [];
             return Results.Ok(activities);
         });
 
@@ -381,16 +376,14 @@ public static class ControlPlaneEndpoints
             var state = await engine.GetWorkflowStateAsync(new WorkflowInstanceId(instanceId), ct);
             if (state is null) return Results.NotFound();
 
-            return Results.Ok(new
-            {
-                instanceId = state.Value.InstanceId.Value,
-                workflowName = state.Value.WorkflowName,
-                status = state.Value.Status.ToString(),
-                customStatus = state.Value.CustomStatus,
-                createdAt = state.Value.CreatedAt,
-                lastUpdatedAt = state.Value.LastUpdatedAt,
-                failureDetails = state.Value.FailureDetails
-            });
+            return Results.Ok(new WorkflowInstanceStateDto(
+                state.Value.InstanceId.Value,
+                state.Value.WorkflowName,
+                state.Value.Status.ToString(),
+                state.Value.CustomStatus,
+                state.Value.CreatedAt,
+                state.Value.LastUpdatedAt,
+                state.Value.FailureDetails));
         });
 
         group.MapGet("/workflows/instances/{instanceId}/history", async (
