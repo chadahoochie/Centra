@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace Centra.Sync;
 
+[JsonConverter(typeof(JsonStringEnumConverter<ComponentSyncAction>))]
 public enum ComponentSyncAction
 {
     FullSync = 0,
