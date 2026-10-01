@@ -1,10 +1,8 @@
 using System.Text;
 using Centra.Providers.Flotilla.Client;
-using Centra.Providers.Flotilla.Options;
 using Centra.Providers.Flotilla.Protocol;
 using Centra.Providers.Flotilla.PubSub;
 using Centra.PubSub;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -14,12 +12,11 @@ namespace Centra.Providers.Flotilla.Tests.Unit;
 public sealed class FlotillaPubSubDriverTests
 {
     private readonly IFlotillaClient _client = Substitute.For<IFlotillaClient>();
-    private readonly IOptions<FlotillaProviderOptions> _options = Microsoft.Extensions.Options.Options.Create(new FlotillaProviderOptions());
 
     [Fact]
     public async Task PublishAsync_SubmitsEncodedProposalToClient()
     {
-        var driver = new FlotillaPubSubDriver(_client, _options);
+        var driver = new FlotillaPubSubDriver(_client);
         var topic = "inventory.reserved";
         var payload = Encoding.UTF8.GetBytes("item-42");
         var metadata = new Dictionary<string, string> { ["traceId"] = "trace-101" };
@@ -38,7 +35,7 @@ public sealed class FlotillaPubSubDriverTests
     [Fact]
     public async Task PublishAsync_WhenProposalFails_ThrowsInvalidOperationException()
     {
-        var driver = new FlotillaPubSubDriver(_client, _options);
+        var driver = new FlotillaPubSubDriver(_client);
         _client.ProposeAsync(Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<FlotillaProposalResult>(FlotillaProposalResult.Failure("Raft quorum timeout")));
 
@@ -53,7 +50,7 @@ public sealed class FlotillaPubSubDriverTests
     [Fact]
     public async Task PublishBatchAsync_SubmitsAllMessagesSequentially()
     {
-        var driver = new FlotillaPubSubDriver(_client, _options);
+        var driver = new FlotillaPubSubDriver(_client);
         _client.ProposeAsync(Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<FlotillaProposalResult>(FlotillaProposalResult.Success(1)));
 
@@ -72,7 +69,7 @@ public sealed class FlotillaPubSubDriverTests
     [Fact]
     public async Task SubscribeAsync_RegistersHandler_And_UnsubscribeAsync_RemovesIt()
     {
-        var driver = new FlotillaPubSubDriver(_client, _options);
+        var driver = new FlotillaPubSubDriver(_client);
         var topic = "alerts.critical";
 
         driver.GetSubscriptions(topic).ShouldBeEmpty();
@@ -90,9 +87,25 @@ public sealed class FlotillaPubSubDriverTests
     }
 
     [Fact]
+    public async Task SubscribeAsync_WhenRedeliveryBudgetConfigured_ThrowsNotSupportedException()
+    {
+        var driver = new FlotillaPubSubDriver(_client);
+        var options = new PubSubSubscribeOptions { MaxRetryAttempts = 3 };
+
+        await Should.ThrowAsync<NotSupportedException>(async () =>
+        {
+            await driver.SubscribeAsync(
+                "default",
+                "orders.topic",
+                (_, _, _) => ValueTask.FromResult(EventHandlingResult.Success),
+                options: options);
+        });
+    }
+
+    [Fact]
     public void BeginShutdownDrain_ReturnsDisposableHandle()
     {
-        var driver = new FlotillaPubSubDriver(_client, _options);
+        var driver = new FlotillaPubSubDriver(_client);
         using var drain = driver.BeginShutdownDrain();
         drain.ShouldNotBeNull();
     }
@@ -100,7 +113,7 @@ public sealed class FlotillaPubSubDriverTests
     [Fact]
     public async Task DisposeAsync_CleansUpSubscriptionsAndDisposesClient()
     {
-        var driver = new FlotillaPubSubDriver(_client, _options);
+        var driver = new FlotillaPubSubDriver(_client);
         await driver.SubscribeAsync("default", "topic", (_, _, _) => ValueTask.FromResult(EventHandlingResult.Success));
 
         await driver.DisposeAsync();
@@ -112,7 +125,7 @@ public sealed class FlotillaPubSubDriverTests
     [Fact]
     public async Task SubscriptionWorker_DispatchesCommittedEntriesToMatchingHandlers()
     {
-        var driver = new FlotillaPubSubDriver(_client, _options);
+        var driver = new FlotillaPubSubDriver(_client);
         var topic = "events.dispatched";
         var payloadBytes = Encoding.UTF8.GetBytes("dispatched_data");
         var metadata = new Dictionary<string, string> { ["source"] = "test" };
@@ -151,7 +164,7 @@ public sealed class FlotillaPubSubDriverTests
         receivedList[0].ShouldBe("dispatched_data");
     }
 
-    private static bool VerifyEncodedPayload(ReadOnlyMemory<byte> memory, string expectedTopic, string expectedSubstring)
+    internal static bool VerifyEncodedPayload(ReadOnlyMemory<byte> memory, string expectedTopic, string expectedSubstring)
     {
         var (topic, _, payload) = FlotillaWireProtocol.DecodeMessage(memory);
         return topic == expectedTopic && Encoding.UTF8.GetString(payload.Span).Contains(expectedSubstring);

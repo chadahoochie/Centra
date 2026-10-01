@@ -1,26 +1,27 @@
 using Centra.Components;
 using Centra.Drivers;
 using Centra.Providers.Flotilla.Client;
-using Centra.Providers.Flotilla.Options;
 using Centra.Providers.Flotilla.PubSub;
+using Centra.Providers.Flotilla.Tcp.Client;
+using Centra.Providers.Flotilla.Tcp.Options;
 using Centra.PubSub;
 using Centra.Registry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace Centra.Providers.Flotilla.Hosting.Extensions;
+namespace Centra.Providers.Flotilla.Tcp.Extensions;
 
 /// <summary>
-/// Dependency injection extension methods for registering the Flotilla consensus pub/sub provider.
+/// Dependency injection extension methods for registering the Flotilla TCP consensus pub/sub provider.
 /// </summary>
-public static class CentraFlotillaServiceCollectionExtensions
+public static class CentraFlotillaTcpServiceCollectionExtensions
 {
     /// <summary>
-    /// Adds Centra Flotilla consensus pub/sub services to the service collection.
+    /// Adds Centra Flotilla TCP consensus pub/sub services to the service collection.
     /// </summary>
-    public static IServiceCollection AddCentraFlotilla(
+    public static IServiceCollection AddCentraFlotillaTcp(
         this IServiceCollection services,
-        Action<FlotillaProviderOptions>? configure = null)
+        Action<FlotillaTcpOptions>? configure = null)
     {
         if (configure is not null)
         {
@@ -28,42 +29,43 @@ public static class CentraFlotillaServiceCollectionExtensions
         }
         else
         {
-            services.AddOptions<FlotillaProviderOptions>();
+            services.AddOptions<FlotillaTcpOptions>();
         }
 
-        services.TryAddSingleton<IFlotillaClient, FlotillaUdpClient>();
+        services.TryAddSingleton<IFlotillaClient, FlotillaTcpClient>();
+        services.TryAddSingleton<FlotillaTcpClient>();
         services.TryAddSingleton<FlotillaPubSubDriver>();
         services.AddSingleton<IPubSubDriver>(sp => sp.GetRequiredService<FlotillaPubSubDriver>());
         services.AddSingleton<IPubSubShutdownDrain>(sp => sp.GetRequiredService<FlotillaPubSubDriver>());
-        services.AddSingleton<IComponentInitializer, FlotillaComponentInitializer>();
+        services.AddSingleton<IComponentInitializer, FlotillaTcpComponentInitializer>();
         services.AddHostedService<FlotillaSubscriptionWorker>();
 
         return services;
     }
 
     /// <summary>
-    /// Adds a named Centra Flotilla pub/sub instance to the service collection.
+    /// Adds a named Centra Flotilla TCP pub/sub instance to the service collection.
     /// </summary>
-    public static IServiceCollection AddCentraFlotillaPubSub(
+    public static IServiceCollection AddCentraFlotillaTcpPubSub(
         this IServiceCollection services,
         string pubSubName,
-        Action<FlotillaProviderOptions>? configure = null)
+        Action<FlotillaTcpOptions>? configure = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
 
-        services.AddCentraFlotilla(configure);
+        services.AddCentraFlotillaTcp(configure);
 
         services.AddSingleton<IComponentInitializer>(sp =>
         {
             var driver = sp.GetRequiredService<FlotillaPubSubDriver>();
-            return new FlotillaDelegateComponentInitializer(registry =>
+            return new FlotillaTcpDelegateComponentInitializer(registry =>
             {
                 registry.RegisterPubSubDriver(pubSubName, driver);
                 registry.RegisterComponent(new ComponentDefinition
                 {
                     Name = pubSubName,
                     Type = ComponentType.PubSub,
-                    Provider = "flotilla"
+                    Provider = "flotilla-tcp"
                 });
             });
         });

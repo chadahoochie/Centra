@@ -25,7 +25,9 @@
     <Project Path="src/Centra.Providers.CosmosDb/Centra.Providers.CosmosDb.csproj" />
     <Project Path="src/Centra.Providers.CosmosDb.Hosting/Centra.Providers.CosmosDb.Hosting.csproj" />
     <Project Path="src/Centra.Providers.Flotilla/Centra.Providers.Flotilla.csproj" />
-    <Project Path="src/Centra.Providers.Flotilla.Hosting/Centra.Providers.Flotilla.Hosting.csproj" />
+    <Project Path="src/Centra.Providers.Flotilla.Udp/Centra.Providers.Flotilla.Udp.csproj" />
+    <Project Path="src/Centra.Providers.Flotilla.Tcp/Centra.Providers.Flotilla.Tcp.csproj" />
+    <Project Path="src/Centra.Providers.Flotilla.Grpc/Centra.Providers.Flotilla.Grpc.csproj" />
     <Project Path="src/Centra.Hosting/Centra.Hosting.csproj" />
     <Project Path="src/Centra.ControlPlane/Centra.ControlPlane.csproj" />
     <Project Path="src/Centra.Aspire.Hosting/Centra.Aspire.Hosting.csproj" />
