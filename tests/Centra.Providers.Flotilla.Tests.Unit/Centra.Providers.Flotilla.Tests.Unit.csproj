@@ -6,7 +6,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centra.Providers.Flotilla\Centra.Providers.Flotilla.csproj" />
-    <ProjectReference Include="..\..\src\Centra.Providers.Flotilla.Hosting\Centra.Providers.Flotilla.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Flotilla.Udp\Centra.Providers.Flotilla.Udp.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Flotilla.Tcp\Centra.Providers.Flotilla.Tcp.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Flotilla.Grpc\Centra.Providers.Flotilla.Grpc.csproj" />
   </ItemGroup>
 
   <ItemGroup>

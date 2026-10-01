@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Hosting and dependency injection extensions for Centra Flotilla consensus pub/sub provider.</Description>
-    <RootNamespace>Centra.Providers.Flotilla.Hosting</RootNamespace>
-    <PackageTags>$(PackageTags);providers;flotilla;hosting;dependency-injection;consensus;raft</PackageTags>
+    <Description>HTTP/2 gRPC consensus pub/sub provider for Centra backed by Flotilla.</Description>
+    <PackageTags>$(PackageTags);providers;flotilla;grpc;raft;consensus;pubsub;messaging;cloudevents</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,9 +11,19 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Grpc.Net.Client" />
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\flotilla.proto" GrpcServices="Client" />
   </ItemGroup>
 </Project>

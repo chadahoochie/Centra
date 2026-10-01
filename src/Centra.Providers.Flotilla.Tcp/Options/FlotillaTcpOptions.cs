@@ -1,12 +1,12 @@
-namespace Centra.Providers.Flotilla.Options;
+namespace Centra.Providers.Flotilla.Tcp.Options;
 
 /// <summary>
-/// Configuration options for the Centra Flotilla consensus pub/sub provider.
+/// Configuration options for the Centra Flotilla TCP consensus pub/sub provider.
 /// </summary>
-public sealed class FlotillaProviderOptions
+public sealed class FlotillaTcpOptions
 {
     /// <summary>
-    /// UDP network addresses of the Flotilla Raft consensus cluster nodes.
+    /// TCP network addresses of the Flotilla Raft consensus cluster nodes.
     /// </summary>
     public string[] ClusterNodes { get; set; } = ["127.0.0.1:9001", "127.0.0.1:9002", "127.0.0.1:9003"];
 
@@ -18,7 +18,7 @@ public sealed class FlotillaProviderOptions
     /// <summary>
     /// Timeout in milliseconds for client proposal network operations.
     /// </summary>
-    public int ClientTimeoutMs { get; set; } = 100;
+    public int ClientTimeoutMs { get; set; } = 1000;
 
     /// <summary>
     /// Maximum number of messages per batch during batch publishing.

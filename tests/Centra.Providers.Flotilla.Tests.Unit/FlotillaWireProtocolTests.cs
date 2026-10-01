@@ -107,7 +107,7 @@ public sealed class FlotillaWireProtocolTests
     public void CalculateCrc32_ReturnsDeterministicChecksum()
     {
         var data = Encoding.UTF8.GetBytes("123456789");
-        var crc = FlotillaUdpClient.CalculateCrc32(data);
+        var crc = FlotillaCrc32.Calculate(data);
 
         // Standard IEEE 802.3 CRC32 of "123456789" is 0xCBF43926
         crc.ShouldBe(0xCBF43926);
