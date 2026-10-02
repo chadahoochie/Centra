@@ -20,13 +20,13 @@ Centra solves this architecturally through **Dynamic Tenant Offloading**:
    - **`EphemeralBrokerTopic`**: Dynamically creates dedicated ephemeral broker topics with auto-deletion and TTL.
 4. **Publish-Side Steering & Inbound Interception**:
    - [`CentraPubSubClient`](../../src/Centra.PubSub/PubSub/CentraPubSubClient.cs) dynamically resolves outbound target topics via `ResolvePublishTopic`.
-   - [`CentraSubscriptionEventDispatcher`](../../src/Centra.Hosting/HostedServices/CentraSubscriptionEventDispatcher.cs) intercepts incoming messages from offloaded tenants, delegating execution to the offload coordinator.
+   - [`CentraSubscriptionEventDispatcher`](../../src/Centra.PubSub/HostedServices/CentraSubscriptionEventDispatcher.cs) intercepts incoming messages from offloaded tenants, delegating execution to the offload coordinator.
 5. **RabbitMQ & Multi-Instance Competing Consumers**:
    - Multiple replicas of `Centra.Sample.TenantOffload` subscribe to `tenant.orders` using RabbitMQ.
    - Consumers form a competing-consumer group on `centra.pubsub.tenant.orders`, load-balancing event consumption across instances.
    - Each consumer instance tracks handled metrics independently via [`ITenantConsumerNodeState`](Domain/ITenantConsumerNodeState.cs) while enforcing local noisy neighbor rate limits and lane isolation.
 6. **Cooldown & Ephemeral Reaper**:
-   - Once the burst subsides, the background [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) automatically drains idle resources, unregisters and deletes ephemeral broker queues (`AutoDelete=true`), and restores the tenant back to `Normal` state.
+   - Once the burst subsides, the background [`TenantOffloadReaperHostedService`](../../src/Centra.PubSub/HostedServices/TenantOffloadReaperHostedService.cs) automatically drains idle resources, unregisters and deletes ephemeral broker queues (`AutoDelete=true`), and restores the tenant back to `Normal` state.
 
 ---
 
@@ -134,11 +134,11 @@ The simulation orchestrates 6 progressive scenarios:
 4. **Broker Topic Sharding Demonstration**:
    - Shows how `BoundedShardBrokerTopicOffloadStrategy` and `EphemeralBrokerTopicOffloadStrategy` deterministically hash tenants to isolated broker topics (`tenant.orders.offload.0`, etc.).
 5. **5-Phase Safe Drain, State Recovery & Ephemeral Reaping**:
-   - Once the noisy burst subsides and the cooldown window elapses, the coordinator and [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs) execute a safe, 5-phase decommission sequence to prevent dropped messages or split-brain queue teardown:
+   - Once the noisy burst subsides and the cooldown window elapses, the coordinator and [`TenantOffloadReaperHostedService`](../../src/Centra.PubSub/HostedServices/TenantOffloadReaperHostedService.cs) execute a safe, 5-phase decommission sequence to prevent dropped messages or split-brain queue teardown:
      - **Phase 1: Publisher Cutoff (`Draining` State)**: The coordinator transitions the tenant to `TenantOffloadState.Draining`. `ResolvePublishTopic` instantly routes incoming orders back to the primary topic (`tenant.orders`), cutting off new arrivals to the ephemeral topic while allowing remaining backlog to drain.
      - **Phase 2: In-Flight Turn Protection**: The [`EphemeralTopicTurnTracker`](../../src/Centra.PubSub/Tenancy/EphemeralTopicTurnTracker.cs) ensures any active worker turns currently processing an event finish cleanly before queue teardown.
      - **Phase 3: Broker Queue Depth Inspection**: [`IPubSubQueueInspector`](../../src/Centra.PubSub.Abstractions/IPubSubQueueInspector.cs) queries the underlying broker (e.g., via `QueueDeclarePassive` in RabbitMQ) to verify unconsumed backlog reaches exactly zero (`MessageCount == 0`).
-     - **Phase 4: Distributed Lock Mutual Exclusion**: Reaping requires acquiring an [`IDistributedLockProvider`](../../src/Centra.DistributedLock.Abstractions/IDistributedLockProvider.cs) lease (`centra:reaper:{tenantId}:{topic}`) to prevent concurrent instances in a cluster from racing to delete the queue.
+     - **Phase 4: Distributed Lock Mutual Exclusion**: Reaping requires acquiring an [`IDistributedLockProvider`](../../src/Centra.Locks.Abstractions/IDistributedLockProvider.cs) lease (`centra:reaper:{tenantId}:{topic}`) to prevent concurrent instances in a cluster from racing to delete the queue.
      - **Phase 5: Clean Broker Queue Reclaim**: Consumers unsubscribe safely, ephemeral broker resources are deleted, and tenant state transitions back to `Normal`.
 6. **Multi-Instance Distributed Consumption**:
    - Simulates multi-replica consumer nodes (`replica-1`, `replica-2`) receiving distributed traffic, tracking independent node metrics while isolating noisy tenant lanes.

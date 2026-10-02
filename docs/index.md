@@ -68,6 +68,7 @@ Centra provides high-performance, native C# driver implementations for leading p
 | [**SQL Server**](providers/sql-server.md) | State Store (Atomic MERGE, ETags, Tx, TTL), Distributed Locks (Lease table) | `Centra.Providers.SqlServer` |
 | [**Azure Service Bus**](providers/azure-service-bus.md) | Pub/Sub (Cloud-native topics, subscriptions, CloudEvents application properties, DLQ) | `Centra.Providers.AzureServiceBus` |
 | [**Azure Cosmos DB**](providers/cosmosdb.md) | State Store (Point reads, TransactionalBatch, ETags, TTL), Distributed Locks | `Centra.Providers.CosmosDb` |
+| [**Flotilla**](providers/flotilla.md) | Pub/Sub (Raft consensus, sub-80µs latency, monotonic total order, UDP/TCP/gRPC) | `Centra.Providers.Flotilla` |
 
 ---
 

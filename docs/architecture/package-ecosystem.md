@@ -1,6 +1,6 @@
 # Package Ecosystem & Layering Architecture
 
-> A complete map of Centra's 11 modular abstractions, 12 in-process implementations, Roslyn source generator, 7 provider drivers, hosting integration, and control plane services.
+> A complete map of Centra's 11 modular abstractions, 12 in-process implementations, Roslyn source generator, 8 provider drivers, hosting integration, and control plane services.
 
 ---
 
@@ -63,6 +63,7 @@ graph TD
         P_SQL[Centra.Providers.SqlServer]
         P_ASB[Centra.Providers.AzureServiceBus]
         P_COSMOS[Centra.Providers.CosmosDb]
+        P_FLOTILLA[Centra.Providers.Flotilla]
     end
 
     APP --> HOST
@@ -101,6 +102,7 @@ graph TD
     P_SQL --> ABS_STATE
     P_ASB --> ABS_PUBSUB
     P_COSMOS --> ABS_STATE
+    P_FLOTILLA --> ABS_PUBSUB
 ```
 
 ---
@@ -156,7 +158,7 @@ These packages implement the runtime execution pipelines, serialization, and coo
 
 ---
 
-## 🔌 The 7 Distributed Providers
+## 🔌 The 8 Distributed Providers
 
 Centra's driver SPI decouples physical drivers from domain logic:
 
@@ -169,6 +171,7 @@ Centra's driver SPI decouples physical drivers from domain logic:
 | `Centra.Providers.SqlServer` | `SqlServerStateStoreDriver`, `SqlServerDistributedLockDriver` |
 | `Centra.Providers.AzureServiceBus` | `AzureServiceBusPubSubDriver` |
 | `Centra.Providers.CosmosDb` | `CosmosDbStateStoreDriver`, `CosmosDbDistributedLockDriver` |
+| `Centra.Providers.Flotilla` | `FlotillaPubSubDriver` (UDP, TCP, and gRPC transports via Flotilla sans-I/O Raft consensus engine) |
 
 ---
 

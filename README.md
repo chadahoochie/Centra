@@ -2,7 +2,7 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512bd4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-817%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-1026%20Passed-brightgreen.svg)]()
 [![CloudEvents](https://img.shields.io/badge/CNCF-CloudEvents%20v1.0-orange.svg)](https://cloudevents.io/)
 [![Zero Sidecars](https://img.shields.io/badge/Architecture-Zero%20Sidecars-success.svg)](docs/architecture/overview.md)
 
@@ -216,6 +216,7 @@ Centra provides high-performance, native C# driver implementations with zero sid
 | **SQL Server** | State Store (Atomic `MERGE`, ETags, `SqlTransaction` batches, TTL), Distributed Locks | `Centra.Providers.SqlServer` | [Read Guide](docs/providers/sql-server.md) |
 | **Azure Service Bus** | Pub/Sub (Cloud-native topics, subscriptions, CloudEvents application properties, DLQ) | `Centra.Providers.AzureServiceBus` | [Read Guide](docs/providers/azure-service-bus.md) |
 | **Azure Cosmos DB** | State Store (Point reads, `TransactionalBatch` single-partition ACID, ETags, TTL), Distributed Locks | `Centra.Providers.CosmosDb` | [Read Guide](docs/providers/cosmosdb.md) |
+| **Flotilla** | Pub/Sub (Raft consensus, sub-80µs latency, monotonic total order, UDP/TCP/gRPC) | `Centra.Providers.Flotilla` | [Read Guide](docs/providers/flotilla.md) |
 | **In-Memory** | State Store, Pub/Sub, Distributed Locks, Output Bindings (zero-dependency testing) | `Centra.Providers.InMemory` | [Read Guide](docs/providers/in-memory.md) |
 
 ---
@@ -314,17 +315,18 @@ dotnet test Centra.slnx --logger "console;verbosity=normal"
 
 | Test Project | Category | Tests | Focus |
 | :--- | :--- | :--- | :--- |
-| `Centra.Tests.Unit` | Unit | 572 | Core runtime, state, pub/sub, bindings, actors, workflows, resilience |
+| `Centra.Tests.Unit` | Unit | 666 | Core runtime, state, pub/sub, bindings, actors, workflows, resilience |
 | `Centra.ControlPlane.Tests.Unit` | Unit | 55 | Component catalog, secret resolution, topology tracking, SSE sync |
 | `Centra.Providers.CosmosDb.Tests.Unit` | Unit | 64 | Azure Cosmos DB state, ETags, and distributed locks |
-| `Centra.Providers.Redis.Tests.Unit` | Unit | 38 | Redis state (Lua CAS), pub/sub, and lock lease renewal |
-| `Centra.Providers.RabbitMQ.Tests.Unit` | Unit | 26 | RabbitMQ topic exchange, CloudEvents headers, consumer options |
+| `Centra.Providers.Redis.Tests.Unit` | Unit | 50 | Redis state (Lua CAS), pub/sub, and lock lease renewal |
+| `Centra.Providers.RabbitMQ.Tests.Unit` | Unit | 88 | RabbitMQ topic exchange, CloudEvents headers, consumer options |
 | `Centra.Providers.AzureServiceBus.Tests.Unit` | Unit | 19 | Azure Service Bus topics, subscriptions, and settlement |
+| `Centra.Providers.Flotilla.Tests.Unit` | Unit | 41 | Flotilla Raft consensus pub/sub, UDP/TCP/gRPC wire protocol, framing |
 | `Centra.Providers.PostgreSql.Tests.Unit` | Unit | 7 | PostgreSQL schema initialization, ETag CAS, and lock leases |
 | `Centra.Providers.SqlServer.Tests.Unit` | Unit | 5 | SQL Server MERGE upserts, ACID transactions, and lock leases |
 | `Centra.Generators.Tests.Unit` | Unit | 5 | Roslyn incremental source generator proxy emissions |
 | `Centra.Tests.Integration` | Integration | 26 | End-to-end workflows, multi-node clusters, sagas, Testcontainers |
-| **Total** | | **817+** | **100% Passing** |
+| **Total** | | **1,026** | **100% Passing** |
 
 ---
 
@@ -353,6 +355,7 @@ Centra.slnx
 │   ├── Centra.Providers.SqlServer/    # SQL Server State (MERGE, ETags, Tx, TTL) & Locks (Lease table renewal)
 │   ├── Centra.Providers.AzureServiceBus/# Azure Service Bus Pub/Sub (Topics, Subscriptions, CloudEvents headers, Dead-lettering)
 │   ├── Centra.Providers.CosmosDb/     # Azure Cosmos DB State (Point reads, TransactionalBatch, ETags, TTL) & Locks
+│   ├── Centra.Providers.Flotilla/     # Raft consensus Pub/Sub (UDP, TCP, gRPC transports via Flotilla sans-I/O Raft)
 │   ├── Centra.Hosting/                # ASP.NET Core minimal APIs, actor endpoints, workflow endpoints, hosted services
 │   ├── Centra.ControlPlane/           # Central component catalog, resilience, topology, actor & workflow inspection, SSE
 │   └── Centra.Aspire.Hosting/         # .NET Aspire AppHost integration, resource mapping extensions
@@ -366,15 +369,17 @@ Centra.slnx
 │   ├── Centra.Sample.TenantOffload/   # Tenant offload simulation: rolling metrics, fair scheduling, broker topic sharding
 │   └── Centra.AppHost/                # .NET Aspire cloud-native AppHost orchestrator (multi-replica orchestration)
 └── tests/
-    ├── Centra.Tests.Unit/             # Core, runtime, state, pubsub, bindings, resilience, actors & workflows tests (264 tests)
-    ├── Centra.ControlPlane.Tests.Unit/# Control Plane catalog, resilience, topology, actors & workflows tests (26 tests)
-    ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (17 tests)
-    ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (7 tests)
+    ├── Centra.Tests.Unit/             # Core, runtime, state, pubsub, bindings, resilience, actors & workflows tests (666 tests)
+    ├── Centra.ControlPlane.Tests.Unit/# Control Plane catalog, resilience, topology, actors & workflows tests (55 tests)
+    ├── Centra.Providers.CosmosDb.Tests.Unit/    # Azure Cosmos DB State and Locks unit tests (64 tests)
+    ├── Centra.Providers.Redis.Tests.Unit/        # Redis State, Pub/Sub, and Locks unit tests (50 tests)
+    ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (88 tests)
+    ├── Centra.Providers.AzureServiceBus.Tests.Unit/ # Azure Service Bus Pub/Sub unit tests (19 tests)
+    ├── Centra.Providers.Flotilla.Tests.Unit/    # Flotilla Raft consensus Pub/Sub unit tests (41 tests)
+    ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (7 tests)
     ├── Centra.Providers.SqlServer.Tests.Unit/   # SQL Server State and Locks unit tests (5 tests)
-    ├── Centra.Providers.AzureServiceBus.Tests.Unit/ # Azure Service Bus Pub/Sub unit tests (4 tests)
-    ├── Centra.Providers.RabbitMQ.Tests.Unit/    # RabbitMQ Pub/Sub unit tests (2 tests)
-    ├── Centra.Providers.PostgreSql.Tests.Unit/  # PostgreSQL State and Locks unit tests (2 tests)
-    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster, bindings, actors, sagas & Testcontainers (24 tests)
+    ├── Centra.Generators.Tests.Unit/            # Roslyn incremental source generator tests (5 tests)
+    └── Centra.Tests.Integration/      # End-to-end workflows, multi-instance cluster, bindings, actors, sagas & Testcontainers (26 tests)
 ```
 
 ---

@@ -7,6 +7,7 @@
     <File Path=".gitignore" />
     <File Path="README.md" />
     <File Path="RELEASE_NOTES.md" />
+    <File Path="LICENSE" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Centra.Abstractions/Centra.Abstractions.csproj" />

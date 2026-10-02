@@ -41,7 +41,7 @@ flowchart TD
 | **Secrets Resolution** | Kubernetes Secrets, Azure Key Vault, or local env vars. | Central vault references (`secretKeyRef`) resolved centrally. |
 | **Pub/Sub Messaging** | Direct broker connection via driver (RabbitMQ, Redis, ASB). | Direct broker connection (configured centrally or locally). |
 | **State Stores & Locks** | Direct provider drivers (Redis, Postgres, SQL Server, etc.). | Direct provider drivers (configured centrally or locally). |
-| **Service Invocation** | Resolved via [`ConfigurationServiceEndpointResolver`](../../src/Centra.Hosting/Invocation/ConfigurationServiceEndpointResolver.cs), K8s DNS, or Aspire. | Client-side round-robin load balancing via live cluster topology. |
+| **Service Invocation** | Resolved via [`ConfigurationServiceEndpointResolver`](../../src/Centra.Invocation/ConfigurationServiceEndpointResolver.cs), K8s DNS, or Aspire. | Client-side round-robin load balancing via live cluster topology. |
 | **Virtual Actor Placement** | Single-node / in-memory or fixed partition assignment. | Dynamic consistent-hash ring over live active node topology. |
 | **Resilience Policies** | Static Polly Core v8 pipelines declared in application code. | Dynamically mutable Polly v8 pipelines pushed via live SSE. |
 | **Operational Inspection** | Local `/health` endpoints and OpenTelemetry metrics/traces. | Central REST API for active actor passivation and workflow history. |
@@ -69,7 +69,7 @@ Kubernetes already provides robust primitives for concerns the Control Plane wou
 When orchestrating services locally with .NET Aspire:
 - Aspire manages container lifecycles (e.g. RabbitMQ, Redis, Postgres).
 - Connection strings and endpoints are automatically injected via `.WithReference(...)`.
-- Centra's [`ConfigurationServiceEndpointResolver`](../../src/Centra.Hosting/Invocation/ConfigurationServiceEndpointResolver.cs) resolves target services directly using Aspire's `services:{appId}:http:0` conventions.
+- Centra's [`ConfigurationServiceEndpointResolver`](../../src/Centra.Invocation/ConfigurationServiceEndpointResolver.cs) resolves target services directly using Aspire's `services:{appId}:http:0` conventions.
 
 ### 4. GitOps & Immutable Infrastructure
 If your organization deploys using GitOps (ArgoCD, Flux) where configuration changes are deployed via CI/CD pipelines and blue/green rollouts, you do not need live SSE component streaming. Configuration can be managed via standard ASP.NET Core `IConfiguration` sources.
@@ -121,7 +121,7 @@ In `appsettings.json` (or environment variables), provide the target service add
 }
 ```
 
-Centra's [`ConfigurationServiceEndpointResolver`](../../src/Centra.Hosting/Invocation/ConfigurationServiceEndpointResolver.cs) automatically reads `Centra:Services:{serviceId}:Address` or Aspire's `services:{serviceId}:http:0`, providing direct RPC connectivity with zero Control Plane dependencies.
+Centra's [`ConfigurationServiceEndpointResolver`](../../src/Centra.Invocation/ConfigurationServiceEndpointResolver.cs) automatically reads `Centra:Services:{serviceId}:Address` or Aspire's `services:{serviceId}:http:0`, providing direct RPC connectivity with zero Control Plane dependencies.
 
 ---
 
@@ -158,8 +158,8 @@ The Control Plane exposes runtime inspection endpoints:
 
 ### 6. Dynamic Ephemeral Tenant Offload Coordination Across Replicas
 When using Centra's dynamic noisy neighbor isolation with `TenantOffloadStrategyType.EphemeralBrokerTopic`:
-- Each service replica runs an independent [`TenantOffloadReaperHostedService`](../../src/Centra.Hosting/HostedServices/TenantOffloadReaperHostedService.cs).
-- To prevent split-brain broker queue deletion (where one node deletes the ephemeral topic while peer nodes are still processing in-flight events or draining unconsumed backlog), the reaper executes a 5-phase protocol requiring an [`IDistributedLockProvider`](../../src/Centra.DistributedLock.Abstractions/IDistributedLockProvider.cs) lease (`centra:reaper:{tenantId}:{topic}`).
+- Each service replica runs an independent [`TenantOffloadReaperHostedService`](../../src/Centra.PubSub/HostedServices/TenantOffloadReaperHostedService.cs).
+- To prevent split-brain broker queue deletion (where one node deletes the ephemeral topic while peer nodes are still processing in-flight events or draining unconsumed backlog), the reaper executes a 5-phase protocol requiring an [`IDistributedLockProvider`](../../src/Centra.Locks.Abstractions/IDistributedLockProvider.cs) lease (`centra:reaper:{tenantId}:{topic}`).
 - In **Standalone Mode**, you must explicitly register an `IDistributedLockProvider` (e.g., Redis, PostgreSQL) and configure `EnableDistributedReaperLock = true`.
 - In **Orchestrated Mode**, centralized coordination and cluster locks guarantee single-leader execution of ephemeral queue decommissioning without risk of split-brain teardown.
 

@@ -93,7 +93,7 @@ When you deploy your application to Kubernetes, Docker, or Azure App Service wit
 
 ### How Centra Guarantees Exactly-Once Execution per Tick
 
-1. **Automatic Wrapping**: During application startup, [`CentraBindingsHostedService`](../../src/Centra.Hosting/HostedServices/CentraBindingsHostedService.cs) detects if an [`IDistributedLockProvider`](../../src/Centra.Locks.Abstractions/IDistributedLockProvider.cs) is registered in DI. If present, it wraps your job in a [`DistributedJobHandler`](../../src/Centra.Bindings/Bindings/DistributedJobHandler.cs).
+1. **Automatic Wrapping**: During application startup, [`CentraBindingsHostedService`](../../src/Centra.Bindings/HostedServices/CentraBindingsHostedService.cs) detects if an [`IDistributedLockProvider`](../../src/Centra.Locks.Abstractions/IDistributedLockProvider.cs) is registered in DI. If present, it wraps your job in a [`DistributedJobHandler`](../../src/Centra.Bindings/Bindings/DistributedJobHandler.cs).
 2. **Timestamped Mutual Exclusion**: When the cron timer triggers, each node calculates the scheduled tick timestamp and attempts to acquire a lock keyed by:
    ```text
    cron:{jobName}:{scheduledUnixTimestamp}
