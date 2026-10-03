@@ -134,4 +134,94 @@ public static class CentraAspireExtensions
             .WithReference(sqlServer, "sqlserver")
             .WithEnvironment("Centra__SqlServer__ConnectionString", sqlServer.Resource.ConnectionStringExpression);
     }
+
+    /// <summary>
+    /// Adds the Flotilla Consensus Server to the application model as a launchable container that
+    /// pulls the published Flotilla image.
+    /// </summary>
+    /// <param name="builder">The distributed application builder.</param>
+    /// <param name="name">Aspire resource name.</param>
+    /// <param name="tcpPort">Optional fixed host TCP port (default container port: 9100).</param>
+    /// <param name="udpPort">Optional fixed host UDP port (default container port: 9200).</param>
+    /// <param name="grpcPort">Optional fixed host gRPC port (default container port: 9300).</param>
+    /// <param name="httpPort">Optional fixed host HTTP port (default container port: 9301).</param>
+    /// <remarks>
+    /// The resource pulls <c>ghcr.io/chadahoochie/flotilla:0</c> by default. Override the coordinates
+    /// with Aspire's own container builder extensions — <c>WithImage</c>, <c>WithImageTag</c>,
+    /// <c>WithImageRegistry</c>, or <c>WithDockerfile</c>.
+    /// </remarks>
+    public static IResourceBuilder<CentraFlotillaResource> AddCentraFlotilla(
+        this IDistributedApplicationBuilder builder,
+        string name = "centra-flotilla",
+        int? tcpPort = null,
+        int? udpPort = null,
+        int? grpcPort = null,
+        int? httpPort = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        var resource = new CentraFlotillaResource(name);
+
+        return builder.AddResource(resource)
+            .WithImage("chadahoochie/flotilla", "0")
+            .WithImageRegistry("ghcr.io")
+            .WithEnvironment("FLOTILLA_TCP_ADDR", "0.0.0.0:9100")
+            .WithEnvironment("FLOTILLA_UDP_ADDR", "0.0.0.0:9200")
+            .WithEnvironment("FLOTILLA_GRPC_ADDR", "0.0.0.0:9300")
+            .WithEnvironment("FLOTILLA_METRICS_ADDR", "0.0.0.0:9301")
+            .WithOtlpExporter()
+            .WithEndpoint(
+                port: tcpPort,
+                targetPort: 9100,
+                name: CentraFlotillaResource.TcpEndpointName,
+                scheme: "tcp",
+                isProxied: false)
+            .WithEndpoint(
+                port: udpPort,
+                targetPort: 9200,
+                name: CentraFlotillaResource.UdpEndpointName,
+                scheme: "udp",
+                isProxied: false)
+            .WithEndpoint(
+                port: grpcPort,
+                targetPort: 9300,
+                name: CentraFlotillaResource.GrpcEndpointName,
+                scheme: "http",
+                isProxied: false)
+            .WithHttpEndpoint(
+                port: httpPort,
+                targetPort: 9301,
+                name: CentraFlotillaResource.HttpEndpointName);
+    }
+
+    /// <summary>
+    /// Points a resource at a Flotilla consensus container added by <see cref="AddCentraFlotilla"/>.
+    /// </summary>
+    /// <param name="builder">The resource to configure.</param>
+    /// <param name="flotillaServer">The Flotilla resource.</param>
+    /// <param name="endpointName">Name of the transport endpoint to connect to (defaults to "tcp").</param>
+    public static IResourceBuilder<T> WithCentraFlotilla<T>(
+        this IResourceBuilder<T> builder,
+        IResourceBuilder<CentraFlotillaResource> flotillaServer,
+        string endpointName = CentraFlotillaResource.TcpEndpointName)
+        where T : IResourceWithEnvironment
+    {
+        ArgumentNullException.ThrowIfNull(flotillaServer);
+
+        return builder.WithCentraFlotilla((IResourceBuilder<IResourceWithEndpoints>)flotillaServer, endpointName);
+    }
+
+    public static IResourceBuilder<T> WithCentraFlotilla<T>(
+        this IResourceBuilder<T> builder,
+        IResourceBuilder<IResourceWithEndpoints> flotillaServer,
+        string endpointName = "tcp")
+        where T : IResourceWithEnvironment
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(flotillaServer);
+
+        var endpoint = flotillaServer.GetEndpoint(endpointName);
+
+        return builder
+            .WithEnvironment("Centra__Flotilla__ClusterNodes__0", endpoint);
+    }
 }

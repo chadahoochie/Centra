@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <Description>In-process lightweight Flotilla Raft Consensus Simulator Server supporting TCP, UDP, and gRPC transports.</Description>
+    <RootNamespace>Centra.Sample.FlotillaSimulation.Server</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Centra.Providers.Flotilla\Centra.Providers.Flotilla.csproj" />
+    <ProjectReference Include="..\..\..\src\Centra.Providers.Flotilla.Tcp\Centra.Providers.Flotilla.Tcp.csproj" />
+    <ProjectReference Include="..\..\..\src\Centra.Providers.Flotilla.Udp\Centra.Providers.Flotilla.Udp.csproj" />
+    <ProjectReference Include="..\..\..\src\Centra.Providers.Flotilla.Grpc\Centra.Providers.Flotilla.Grpc.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+  </ItemGroup>
+
+</Project>

@@ -11,6 +11,7 @@ namespace Centra.Workflows.HostedServices;
 public sealed class CentraWorkflowTimerHostedService : BackgroundService
 {
     private readonly DurableWorkflowTimerCoordinator _coordinator;
+    private readonly IWorkflowRegistry? _registry;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _pollingInterval;
     private readonly ILogger<CentraWorkflowTimerHostedService> _logger;
@@ -20,8 +21,19 @@ public sealed class CentraWorkflowTimerHostedService : BackgroundService
         TimeProvider? timeProvider = null,
         TimeSpan? pollingInterval = null,
         ILogger<CentraWorkflowTimerHostedService>? logger = null)
+        : this(coordinator, null, timeProvider, pollingInterval, logger)
+    {
+    }
+
+    public CentraWorkflowTimerHostedService(
+        DurableWorkflowTimerCoordinator coordinator,
+        IWorkflowRegistry? registry,
+        TimeProvider? timeProvider = null,
+        TimeSpan? pollingInterval = null,
+        ILogger<CentraWorkflowTimerHostedService>? logger = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+        _registry = registry;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _pollingInterval = pollingInterval ?? TimeSpan.FromSeconds(1);
         _logger = logger ?? NullLogger<CentraWorkflowTimerHostedService>.Instance;
@@ -35,7 +47,10 @@ public sealed class CentraWorkflowTimerHostedService : BackgroundService
         {
             try
             {
-                await _coordinator.ProcessDueTimersAsync(stoppingToken).ConfigureAwait(false);
+                if (_registry is null || _registry.GetWorkflows().Count > 0)
+                {
+                    await _coordinator.ProcessDueTimersAsync(stoppingToken).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

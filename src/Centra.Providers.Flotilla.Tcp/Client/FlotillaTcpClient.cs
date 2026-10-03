@@ -1,5 +1,8 @@
+using System.Diagnostics;
 using System.Net.Sockets;
+using Centra.Diagnostics;
 using Centra.Providers.Flotilla.Client;
+using Centra.Providers.Flotilla.Protocol;
 using Centra.Providers.Flotilla.Tcp.Options;
 using Centra.Providers.Flotilla.Tcp.Protocol;
 using Microsoft.Extensions.Logging;
@@ -17,6 +20,7 @@ public sealed class FlotillaTcpClient : IFlotillaClient
     private readonly ILogger<FlotillaTcpClient> _logger;
     private readonly FlotillaCommitChannel _commitChannel;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly FlotillaTcpCommitSubscriber _subscriber;
     private System.Net.Sockets.TcpClient? _tcpClient;
     private NetworkStream? _stream;
     private int _disposed;
@@ -28,6 +32,8 @@ public sealed class FlotillaTcpClient : IFlotillaClient
         _options = options?.Value ?? new FlotillaTcpOptions();
         _logger = logger ?? NullLogger<FlotillaTcpClient>.Instance;
         _commitChannel = new FlotillaCommitChannel(10_000);
+        _subscriber = new FlotillaTcpCommitSubscriber(_options, _commitChannel, _logger);
+        _subscriber.Start();
     }
 
     public async ValueTask<FlotillaProposalResult> ProposeAsync(
@@ -39,12 +45,20 @@ public sealed class FlotillaTcpClient : IFlotillaClient
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(_options.ClientTimeoutMs);
 
+        var startTime = Stopwatch.GetTimestamp();
+        using var activity = CentraDiagnostics.StartFlotillaProposeActivity("tcp");
+
         await _gate.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
         try
         {
             await EnsureConnectedAsync(timeoutCts.Token).ConfigureAwait(false);
 
-            var packet = FlotillaTcpFrameCodec.EncodeProposalFrame(payload.Span);
+            var currentContext = Activity.Current?.Context ?? default;
+            var framePayload = currentContext != default
+                ? FlotillaTraceEnvelope.Wrap(currentContext, payload.Span)
+                : payload.Span;
+
+            var packet = FlotillaTcpFrameCodec.EncodeProposalFrame(framePayload);
             await _stream!.WriteAsync(packet, timeoutCts.Token).ConfigureAwait(false);
             await _stream.FlushAsync(timeoutCts.Token).ConfigureAwait(false);
 
@@ -53,8 +67,10 @@ public sealed class FlotillaTcpClient : IFlotillaClient
                 _options.EnableChecksumVerification,
                 timeoutCts.Token).ConfigureAwait(false);
 
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             if (reply.IsSuccess)
             {
+                CentraMeters.RecordFlotillaProposal("tcp", "success", durationMs);
                 var committed = new CommittedEntry
                 {
                     LogIndex = reply.Index,
@@ -66,6 +82,9 @@ public sealed class FlotillaTcpClient : IFlotillaClient
                 return FlotillaProposalResult.Success(reply.Index);
             }
 
+            CentraMeters.RecordFlotillaProposal("tcp", "rejected", durationMs);
+            activity?.SetStatus(ActivityStatusCode.Error, "Proposal rejected by Flotilla cluster");
+
             var leaderMsg = reply.LeaderId != 0
                 ? $"Proposal rejected; current leader is node {reply.LeaderId}"
                 : "Proposal rejected by Flotilla cluster";
@@ -74,6 +93,9 @@ public sealed class FlotillaTcpClient : IFlotillaClient
         }
         catch (Exception ex)
         {
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordFlotillaProposal("tcp", "error", durationMs);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             _logger.LogError(ex, "Failed to submit proposal to Flotilla cluster over TCP");
             CloseConnection();
             return FlotillaProposalResult.Failure(ex.Message);
@@ -130,14 +152,13 @@ public sealed class FlotillaTcpClient : IFlotillaClient
         DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return ValueTask.CompletedTask;
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
+        await _subscriber.DisposeAsync().ConfigureAwait(false);
         _commitChannel.Complete();
         CloseConnection();
         _gate.Dispose();
-
-        return ValueTask.CompletedTask;
     }
 }

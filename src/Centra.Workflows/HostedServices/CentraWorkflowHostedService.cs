@@ -12,6 +12,7 @@ public sealed class CentraWorkflowHostedService : BackgroundService
     private readonly IWorkflowEngine _engine;
     private readonly WorkflowOptions _options;
     private readonly DurableWorkflowTimerCoordinator? _timerCoordinator;
+    private readonly IWorkflowRegistry? _registry;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<CentraWorkflowHostedService>? _logger;
 
@@ -20,7 +21,7 @@ public sealed class CentraWorkflowHostedService : BackgroundService
         WorkflowOptions options,
         TimeProvider? timeProvider = null,
         ILogger<CentraWorkflowHostedService>? logger = null)
-        : this(engine, options, null, timeProvider, logger)
+        : this(engine, options, null, null, timeProvider, logger)
     {
     }
 
@@ -30,10 +31,22 @@ public sealed class CentraWorkflowHostedService : BackgroundService
         DurableWorkflowTimerCoordinator? timerCoordinator,
         TimeProvider? timeProvider = null,
         ILogger<CentraWorkflowHostedService>? logger = null)
+        : this(engine, options, timerCoordinator, null, timeProvider, logger)
+    {
+    }
+
+    public CentraWorkflowHostedService(
+        IWorkflowEngine engine,
+        WorkflowOptions options,
+        DurableWorkflowTimerCoordinator? timerCoordinator,
+        IWorkflowRegistry? registry,
+        TimeProvider? timeProvider = null,
+        ILogger<CentraWorkflowHostedService>? logger = null)
     {
         _engine = engine;
         _options = options;
         _timerCoordinator = timerCoordinator;
+        _registry = registry;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger;
     }
@@ -46,7 +59,7 @@ public sealed class CentraWorkflowHostedService : BackgroundService
         {
             try
             {
-                if (_timerCoordinator is not null)
+                if (_timerCoordinator is not null && (_registry is null || _registry.GetWorkflows().Count > 0))
                 {
                     await _timerCoordinator.ProcessDueTimersAsync(stoppingToken).ConfigureAwait(false);
                 }

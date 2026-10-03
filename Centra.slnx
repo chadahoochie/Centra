@@ -80,6 +80,14 @@
     <Project Path="samples/RabbitSimulation/Producer/Centra.Sample.RabbitSimulation.Producer.csproj" />
     <Project Path="samples/RabbitSimulation/AppHost/Centra.Sample.RabbitSimulation.AppHost.csproj" />
   </Folder>
+  <Folder Name="/samples/FlotillaSimulation/">
+    <Project Path="samples/FlotillaSimulation/Contracts/Centra.Sample.FlotillaSimulation.Contracts.csproj" />
+    <Project Path="samples/FlotillaSimulation/Server/Centra.Sample.FlotillaSimulation.Server.csproj" />
+    <Project Path="samples/FlotillaSimulation/Api/Centra.Sample.FlotillaSimulation.Api.csproj" />
+    <Project Path="samples/FlotillaSimulation/Consumer/Centra.Sample.FlotillaSimulation.Consumer.csproj" />
+    <Project Path="samples/FlotillaSimulation/Producer/Centra.Sample.FlotillaSimulation.Producer.csproj" />
+    <Project Path="samples/FlotillaSimulation/AppHost/Centra.Sample.FlotillaSimulation.AppHost.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Centra.Tests.Unit/Centra.Tests.Unit.csproj" />
     <Project Path="tests/Centra.ControlPlane.Tests.Unit/Centra.ControlPlane.Tests.Unit.csproj" />

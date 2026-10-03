@@ -1,6 +1,9 @@
+using System.Diagnostics;
+using Centra.Diagnostics;
 using Centra.Providers.Flotilla.Client;
 using Centra.Providers.Flotilla.Grpc.Options;
 using Google.Protobuf;
+using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -18,6 +21,7 @@ public sealed class FlotillaGrpcClient : IFlotillaClient
     private readonly FlotillaCommitChannel _commitChannel;
     private readonly GrpcChannel _channel;
     private readonly FlotillaService.FlotillaServiceClient _client;
+    private readonly FlotillaGrpcCommitSubscriber _subscriber;
     private int _disposed;
 
     public FlotillaGrpcClient(
@@ -38,6 +42,8 @@ public sealed class FlotillaGrpcClient : IFlotillaClient
 
         _channel = GrpcChannel.ForAddress(targetUri, channelOptions);
         _client = new FlotillaService.FlotillaServiceClient(_channel);
+        _subscriber = new FlotillaGrpcCommitSubscriber(_client, _commitChannel, _logger);
+        _subscriber.Start();
     }
 
     public async ValueTask<FlotillaProposalResult> ProposeAsync(
@@ -49,6 +55,9 @@ public sealed class FlotillaGrpcClient : IFlotillaClient
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(_options.ClientTimeoutMs);
 
+        var startTime = Stopwatch.GetTimestamp();
+        using var activity = CentraDiagnostics.StartFlotillaProposeActivity("grpc");
+
         try
         {
             var req = new ProposalRequest
@@ -56,10 +65,22 @@ public sealed class FlotillaGrpcClient : IFlotillaClient
                 Payload = ByteString.CopyFrom(payload.Span)
             };
 
-            var response = await _client.ProposeAsync(req, cancellationToken: timeoutCts.Token).ResponseAsync.ConfigureAwait(false);
+            var headers = new Metadata();
+            if (Activity.Current is not null)
+            {
+                headers.Add("traceparent", Activity.Current.Id ?? string.Empty);
+                if (!string.IsNullOrEmpty(Activity.Current.TraceStateString))
+                {
+                    headers.Add("tracestate", Activity.Current.TraceStateString);
+                }
+            }
 
+            var response = await _client.ProposeAsync(req, headers, cancellationToken: timeoutCts.Token).ResponseAsync.ConfigureAwait(false);
+
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
             if (response.Success)
             {
+                CentraMeters.RecordFlotillaProposal("grpc", "success", durationMs);
                 var committed = new CommittedEntry
                 {
                     LogIndex = response.Index,
@@ -71,6 +92,9 @@ public sealed class FlotillaGrpcClient : IFlotillaClient
                 return FlotillaProposalResult.Success(response.Index);
             }
 
+            CentraMeters.RecordFlotillaProposal("grpc", "rejected", durationMs);
+            activity?.SetStatus(ActivityStatusCode.Error, response.ErrorMessage);
+
             var errorMsg = !string.IsNullOrWhiteSpace(response.ErrorMessage)
                 ? response.ErrorMessage
                 : (response.LeaderId != 0
@@ -81,6 +105,9 @@ public sealed class FlotillaGrpcClient : IFlotillaClient
         }
         catch (Exception ex)
         {
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordFlotillaProposal("grpc", "error", durationMs);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             _logger.LogError(ex, "Failed to submit proposal to Flotilla cluster over gRPC");
             return FlotillaProposalResult.Failure(ex.Message);
         }
@@ -98,13 +125,12 @@ public sealed class FlotillaGrpcClient : IFlotillaClient
         DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return ValueTask.CompletedTask;
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
+        await _subscriber.DisposeAsync().ConfigureAwait(false);
         _commitChannel.Complete();
         _channel.Dispose();
-
-        return ValueTask.CompletedTask;
     }
 }

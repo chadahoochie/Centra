@@ -48,6 +48,23 @@ public static class CentraMeters
     private static readonly Histogram<double> BindingTriggerDuration =
         Meter.CreateHistogram<double>("centra.binding.trigger.duration", "ms", "Duration of input binding trigger handling");
 
+    // Flotilla instruments
+    private static readonly Counter<long> FlotillaProposalsCounter =
+        Meter.CreateCounter<long>("centra.flotilla.proposals.total", "ea", "Total count of Flotilla consensus proposals");
+    private static readonly Histogram<double> FlotillaProposalDuration =
+        Meter.CreateHistogram<double>("centra.flotilla.proposal.duration", "ms", "Duration of Flotilla consensus proposals");
+
+    public static void RecordFlotillaProposal(string transport, string status, double durationMs)
+    {
+        FlotillaProposalsCounter.Add(1,
+            new KeyValuePair<string, object?>("flotilla.transport", transport),
+            new KeyValuePair<string, object?>("status", status));
+
+        FlotillaProposalDuration.Record(durationMs,
+            new KeyValuePair<string, object?>("flotilla.transport", transport),
+            new KeyValuePair<string, object?>("status", status));
+    }
+
     public static void RecordStateOperation(string store, string operation, string status, double durationMs)
     {
         StateOperationsCounter.Add(1,
