@@ -53,7 +53,17 @@ public sealed class StateStoreDurableWorkflowTimerStore : IDurableWorkflowTimerS
 
     public async ValueTask<IReadOnlyList<DurableWorkflowTimerRecord>> GetDueTimersAsync(DateTimeOffset asOfUtc, CancellationToken cancellationToken = default)
     {
-        var existing = await _stateStore.GetAsync<List<string>>(_storeName, ActiveIndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+        StateEntry<List<string>>? existing;
+        try
+        {
+            existing = await _stateStore.GetAsync<List<string>>(_storeName, ActiveIndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            // State store not configured; no durable timers available
+            return Array.Empty<DurableWorkflowTimerRecord>();
+        }
+
         if (!existing.HasValue || existing.Value.Value.Count == 0)
         {
             return Array.Empty<DurableWorkflowTimerRecord>();
@@ -66,7 +76,16 @@ public sealed class StateStoreDurableWorkflowTimerStore : IDurableWorkflowTimerS
             keys[i] = $"centra:workflows:timer:{ids[i]}";
         }
 
-        var batch = await _stateStore.GetBatchAsync<DurableWorkflowTimerDto>(_storeName, keys, cancellationToken: cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<StateEntry<DurableWorkflowTimerDto>> batch;
+        try
+        {
+            batch = await _stateStore.GetBatchAsync<DurableWorkflowTimerDto>(_storeName, keys, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            return Array.Empty<DurableWorkflowTimerRecord>();
+        }
+
         var result = new List<DurableWorkflowTimerRecord>(batch.Count);
         for (int i = 0; i < batch.Count; i++)
         {
@@ -87,13 +106,29 @@ public sealed class StateStoreDurableWorkflowTimerStore : IDurableWorkflowTimerS
     public async ValueTask DeleteTimerAsync(WorkflowInstanceId instanceId, CancellationToken cancellationToken = default)
     {
         var timerKey = $"centra:workflows:timer:{instanceId.Value}";
-        await _stateStore.DeleteAsync(_storeName, timerKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _stateStore.DeleteAsync(_storeName, timerKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
 
         // Optimistically remove from active timers index
         const int maxRetries = 5;
         for (int attempt = 0; attempt < maxRetries; attempt++)
         {
-            var existing = await _stateStore.GetAsync<List<string>>(_storeName, ActiveIndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+            StateEntry<List<string>>? existing;
+            try
+            {
+                existing = await _stateStore.GetAsync<List<string>>(_storeName, ActiveIndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException)
+            {
+                break;
+            }
+
             if (!existing.HasValue)
             {
                 break;
@@ -106,8 +141,15 @@ public sealed class StateStoreDurableWorkflowTimerStore : IDurableWorkflowTimerS
             }
 
             var etag = existing.Value.ETag;
-            var success = await _stateStore.TrySetAsync(_storeName, ActiveIndexKey, list, etag, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (success)
+            try
+            {
+                var success = await _stateStore.TrySetAsync(_storeName, ActiveIndexKey, list, etag, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (success)
+                {
+                    break;
+                }
+            }
+            catch (InvalidOperationException)
             {
                 break;
             }

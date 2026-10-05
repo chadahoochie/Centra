@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Centra.Diagnostics;
 using Centra.Providers.Flotilla.Client;
 using Centra.Providers.Flotilla.Protocol;
 using Centra.Providers.Flotilla.Udp.Options;
@@ -18,6 +20,7 @@ public sealed class FlotillaUdpClient : IFlotillaClient
     private readonly ILogger<FlotillaUdpClient> _logger;
     private readonly FlotillaCommitChannel _commitChannel;
     private readonly UdpClient _udpClient;
+    private readonly FlotillaUdpCommitSubscriber _subscriber;
     private readonly CancellationTokenSource _cts = new();
     private ulong _currentLogIndex;
     private int _disposed;
@@ -33,6 +36,8 @@ public sealed class FlotillaUdpClient : IFlotillaClient
         _udpClient = new UdpClient();
         _udpClient.Client.SendTimeout = _options.ClientTimeoutMs;
         _udpClient.Client.ReceiveTimeout = _options.ClientTimeoutMs;
+        _subscriber = new FlotillaUdpCommitSubscriber(_udpClient, _options, _commitChannel, _logger);
+        _subscriber.Start();
     }
 
     public async ValueTask<FlotillaProposalResult> ProposeAsync(
@@ -41,9 +46,17 @@ public sealed class FlotillaUdpClient : IFlotillaClient
     {
         ObjectDisposedException.ThrowIf(_disposed != 0, this);
 
+        var startTime = Stopwatch.GetTimestamp();
+        using var activity = CentraDiagnostics.StartFlotillaProposeActivity("udp");
+
         try
         {
-            var checksum = FlotillaCrc32.Calculate(payload.Span);
+            var currentContext = Activity.Current?.Context ?? default;
+            var framePayload = currentContext != default
+                ? FlotillaTraceEnvelope.Wrap(currentContext, payload.Span)
+                : payload.Span;
+
+            var checksum = FlotillaCrc32.Calculate(framePayload);
             var header = new FlotillaPacketHeader(
                 magic: FlotillaPacketHeader.ExpectedMagic,
                 version: FlotillaPacketHeader.CurrentVersion,
@@ -52,11 +65,11 @@ public sealed class FlotillaUdpClient : IFlotillaClient
                 receiverId: 1,
                 term: 1,
                 checksum: checksum,
-                payloadLen: (uint)payload.Length);
+                payloadLen: (uint)framePayload.Length);
 
-            var packet = new byte[FlotillaPacketHeader.HeaderSize + payload.Length];
+            var packet = new byte[FlotillaPacketHeader.HeaderSize + framePayload.Length];
             header.WriteTo(packet);
-            payload.Span.CopyTo(packet.AsSpan(FlotillaPacketHeader.HeaderSize));
+            framePayload.CopyTo(packet.AsSpan(FlotillaPacketHeader.HeaderSize));
 
             var endpoint = FlotillaUdpEndpointResolver.ResolveTargetEndpoint(_options.ClusterNodes);
             if (endpoint is not null)
@@ -65,6 +78,9 @@ public sealed class FlotillaUdpClient : IFlotillaClient
             }
 
             var nextIndex = Interlocked.Increment(ref _currentLogIndex);
+
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordFlotillaProposal("udp", "success", durationMs);
 
             var committed = new CommittedEntry
             {
@@ -78,6 +94,9 @@ public sealed class FlotillaUdpClient : IFlotillaClient
         }
         catch (Exception ex)
         {
+            var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            CentraMeters.RecordFlotillaProposal("udp", "error", durationMs);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             _logger.LogError(ex, "Failed to submit proposal to Flotilla cluster over UDP");
             return FlotillaProposalResult.Failure(ex.Message);
         }
@@ -103,15 +122,14 @@ public sealed class FlotillaUdpClient : IFlotillaClient
         DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return ValueTask.CompletedTask;
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
+        await _subscriber.DisposeAsync().ConfigureAwait(false);
         _cts.Cancel();
         _cts.Dispose();
         _commitChannel.Complete();
         _udpClient.Dispose();
-
-        return ValueTask.CompletedTask;
     }
 }

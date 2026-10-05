@@ -9,20 +9,65 @@ public static class CentraDiagnostics
 
     public static readonly ActivitySource Source = new(SourceName, Version);
 
-    public static Activity? StartPublishActivity(string pubSubName, string topic)
+    public static Activity? StartPublishActivity(string pubSubName, string topic, ActivityContext parentContext = default)
     {
         if (!Source.HasListeners())
         {
             return null;
         }
 
-        var activity = Source.StartActivity("Centra.PubSub.Publish", ActivityKind.Producer);
+        var activity = parentContext != default
+            ? Source.StartActivity("Centra.PubSub.Publish", ActivityKind.Producer, parentContext)
+            : Source.StartActivity("Centra.PubSub.Publish", ActivityKind.Producer);
+
         if (activity is not null && activity.IsAllDataRequested)
         {
             activity.DisplayName = $"Publish {topic}";
             activity.SetTag("centra.component", "pubsub");
             activity.SetTag("centra.pubsub.name", pubSubName);
             activity.SetTag("messaging.destination", topic);
+        }
+
+        return activity;
+    }
+
+    public static Activity? StartFlotillaProposeActivity(string transport, ActivityContext parentContext = default)
+    {
+        if (!Source.HasListeners())
+        {
+            return null;
+        }
+
+        var activity = parentContext != default
+            ? Source.StartActivity("Flotilla.Propose", ActivityKind.Client, parentContext)
+            : Source.StartActivity("Flotilla.Propose", ActivityKind.Client);
+
+        if (activity is not null && activity.IsAllDataRequested)
+        {
+            activity.DisplayName = $"Flotilla Propose ({transport})";
+            activity.SetTag("centra.component", "flotilla");
+            activity.SetTag("flotilla.transport", transport);
+        }
+
+        return activity;
+    }
+
+    public static Activity? StartFlotillaServerProposeActivity(string transport, ActivityContext parentContext = default)
+    {
+        if (!Source.HasListeners())
+        {
+            return null;
+        }
+
+        var activity = parentContext != default
+            ? Source.StartActivity("Flotilla.Server.Propose", ActivityKind.Server, parentContext)
+            : Source.StartActivity("Flotilla.Server.Propose", ActivityKind.Server);
+
+        if (activity is not null && activity.IsAllDataRequested)
+        {
+            activity.DisplayName = $"Flotilla Server Propose ({transport})";
+            activity.SetTag("centra.component", "flotilla-server");
+            activity.SetTag("flotilla.transport", transport);
         }
 
         return activity;

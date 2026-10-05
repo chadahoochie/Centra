@@ -1,0 +1,18 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.3">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- slopwatch-ignore: SW005 Aspire 13.5.3 AppHost SDK emits experimental warning ASPIRE010 on .NET 10 preview -->
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+    <RootNamespace>Centra.Sample.FlotillaSimulation.AppHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Centra.Aspire.Hosting\Centra.Aspire.Hosting.csproj" IsAspireProjectResource="false" />
+    <ProjectReference Include="..\Server\Centra.Sample.FlotillaSimulation.Server.csproj" IsAspireProjectResource="false" />
+    <ProjectReference Include="..\Api\Centra.Sample.FlotillaSimulation.Api.csproj" />
+    <ProjectReference Include="..\Consumer\Centra.Sample.FlotillaSimulation.Consumer.csproj" />
+    <ProjectReference Include="..\Producer\Centra.Sample.FlotillaSimulation.Producer.csproj" />
+  </ItemGroup>
+
+</Project>

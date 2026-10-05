@@ -8,6 +8,17 @@ service FlotillaService {
   rpc Propose (ProposalRequest) returns (ProposalResponse);
   rpc Step (StepRequest) returns (StepResponse);
   rpc ClusterStatus (StatusRequest) returns (StatusResponse);
+  rpc SubscribeCommits (CommitSubscribeRequest) returns (stream CommitEntryProto);
+}
+
+message CommitSubscribeRequest {
+  uint64 from_index = 1;
+}
+
+message CommitEntryProto {
+  uint64 index = 1;
+  uint64 term = 2;
+  bytes data = 3;
 }
 
 message ProposalRequest {

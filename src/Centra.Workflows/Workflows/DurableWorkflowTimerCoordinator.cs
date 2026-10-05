@@ -41,7 +41,16 @@ public sealed class DurableWorkflowTimerCoordinator
     public async ValueTask<int> ProcessDueTimersAsync(CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow();
-        var dueTimers = await _timerStore.GetDueTimersAsync(now, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<DurableWorkflowTimerRecord> dueTimers;
+        try
+        {
+            dueTimers = await _timerStore.GetDueTimersAsync(now, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            // State store or timer store not configured; no timers to process
+            return 0;
+        }
 
         if (dueTimers.Count == 0)
         {
@@ -60,13 +69,23 @@ public sealed class DurableWorkflowTimerCoordinator
             {
                 if (_lockProvider is not null)
                 {
-                    acquiredLock = await _lockProvider.TryAcquireLockAsync(
-                        _lockStoreName,
-                        lockResource,
-                        TimeSpan.FromSeconds(30),
-                        cancellationToken).ConfigureAwait(false);
+                    var hasLockStore = true;
+                    try
+                    {
+                        acquiredLock = await _lockProvider.TryAcquireLockAsync(
+                            _lockStoreName,
+                            lockResource,
+                            TimeSpan.FromSeconds(30),
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Lock store not configured; allow execution without distributed lock
+                        hasLockStore = false;
+                        acquiredLock = null;
+                    }
 
-                    if (acquiredLock is null)
+                    if (hasLockStore && acquiredLock is null)
                     {
                         // Another cluster replica is processing this timer tick
                         continue;

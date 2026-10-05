@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Centra.Diagnostics;
 using Centra.Providers.Flotilla.Client;
 using Centra.Providers.Flotilla.Protocol;
 using Centra.PubSub;
@@ -39,7 +41,17 @@ public sealed class FlotillaSubscriptionWorker : BackgroundService
 
                 try
                 {
-                    var (topic, metadata, payload) = FlotillaWireProtocol.DecodeMessage(entry.Data);
+                    var entryData = entry.Data;
+                    ActivityContext envelopeContext = default;
+                    if (FlotillaTraceEnvelope.IsEnveloped(entryData.Span))
+                    {
+                        var unwrapResult = FlotillaTraceEnvelope.Unwrap(entryData);
+                        envelopeContext = unwrapResult.Context;
+                        entryData = unwrapResult.Payload;
+                    }
+
+                    var (topic, metadata, payload) = FlotillaWireProtocol.DecodeMessage(entryData);
+
                     var subscriptions = _driver.GetSubscriptions(topic);
 
                     if (subscriptions.Count == 0)
@@ -47,11 +59,37 @@ public sealed class FlotillaSubscriptionWorker : BackgroundService
                         continue;
                     }
 
+                    ActivityContext parentContext = envelopeContext;
+                    if (parentContext == default && metadata.TryGetValue("traceparent", out var tp) && !string.IsNullOrWhiteSpace(tp))
+                    {
+                        var ts = metadata.TryGetValue("tracestate", out var s) ? s : null;
+                        if (ActivityContext.TryParse(tp, ts, out var parsedContext))
+                        {
+                            parentContext = parsedContext;
+                        }
+                    }
+
+                    if (envelopeContext != default)
+                    {
+                        var flags = envelopeContext.TraceFlags.HasFlag(ActivityTraceFlags.Recorded) ? "01" : "00";
+                        metadata["traceparent"] = $"00-{envelopeContext.TraceId}-{envelopeContext.SpanId}-{flags}";
+                        if (!string.IsNullOrEmpty(envelopeContext.TraceState))
+                        {
+                            metadata["tracestate"] = envelopeContext.TraceState;
+                        }
+                    }
+
+                    using var activity = CentraDiagnostics.StartProcessActivity("flotilla", topic, parentContext);
+                    var procStartTime = Stopwatch.GetTimestamp();
+
                     foreach (var sub in subscriptions)
                     {
                         try
                         {
                             var result = await sub.Handler(payload, metadata, stoppingToken).ConfigureAwait(false);
+                            var durationMs = Stopwatch.GetElapsedTime(procStartTime).TotalMilliseconds;
+                            CentraMeters.RecordPubSubConsumed("flotilla", topic, result == EventHandlingResult.Success ? "success" : "retry", durationMs);
+
                             if (result == EventHandlingResult.DeadLetter && !string.IsNullOrWhiteSpace(sub.DeadLetterTopic))
                             {
                                 await _driver.PublishAsync(
@@ -64,6 +102,9 @@ public sealed class FlotillaSubscriptionWorker : BackgroundService
                         }
                         catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
                         {
+                            var durationMs = Stopwatch.GetElapsedTime(procStartTime).TotalMilliseconds;
+                            CentraMeters.RecordPubSubConsumed("flotilla", topic, "error", durationMs);
+                            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                             _logger.LogError(ex, "Error executing event handler for topic {Topic} at log index {LogIndex}", topic, entry.LogIndex);
                         }
                     }

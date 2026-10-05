@@ -120,4 +120,55 @@ public sealed class DurableWorkflowTimerTests
         c2Fired.ShouldBe(0);
         callbackCount.ShouldBe(1);
     }
+
+    [Fact]
+    public async Task Should_Return_Empty_When_StateStore_Not_Configured()
+    {
+        var throwingStore = Substitute.For<IStateStore>();
+        throwingStore.GetAsync<List<string>>(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<StateOptions?>(), Arg.Any<CancellationToken>())
+            .Returns<ValueTask<StateEntry<List<string>>?>>(_ => throw new InvalidOperationException("No StateStore driver registered for store 'statestore'"));
+
+        var timerStore = new StateStoreDurableWorkflowTimerStore(throwingStore, "statestore");
+        var due = await timerStore.GetDueTimersAsync(_timeProvider.GetUtcNow());
+        due.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Should_Handle_Unconfigured_TimerStore_In_Coordinator()
+    {
+        var timerStore = Substitute.For<IDurableWorkflowTimerStore>();
+        timerStore.GetDueTimersAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns<ValueTask<IReadOnlyList<DurableWorkflowTimerRecord>>>(_ => throw new InvalidOperationException("No StateStore driver registered for store 'statestore'"));
+
+        var coordinator = new DurableWorkflowTimerCoordinator(
+            timerStore,
+            _ => ValueTask.CompletedTask,
+            timeProvider: _timeProvider);
+
+        var processed = await coordinator.ProcessDueTimersAsync();
+        processed.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Should_Execute_Timer_When_LockStore_Not_Configured()
+    {
+        var timerStore = new InMemoryDurableWorkflowTimerStore();
+        var lockProvider = Substitute.For<IDistributedLockProvider>();
+        lockProvider.TryAcquireLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns<ValueTask<IDistributedLock?>>(_ => throw new InvalidOperationException("Lock store not configured"));
+
+        var instanceId = WorkflowInstanceId.New();
+        await timerStore.SaveTimerAsync(new DurableWorkflowTimerRecord(instanceId, 1, _timeProvider.GetUtcNow(), _timeProvider.GetUtcNow()));
+
+        int callbackCount = 0;
+        var coordinator = new DurableWorkflowTimerCoordinator(
+            timerStore,
+            _ => { callbackCount++; return ValueTask.CompletedTask; },
+            lockProvider: lockProvider,
+            timeProvider: _timeProvider);
+
+        var fired = await coordinator.ProcessDueTimersAsync();
+        fired.ShouldBe(1);
+        callbackCount.ShouldBe(1);
+    }
 }

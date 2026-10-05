@@ -24,6 +24,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Protobuf Include="Protos\flotilla.proto" GrpcServices="Client" />
+    <Protobuf Include="Protos\flotilla.proto" GrpcServices="Both" />
   </ItemGroup>
 </Project>

@@ -34,6 +34,14 @@
     <ProjectReference Include="..\..\samples\RabbitSimulation\Contracts\Centra.Sample.RabbitSimulation.Contracts.csproj" />
     <ProjectReference Include="..\..\samples\RabbitSimulation\Consumer\Centra.Sample.RabbitSimulation.Consumer.csproj" />
     <ProjectReference Include="..\..\samples\RabbitSimulation\Producer\Centra.Sample.RabbitSimulation.Producer.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Flotilla\Centra.Providers.Flotilla.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Flotilla.Tcp\Centra.Providers.Flotilla.Tcp.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Flotilla.Udp\Centra.Providers.Flotilla.Udp.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.Flotilla.Grpc\Centra.Providers.Flotilla.Grpc.csproj" />
+    <ProjectReference Include="..\..\samples\FlotillaSimulation\Contracts\Centra.Sample.FlotillaSimulation.Contracts.csproj" />
+    <ProjectReference Include="..\..\samples\FlotillaSimulation\Server\Centra.Sample.FlotillaSimulation.Server.csproj" />
+    <ProjectReference Include="..\..\samples\FlotillaSimulation\Consumer\Centra.Sample.FlotillaSimulation.Consumer.csproj" />
+    <ProjectReference Include="..\..\samples\FlotillaSimulation\Producer\Centra.Sample.FlotillaSimulation.Producer.csproj" />
   </ItemGroup>
 
   <ItemGroup>
