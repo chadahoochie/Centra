@@ -105,15 +105,28 @@ public sealed class FlotillaTcpServer : BackgroundService
                     }
 
                     ActivityContext parentContext = default;
+                    ReadOnlyMemory<byte> rawPayload = payloadBuf;
                     if (FlotillaTraceEnvelope.IsEnveloped(payloadBuf))
                     {
                         var unwrap = FlotillaTraceEnvelope.Unwrap(payloadBuf);
                         parentContext = unwrap.Context;
+                        rawPayload = unwrap.Payload;
                     }
 
                     using var activity = CentraDiagnostics.StartFlotillaServerProposeActivity("tcp", parentContext);
 
-                    var (success, index, term, leaderId) = _engine.Propose(payloadBuf);
+                    var serverContext = (activity != null && activity.Context != default) ? activity.Context : parentContext;
+                    byte[] payloadToPropose;
+                    if (serverContext != default)
+                    {
+                        payloadToPropose = FlotillaTraceEnvelope.Wrap(serverContext, rawPayload.Span);
+                    }
+                    else
+                    {
+                        payloadToPropose = payloadBuf;
+                    }
+
+                    var (success, index, term, leaderId) = _engine.Propose(payloadToPropose);
                     sw.Stop();
                     _metrics.RecordProposal("tcp", success, sw.Elapsed.TotalMilliseconds);
 

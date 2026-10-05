@@ -52,12 +52,6 @@ public sealed class FlotillaSubscriptionWorker : BackgroundService
 
                     var (topic, metadata, payload) = FlotillaWireProtocol.DecodeMessage(entryData);
 
-                    if (envelopeContext != default && !metadata.ContainsKey("traceparent"))
-                    {
-                        var flags = envelopeContext.TraceFlags.HasFlag(ActivityTraceFlags.Recorded) ? "01" : "00";
-                        metadata["traceparent"] = $"00-{envelopeContext.TraceId}-{envelopeContext.SpanId}-{flags}";
-                    }
-
                     var subscriptions = _driver.GetSubscriptions(topic);
 
                     if (subscriptions.Count == 0)
@@ -66,12 +60,22 @@ public sealed class FlotillaSubscriptionWorker : BackgroundService
                     }
 
                     ActivityContext parentContext = envelopeContext;
-                    if (metadata.TryGetValue("traceparent", out var tp) && !string.IsNullOrWhiteSpace(tp))
+                    if (parentContext == default && metadata.TryGetValue("traceparent", out var tp) && !string.IsNullOrWhiteSpace(tp))
                     {
                         var ts = metadata.TryGetValue("tracestate", out var s) ? s : null;
                         if (ActivityContext.TryParse(tp, ts, out var parsedContext))
                         {
                             parentContext = parsedContext;
+                        }
+                    }
+
+                    if (envelopeContext != default)
+                    {
+                        var flags = envelopeContext.TraceFlags.HasFlag(ActivityTraceFlags.Recorded) ? "01" : "00";
+                        metadata["traceparent"] = $"00-{envelopeContext.TraceId}-{envelopeContext.SpanId}-{flags}";
+                        if (!string.IsNullOrEmpty(envelopeContext.TraceState))
+                        {
+                            metadata["tracestate"] = envelopeContext.TraceState;
                         }
                     }
 

@@ -44,13 +44,21 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
     private int _udpPort;
     private volatile string? _lastReceivedTraceparent;
     private ActivityListener? _activityListener;
+    private readonly List<Activity> _recordedActivities = new();
 
     public async Task InitializeAsync()
     {
         _activityListener = new ActivityListener
         {
             ShouldListenTo = source => source.Name == "Centra",
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStarted = activity =>
+            {
+                lock (_recordedActivities)
+                {
+                    _recordedActivities.Add(activity);
+                }
+            }
         };
         ActivitySource.AddActivityListener(_activityListener);
 
@@ -177,16 +185,16 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
             EnableChecksumVerification = true
         });
 
-        await using var tcpClient = new FlotillaTcpClient(options);
-        await using var pubSubDriver = new FlotillaPubSubDriver(tcpClient);
+        await using var consumerClient = new FlotillaTcpClient(options);
+        await using var consumerPubSubDriver = new FlotillaPubSubDriver(consumerClient);
 
-        // Start subscription worker
+        // Start subscription worker on consumer client
         using var workerCts = new CancellationTokenSource();
-        var worker = new FlotillaSubscriptionWorker(tcpClient, pubSubDriver);
+        var worker = new FlotillaSubscriptionWorker(consumerClient, consumerPubSubDriver);
         _ = worker.StartAsync(workerCts.Token);
 
         // 4. Subscribe consumer handler to 'telemetry.v1'
-        await pubSubDriver.SubscribeAsync("pubsub", "telemetry.v1", async (payload, headers, ct) =>
+        await consumerPubSubDriver.SubscribeAsync("pubsub", "telemetry.v1", async (payload, headers, ct) =>
         {
             try
             {
@@ -214,12 +222,15 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
             }
         });
 
+        // Allow consumer TCP subscriber to connect and register with Flotilla server
+        await Task.Delay(200);
+
         // 5. Generate Bogus telemetry event
         var generator = new BogusTelemetryGenerator();
         var bogusTelemetry = generator.Generate();
         bogusTelemetry.DeviceId.ShouldNotBeNullOrWhiteSpace();
 
-        // 6. Pack CloudEvent headers with distributed W3C traceparent and publish to Flotilla
+        // 6. Pack CloudEvent headers with distributed W3C traceparent and publish to Flotilla via producer
         var expectedTraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
         var telemetryBytes = JsonCentraSerializer.Default.Serialize(bogusTelemetry);
         var headers = new Dictionary<string, string>
@@ -232,7 +243,9 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
             ["traceparent"] = $"00-{expectedTraceId}-00f067aa0ba902b7-01"
         };
 
-        await pubSubDriver.PublishAsync("pubsub", "telemetry.v1", telemetryBytes, headers);
+        await using var producerClient = new FlotillaTcpClient(options);
+        await using var producerPubSubDriver = new FlotillaPubSubDriver(producerClient);
+        await producerPubSubDriver.PublishAsync("pubsub", "telemetry.v1", telemetryBytes, headers);
 
         // 7. Await end-to-end receipt and invocation
         var completedTask = await Task.WhenAny(completionTcs.Task, Task.Delay(TimeSpan.FromSeconds(10)));
@@ -247,6 +260,16 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
         // 8. Assert end-to-end W3C trace context propagation through to API invocation
         _lastReceivedTraceparent.ShouldNotBeNullOrWhiteSpace();
         _lastReceivedTraceparent.ShouldContain(expectedTraceId);
+
+        lock (_recordedActivities)
+        {
+            var serverActivity = _recordedActivities.FirstOrDefault(a => a.OperationName == "Flotilla.Server.Propose" && a.TraceId.ToString() == expectedTraceId);
+            serverActivity.ShouldNotBeNull();
+
+            var processActivity = _recordedActivities.FirstOrDefault(a => a.OperationName == "Centra.PubSub.Process" && a.TraceId.ToString() == expectedTraceId);
+            processActivity.ShouldNotBeNull();
+            processActivity.ParentSpanId.ShouldBe(serverActivity.SpanId);
+        }
 
         // 9. Assert Flotilla consensus server metrics
         _metrics.ShouldNotBeNull();
@@ -280,16 +303,16 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
             ClientTimeoutMs = 5000,
         });
 
-        await using var grpcClient = new FlotillaGrpcClient(options, null, _grpcServer.CreateHandler());
-        await using var pubSubDriver = new FlotillaPubSubDriver(grpcClient);
+        await using var consumerClient = new FlotillaGrpcClient(options, null, _grpcServer.CreateHandler());
+        await using var consumerPubSubDriver = new FlotillaPubSubDriver(consumerClient);
 
-        // Start subscription worker
+        // Start subscription worker on consumer client
         using var workerCts = new CancellationTokenSource();
-        var worker = new FlotillaSubscriptionWorker(grpcClient, pubSubDriver);
+        var worker = new FlotillaSubscriptionWorker(consumerClient, consumerPubSubDriver);
         _ = worker.StartAsync(workerCts.Token);
 
         // 4. Subscribe consumer handler to 'telemetry.v1'
-        await pubSubDriver.SubscribeAsync("pubsub", "telemetry.v1", async (payload, headers, ct) =>
+        await consumerPubSubDriver.SubscribeAsync("pubsub", "telemetry.v1", async (payload, headers, ct) =>
         {
             try
             {
@@ -322,7 +345,7 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
         var bogusTelemetry = generator.Generate();
         bogusTelemetry.DeviceId.ShouldNotBeNullOrWhiteSpace();
 
-        // 6. Pack CloudEvent headers with distributed W3C traceparent and publish to Flotilla
+        // 6. Pack CloudEvent headers with distributed W3C traceparent and publish to Flotilla via producer
         var expectedTraceId = "5cf92f3577b34da6a3ce929d0e0e4736";
         var telemetryBytes = JsonCentraSerializer.Default.Serialize(bogusTelemetry);
         var headers = new Dictionary<string, string>
@@ -335,7 +358,9 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
             ["traceparent"] = $"00-{expectedTraceId}-00f067aa0ba902b7-02"
         };
 
-        await pubSubDriver.PublishAsync("pubsub", "telemetry.v1", telemetryBytes, headers);
+        await using var producerClient = new FlotillaGrpcClient(options, null, _grpcServer.CreateHandler());
+        await using var producerPubSubDriver = new FlotillaPubSubDriver(producerClient);
+        await producerPubSubDriver.PublishAsync("pubsub", "telemetry.v1", telemetryBytes, headers);
 
         // 7. Await end-to-end receipt and invocation
         var completedTask = await Task.WhenAny(completionTcs.Task, Task.Delay(TimeSpan.FromSeconds(10)));
@@ -350,6 +375,16 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
         // 8. Assert end-to-end W3C trace context propagation through to API invocation
         _lastReceivedTraceparent.ShouldNotBeNullOrWhiteSpace();
         _lastReceivedTraceparent.ShouldContain(expectedTraceId);
+
+        lock (_recordedActivities)
+        {
+            var serverActivity = _recordedActivities.FirstOrDefault(a => a.OperationName == "Flotilla.Server.Propose" && a.TraceId.ToString() == expectedTraceId);
+            serverActivity.ShouldNotBeNull();
+
+            var processActivity = _recordedActivities.FirstOrDefault(a => a.OperationName == "Centra.PubSub.Process" && a.TraceId.ToString() == expectedTraceId);
+            processActivity.ShouldNotBeNull();
+            processActivity.ParentSpanId.ShouldBe(serverActivity.SpanId);
+        }
 
         // 9. Assert Flotilla consensus server metrics
         _metrics.ShouldNotBeNull();

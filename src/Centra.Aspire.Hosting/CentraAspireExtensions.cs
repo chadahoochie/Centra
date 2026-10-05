@@ -168,6 +168,7 @@ public static class CentraAspireExtensions
             .WithEnvironment("FLOTILLA_UDP_ADDR", "0.0.0.0:9200")
             .WithEnvironment("FLOTILLA_GRPC_ADDR", "0.0.0.0:9300")
             .WithEnvironment("FLOTILLA_METRICS_ADDR", "0.0.0.0:9301")
+            .WithEnvironment("FLOTILLA_OTEL_METRICS", "true")
             .WithOtlpExporter()
             .WithEndpoint(
                 port: tcpPort,

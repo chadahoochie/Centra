@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using Centra.Diagnostics;
 using Centra.Drivers;
 using Centra.Providers.Flotilla.Client;
 using Centra.Providers.Flotilla.Protocol;
@@ -36,6 +38,17 @@ public sealed class FlotillaPubSubDriver : IPubSubDriver, IPubSubShutdownDrain, 
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pubSubName);
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
+
+        ActivityContext parentContext = default;
+        if (metadata != null && metadata.TryGetValue("traceparent", out var tp) && !string.IsNullOrWhiteSpace(tp))
+        {
+            var ts = metadata.TryGetValue("tracestate", out var s) ? s : null;
+            ActivityContext.TryParse(tp, ts, out parentContext);
+        }
+
+        using var activity = parentContext != default && Activity.Current == null
+            ? CentraDiagnostics.StartPublishActivity(pubSubName, topic, parentContext)
+            : null;
 
         var encoded = FlotillaWireProtocol.EncodeMessage(topic, metadata, payload.Span);
         var result = await _client.ProposeAsync(encoded, cancellationToken).ConfigureAwait(false);

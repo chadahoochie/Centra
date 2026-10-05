@@ -42,6 +42,19 @@ public static class FlotillaUdpEndpointResolver
             {
                 return new IPEndPoint(ip, parsedPort);
             }
+
+            try
+            {
+                var addresses = Dns.GetHostAddresses(host);
+                if (addresses.Length > 0)
+                {
+                    return new IPEndPoint(addresses[0], parsedPort);
+                }
+            }
+            catch
+            {
+                // DNS lookup failed, fall through
+            }
         }
 
         if (string.Equals(nodeStr, "localhost", StringComparison.OrdinalIgnoreCase))
@@ -52,6 +65,19 @@ public static class FlotillaUdpEndpointResolver
         if (IPAddress.TryParse(nodeStr, out var directIp))
         {
             return new IPEndPoint(directIp, defaultPort);
+        }
+
+        try
+        {
+            var addresses = Dns.GetHostAddresses(nodeStr);
+            if (addresses.Length > 0)
+            {
+                return new IPEndPoint(addresses[0], defaultPort);
+            }
+        }
+        catch
+        {
+            // DNS lookup failed, fall through
         }
 
         return new IPEndPoint(IPAddress.Loopback, defaultPort);

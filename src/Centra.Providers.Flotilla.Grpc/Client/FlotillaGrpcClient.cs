@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Centra.Diagnostics;
 using Centra.Providers.Flotilla.Client;
 using Centra.Providers.Flotilla.Grpc.Options;
+using Centra.Providers.Flotilla.Protocol;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
@@ -60,9 +61,14 @@ public sealed class FlotillaGrpcClient : IFlotillaClient
 
         try
         {
+            var currentContext = activity?.Context ?? Activity.Current?.Context ?? default;
+            ReadOnlyMemory<byte> wirePayload = currentContext != default
+                ? FlotillaTraceEnvelope.Wrap(currentContext, payload.Span)
+                : payload;
+
             var req = new ProposalRequest
             {
-                Payload = ByteString.CopyFrom(payload.Span)
+                Payload = ByteString.CopyFrom(wirePayload.Span)
             };
 
             var headers = new Metadata();

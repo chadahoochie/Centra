@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Centra.Diagnostics;
 using Centra.Providers.Flotilla.Grpc;
+using Centra.Providers.Flotilla.Protocol;
 using Centra.Sample.FlotillaSimulation.Server.Consensus;
 using Google.Protobuf;
 using Grpc.Core;
@@ -39,9 +40,31 @@ public sealed class FlotillaGrpcServerService : FlotillaService.FlotillaServiceB
             ActivityContext.TryParse(traceParent, traceState, out parentContext);
         }
 
+        ReadOnlyMemory<byte> rawPayload = request.Payload.Memory;
+        if (FlotillaTraceEnvelope.IsEnveloped(request.Payload.Span))
+        {
+            var unwrap = FlotillaTraceEnvelope.Unwrap(request.Payload.Memory);
+            if (parentContext == default)
+            {
+                parentContext = unwrap.Context;
+            }
+            rawPayload = unwrap.Payload;
+        }
+
         using var activity = CentraDiagnostics.StartFlotillaServerProposeActivity("grpc", parentContext);
 
-        var (success, index, term, leaderId) = _engine.Propose(request.Payload.Span);
+        var serverContext = (activity != null && activity.Context != default) ? activity.Context : parentContext;
+        byte[] payloadToPropose;
+        if (serverContext != default)
+        {
+            payloadToPropose = FlotillaTraceEnvelope.Wrap(serverContext, rawPayload.Span);
+        }
+        else
+        {
+            payloadToPropose = request.Payload.ToByteArray();
+        }
+
+        var (success, index, term, leaderId) = _engine.Propose(payloadToPropose);
         sw.Stop();
         _metrics.RecordProposal("grpc", success, sw.Elapsed.TotalMilliseconds);
 

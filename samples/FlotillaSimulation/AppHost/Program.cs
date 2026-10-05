@@ -1,10 +1,11 @@
+using Aspire.Hosting.ApplicationModel;
 using Centra.Aspire.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
 // 1. Standalone Containerized Flotilla Consensus Server (TCP: 9100, UDP: 9200, gRPC: 9300, HTTP: 9301)
 var server = builder.AddCentraFlotilla("flotilla-server", tcpPort: 9100, udpPort: 9200, grpcPort: 9300, httpPort: 9301)
-    .WithImageTag("latest");
+    .WithDockerfile("../../..", "samples/FlotillaSimulation/Server/Dockerfile");
 
 // 2. API Service (Centra Service Invocation target)
 var api = builder.AddProject<Projects.Centra_Sample_FlotillaSimulation_Api>("flotilla-api")

@@ -80,15 +80,28 @@ public sealed class FlotillaUdpServer : BackgroundService
                     var payloadMemory = result.Buffer.AsMemory(FlotillaPacketHeader.HeaderSize, (int)header.PayloadLen);
 
                     ActivityContext parentContext = default;
+                    ReadOnlyMemory<byte> rawPayload = payloadMemory;
                     if (FlotillaTraceEnvelope.IsEnveloped(payloadMemory.Span))
                     {
                         var unwrap = FlotillaTraceEnvelope.Unwrap(payloadMemory);
                         parentContext = unwrap.Context;
+                        rawPayload = unwrap.Payload;
                     }
 
                     using var activity = CentraDiagnostics.StartFlotillaServerProposeActivity("udp", parentContext);
 
-                    _engine.Propose(payloadMemory.Span);
+                    var serverContext = (activity != null && activity.Context != default) ? activity.Context : parentContext;
+                    byte[] payloadToPropose;
+                    if (serverContext != default)
+                    {
+                        payloadToPropose = FlotillaTraceEnvelope.Wrap(serverContext, rawPayload.Span);
+                    }
+                    else
+                    {
+                        payloadToPropose = payloadMemory.ToArray();
+                    }
+
+                    _engine.Propose(payloadToPropose);
                     sw.Stop();
                     _metrics.RecordProposal("udp", true, sw.Elapsed.TotalMilliseconds);
                 }

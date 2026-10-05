@@ -128,6 +128,9 @@ public sealed class CentraAspireExtensionsTests
 
         flotilla.Resource.TryGetAnnotationsOfType<EndpointAnnotation>(out var endpoints).ShouldBeTrue();
         endpoints.Count().ShouldBe(4);
+
+        flotilla.Resource.TryGetAnnotationsOfType<EnvironmentCallbackAnnotation>(out var envCallbacks).ShouldBeTrue();
+        envCallbacks.ShouldNotBeEmpty();
     }
 
     [Fact]

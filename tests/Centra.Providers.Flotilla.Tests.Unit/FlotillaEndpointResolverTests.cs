@@ -39,4 +39,24 @@ public sealed class FlotillaEndpointResolverTests
         ep.Address.ShouldBe(IPAddress.Loopback);
         ep.Port.ShouldBe(expectedPort);
     }
+
+    [Fact]
+    public void TcpEndpointResolver_ShouldResolve_DnsHostName()
+    {
+        var hostName = Dns.GetHostName();
+        var ep = FlotillaTcpEndpointResolver.ResolveTargetEndpoint([$"{hostName}:9100"], 9001);
+
+        ep.ShouldNotBeNull();
+        ep.Port.ShouldBe(9100);
+    }
+
+    [Fact]
+    public void UdpEndpointResolver_ShouldResolve_DnsHostName()
+    {
+        var hostName = Dns.GetHostName();
+        var ep = FlotillaUdpEndpointResolver.ResolveTargetEndpoint([$"{hostName}:9200"], 9001);
+
+        ep.ShouldNotBeNull();
+        ep.Port.ShouldBe(9200);
+    }
 }

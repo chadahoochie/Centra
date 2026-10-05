@@ -29,27 +29,39 @@ internal sealed class FlotillaGrpcCommitSubscriber : IAsyncDisposable
 
     internal async Task RunStreamAsync()
     {
-        try
+        while (!_cts.IsCancellationRequested)
         {
-            using var call = _client.SubscribeCommits(new CommitSubscribeRequest { FromIndex = 0 }, cancellationToken: _cts.Token);
-            while (await call.ResponseStream.MoveNext(_cts.Token).ConfigureAwait(false))
+            try
             {
-                var proto = call.ResponseStream.Current;
-                var entry = new CommittedEntry
+                using var call = _client.SubscribeCommits(new CommitSubscribeRequest { FromIndex = 0 }, cancellationToken: _cts.Token);
+                while (await call.ResponseStream.MoveNext(_cts.Token).ConfigureAwait(false))
                 {
-                    LogIndex = proto.Index,
-                    Term = proto.Term,
-                    Data = proto.Data.Memory
-                };
-                await _commitChannel.WriteCommitAsync(entry, _cts.Token).ConfigureAwait(false);
+                    var proto = call.ResponseStream.Current;
+                    var entry = new CommittedEntry
+                    {
+                        LogIndex = proto.Index,
+                        Term = proto.Term,
+                        Data = proto.Data.Memory
+                    };
+                    await _commitChannel.WriteCommitAsync(entry, _cts.Token).ConfigureAwait(false);
+                }
             }
-        }
-        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "gRPC commit subscription stream completed or disconnected; relying on local channel fallback.");
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "gRPC commit subscription stream disconnected or unavailable; retrying...");
+                try
+                {
+                    await Task.Delay(1000, _cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
         }
     }
 
