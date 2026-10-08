@@ -18,11 +18,13 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
     private readonly ILogger<RabbitMQPubSubDriver> _logger;
     private readonly ConcurrentDictionary<string, RabbitMQSubscription> _subscriptions = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
+    private readonly SemaphoreSlim _consumerConnectionLock = new(1, 1);
     private readonly IRabbitMQHeaderExtractor _headerExtractor;
     private readonly IRabbitMQMessageAcknowledger _acknowledger;
     private readonly IRabbitMQMessageIdentityReader _identityReader;
     private readonly IRedeliveryBudget _redeliveryBudget;
     private IConnection? _connection;
+    private IConnection? _consumerConnection;
     private IChannel? _publishChannel;
     private ShutdownDrainWindow? _drainWindow;
     private int _disposed;
@@ -64,6 +66,28 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         finally
         {
             _connectionLock.Release();
+        }
+    }
+
+    public async ValueTask<IConnection> GetConsumerConnectionAsync(CancellationToken cancellationToken)
+    {
+        if (_consumerConnection is not null)
+        {
+            return _consumerConnection;
+        }
+
+        await _consumerConnectionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_consumerConnection is null)
+            {
+                _consumerConnection = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
+            }
+            return _consumerConnection;
+        }
+        finally
+        {
+            _consumerConnectionLock.Release();
         }
     }
 
@@ -196,7 +220,7 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 + "unbudgeted.");
         }
 
-        var conn = await GetConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var conn = await GetConsumerConnectionAsync(cancellationToken).ConfigureAwait(false);
         var channel = await conn.CreateChannelAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
 
         await channel.ExchangeDeclareAsync(
@@ -303,14 +327,13 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
 
         if (limiter is not null)
         {
-            consumer.ReceivedAsync += async (_, ea) =>
+            consumer.ReceivedAsync += (sender, ea) =>
             {
                 inFlight.BeginDelivery();
-                await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 
-                // The client may recycle ea.Body the moment this callback returns, and it returns as
-                // soon as the work is handed over - so the continuation reads an owned copy instead.
-                // Basic properties are a per-delivery object, not pooled memory, so they travel as is.
+                // ea.Body is recycled by RabbitMQ.Client the moment this callback returns.
+                // Copy it into pooled memory immediately so ReceivedAsync returns Task.CompletedTask
+                // and never blocks the channel's single-threaded consumer dispatch queue.
                 var body = new PooledDeliveryBody(ea.Body);
                 var deliveryTag = ea.DeliveryTag;
                 var properties = ea.BasicProperties;
@@ -319,15 +342,24 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
                 {
                     try
                     {
-                        await ProcessAndAckAsync(channel, queueName, deliveryTag, properties, body.Memory, handler, redeliveryPolicy, shutdownToken).ConfigureAwait(false);
+                        await limiter.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                        try
+                        {
+                            await ProcessAndAckAsync(channel, queueName, deliveryTag, properties, body.Memory, handler, redeliveryPolicy, shutdownToken).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            limiter.Release();
+                        }
                     }
                     finally
                     {
                         body.Return();
-                        limiter.Release();
                         inFlight.CompleteDelivery();
                     }
                 });
+
+                return Task.CompletedTask;
             };
         }
         else
@@ -403,46 +435,50 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             result = EventHandlingResult.Retry;
         }
 
-        var messageId = _identityReader.ResolveIdentity(headers, properties);
+        string? messageId = null;
         var settlement = result;
         var backoff = TimeSpan.Zero;
 
-        if (result is not EventHandlingResult.Retry)
-        {
-            if (messageId is not null)
-            {
-                _redeliveryBudget.Forget(new RedeliveryBudgetKey(queueName, messageId));
-            }
-        }
-        else if (!redeliveryPolicy.IsEnabled)
+        if (!redeliveryPolicy.IsEnabled)
         {
             // The subscription opted out of the budget, so Retry keeps its unbounded nack-requeue meaning.
         }
-        else if (messageId is null)
-        {
-            // The broker cannot bound this loop: x-delivery-count only advances when a delivery is returned by
-            // consumer or channel failure, never on an application nack-requeue. So a message carrying no identity
-            // to count against would requeue forever, and dead-lettering it is the only bounded settlement left.
-            _logger.LogWarning(
-                "Retry requested for a message on queue {Queue} carrying neither ce-id nor message-id; "
-                + "the redelivery budget cannot be enforced without a stable identity, so dead-lettering",
-                queueName);
-
-            settlement = EventHandlingResult.DeadLetter;
-        }
         else
         {
-            var decision = _redeliveryBudget.ChargeFailure(new RedeliveryBudgetKey(queueName, messageId), in redeliveryPolicy);
-            settlement = decision.Result;
-            backoff = decision.Delay;
-
-            if (settlement is EventHandlingResult.DeadLetter)
+            messageId = _identityReader.ResolveIdentity(headers, properties);
+            if (result is not EventHandlingResult.Retry)
             {
+                if (messageId is not null)
+                {
+                    _redeliveryBudget.Forget(new RedeliveryBudgetKey(queueName, messageId));
+                }
+            }
+            else if (messageId is null)
+            {
+                // The broker cannot bound this loop: x-delivery-count only advances when a delivery is returned by
+                // consumer or channel failure, never on an application nack-requeue. So a message carrying no identity
+                // to count against would requeue forever, and dead-lettering it is the only bounded settlement left.
                 _logger.LogWarning(
-                    "Redelivery budget of {Budget} exhausted for message {MessageId} on queue {Queue}; dead-lettering",
-                    redeliveryPolicy.MaxRetryAttempts,
-                    messageId,
+                    "Retry requested for a message on queue {Queue} carrying neither ce-id nor message-id; "
+                    + "the redelivery budget cannot be enforced without a stable identity, so dead-lettering",
                     queueName);
+
+                settlement = EventHandlingResult.DeadLetter;
+            }
+            else
+            {
+                var decision = _redeliveryBudget.ChargeFailure(new RedeliveryBudgetKey(queueName, messageId), in redeliveryPolicy);
+                settlement = decision.Result;
+                backoff = decision.Delay;
+
+                if (settlement is EventHandlingResult.DeadLetter)
+                {
+                    _logger.LogWarning(
+                        "Redelivery budget of {Budget} exhausted for message {MessageId} on queue {Queue}; dead-lettering",
+                        redeliveryPolicy.MaxRetryAttempts,
+                        messageId,
+                        queueName);
+                }
             }
         }
 
@@ -569,6 +605,19 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
             }
         }
 
+        if (_consumerConnection is not null)
+        {
+            try
+            {
+                await _consumerConnection.CloseAsync().ConfigureAwait(false);
+                _consumerConnection.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error closing consumer connection during disposal");
+            }
+        }
+
         if (_connection is not null)
         {
             try
@@ -583,5 +632,6 @@ public sealed class RabbitMQPubSubDriver : IPubSubDriver, IPubSubQueueInspector,
         }
 
         _connectionLock.Dispose();
+        _consumerConnectionLock.Dispose();
     }
 }

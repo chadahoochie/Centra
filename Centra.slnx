@@ -101,4 +101,11 @@
     <Project Path="tests/Centra.Generators.Tests.Unit/Centra.Generators.Tests.Unit.csproj" />
     <Project Path="tests/Centra.Tests.Integration/Centra.Tests.Integration.csproj" />
   </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/RabbitMQ.Benchmark.Contracts/RabbitMQ.Benchmark.Contracts.csproj" />
+    <Project Path="benchmarks/Centra.Benchmarks.RabbitMQ/Centra.Benchmarks.RabbitMQ.csproj" />
+    <Project Path="benchmarks/PackageQueueing.Benchmarks.RabbitMQ/PackageQueueing.Benchmarks.RabbitMQ.csproj" />
+    <Project Path="benchmarks/RabbitMQ.Benchmark.Orchestrator/RabbitMQ.Benchmark.Orchestrator.csproj" />
+    <Project Path="benchmarks/RabbitMQ.Benchmark.AppHost/RabbitMQ.Benchmark.AppHost.csproj" />
+  </Folder>
 </Solution>
