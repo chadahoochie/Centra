@@ -185,6 +185,7 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
             EnableChecksumVerification = true
         });
 
+        var initialSubscribers = _engine!.SubscriberCount;
         await using var consumerClient = new FlotillaTcpClient(options);
         await using var consumerPubSubDriver = new FlotillaPubSubDriver(consumerClient);
 
@@ -223,7 +224,11 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
         });
 
         // Allow consumer TCP subscriber to connect and register with Flotilla server
-        await Task.Delay(200);
+        var sw = Stopwatch.StartNew();
+        while (_engine!.SubscriberCount <= initialSubscribers && sw.ElapsedMilliseconds < 5000)
+        {
+            await Task.Delay(20);
+        }
 
         // 5. Generate Bogus telemetry event
         var generator = new BogusTelemetryGenerator();
@@ -288,6 +293,7 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
     {
         _apiHttpClient.ShouldNotBeNull();
         _grpcServer.ShouldNotBeNull();
+        _engine.ShouldNotBeNull();
 
         // 1. Setup Centra Service Invoker connected to TestServer
         var invoker = new CentraServiceInvoker(_apiHttpClient);
@@ -303,6 +309,7 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
             ClientTimeoutMs = 5000,
         });
 
+        var initialSubscribers = _engine!.SubscriberCount;
         await using var consumerClient = new FlotillaGrpcClient(options, null, _grpcServer.CreateHandler());
         await using var consumerPubSubDriver = new FlotillaPubSubDriver(consumerClient);
 
@@ -339,6 +346,13 @@ public sealed class FlotillaServiceInvocationIntegrationTests : IAsyncLifetime
                 return EventHandlingResult.Retry;
             }
         });
+
+        // Allow consumer gRPC subscriber to connect and register with Flotilla server
+        var sw = Stopwatch.StartNew();
+        while (_engine!.SubscriberCount <= initialSubscribers && sw.ElapsedMilliseconds < 5000)
+        {
+            await Task.Delay(20);
+        }
 
         // 5. Generate Bogus telemetry event
         var generator = new BogusTelemetryGenerator();
