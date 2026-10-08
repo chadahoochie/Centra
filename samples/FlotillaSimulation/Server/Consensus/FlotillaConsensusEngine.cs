@@ -17,6 +17,7 @@ public sealed class FlotillaConsensusEngine
     public ulong CurrentCommitIndex => Interlocked.Read(ref _commitIndex);
     public ulong CurrentTerm => Interlocked.Read(ref _currentTerm);
     public ulong LeaderId => Interlocked.Read(ref _leaderId);
+    public int SubscriberCount => _subscribers.Count;
 
     public (bool Success, ulong LogIndex, ulong Term, ulong LeaderId) Propose(ReadOnlySpan<byte> payload)
     {
