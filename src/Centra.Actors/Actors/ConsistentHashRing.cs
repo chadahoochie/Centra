@@ -12,6 +12,17 @@ public sealed class ConsistentHashRing
     private readonly HashSet<string> _nodes = new(StringComparer.Ordinal);
     private volatile ConsistentHashRingState _state = new(Array.Empty<uint>(), Array.Empty<string>());
 
+    public IReadOnlyCollection<string> Nodes
+    {
+        get
+        {
+            lock (_syncLock)
+            {
+                return _nodes.ToArray();
+            }
+        }
+    }
+
     public ConsistentHashRing(
         int virtualNodesPerNode = 100,
         IConsistentHashAlgorithm? hashAlgorithm = null,

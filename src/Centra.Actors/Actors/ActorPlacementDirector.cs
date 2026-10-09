@@ -19,6 +19,8 @@ public sealed class ActorPlacementDirector : IActorPlacementDirector
         _ring = ring;
     }
 
+    public ConsistentHashRing Ring => _ring;
+
     public string ResolveNodeId(ActorIdentity identity)
     {
         return _ring.GetNode(identity.ToString());

@@ -1,3 +1,4 @@
+using Centra.ControlPlane.Dashboard;
 using Centra.ControlPlane.Endpoints;
 using Centra.ControlPlane.Extensions;
 using OpenTelemetry;
@@ -34,6 +35,7 @@ builder.Services.AddCentraControlPlane();
 var app = builder.Build();
 
 app.MapCentraControlPlaneEndpoints();
+app.MapCentraDashboard();
 
 app.Run();
 

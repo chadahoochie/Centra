@@ -124,6 +124,9 @@ dotnet run --project samples/Centra.Sample.Workflows -- --demo
 # Run the dynamic noisy neighbor tenant offloading simulation
 dotnet run --project samples/Centra.Sample.TenantOffload -- --demo
 
+# Run the control plane expansion and dashboard simulation
+dotnet run --project samples/Centra.Sample.ControlPlane -- --demo
+
 # Run the 3-node cluster replica with Tempo/Loki/Prometheus/Grafana
 docker compose -f samples/DockerStack/docker-compose.yml up --build
 

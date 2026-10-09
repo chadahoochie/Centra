@@ -111,4 +111,57 @@ public sealed class StateStoreTopologyTrackerTests
     {
         Should.Throw<ArgumentNullException>(() => new StateStoreTopologyTracker(null!));
     }
+
+    [Fact]
+    public async Task Should_Partition_Active_Nodes_By_ClusterId()
+    {
+        // Arrange
+        var fakeTime = new FakeTimeProvider();
+        var stateStore = new FakeStateStore();
+        var topology = new StateStoreTopologyTracker(stateStore, "default", fakeTime);
+
+        await topology.RecordHeartbeatAsync(new HeartbeatRequest("svc-a", "inst-1", "Healthy", null, "cluster-1"));
+        await topology.RecordHeartbeatAsync(new HeartbeatRequest("svc-b", "inst-2", "Healthy", null, "cluster-1"));
+        await topology.RecordHeartbeatAsync(new HeartbeatRequest("svc-c", "inst-3", "Healthy", null, "cluster-2"));
+
+        // Act
+        var cluster1Nodes = await topology.GetActiveNodesAsync("cluster-1");
+        var cluster2Nodes = await topology.GetActiveNodesAsync("cluster-2");
+        var allNodes = await topology.GetActiveNodesAsync();
+
+        // Assert
+        cluster1Nodes.Count.ShouldBe(2);
+        cluster1Nodes.ShouldAllBe(n => n.ClusterId == "cluster-1");
+
+        cluster2Nodes.Count.ShouldBe(1);
+        cluster2Nodes.First().ClusterId.ShouldBe("cluster-2");
+
+        allNodes.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Should_Lookup_Node_By_ClusterId()
+    {
+        // Arrange
+        var fakeTime = new FakeTimeProvider();
+        var stateStore = new FakeStateStore();
+        var topology = new StateStoreTopologyTracker(stateStore, "default", fakeTime);
+
+        await topology.RecordHeartbeatAsync(new HeartbeatRequest("svc-x", "inst-1", "Healthy", null, "cluster-1"));
+        await topology.RecordHeartbeatAsync(new HeartbeatRequest("svc-x", "inst-1", "Healthy", null, "cluster-2"));
+
+        // Act
+        var node1 = await topology.GetNodeAsync("svc-x", "inst-1", "cluster-1");
+        var node2 = await topology.GetNodeAsync("svc-x", "inst-1", "cluster-2");
+        var node3 = await topology.GetNodeAsync("svc-x", "inst-1", "cluster-3");
+
+        // Assert
+        node1.ShouldNotBeNull();
+        node1.ClusterId.ShouldBe("cluster-1");
+
+        node2.ShouldNotBeNull();
+        node2.ClusterId.ShouldBe("cluster-2");
+
+        node3.ShouldBeNull();
+    }
 }

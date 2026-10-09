@@ -31,7 +31,9 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
         ArgumentException.ThrowIfNullOrWhiteSpace(request.AppId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.InstanceId);
 
-        var key = $"centra:controlplane:topology:{request.AppId.ToLowerInvariant()}:{request.InstanceId.ToLowerInvariant()}";
+        var clusterId = string.IsNullOrWhiteSpace(request.ClusterId) ? "default" : request.ClusterId;
+        var nodeCompositeKey = $"{clusterId.ToLowerInvariant()}:{request.AppId.ToLowerInvariant()}:{request.InstanceId.ToLowerInvariant()}";
+        var key = $"centra:controlplane:topology:{nodeCompositeKey}";
         var now = _timeProvider.GetUtcNow();
 
         var existing = await _stateStore.GetAsync<ClientNodeInfo>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -43,7 +45,8 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
             request.Status,
             registeredAt,
             now,
-            request.Metadata ?? (existing.HasValue ? existing.Value.Value.Metadata : null));
+            request.Metadata ?? (existing.HasValue ? existing.Value.Value.Metadata : null),
+            clusterId);
 
         var options = new StateOptions { TimeToLive = _defaultNodeTtl };
         await _stateStore.SetAsync(_storeName, key, nodeInfo, options, cancellationToken).ConfigureAwait(false);
@@ -54,7 +57,6 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
         {
             var indexEntry = await _stateStore.GetAsync<List<string>>(_storeName, IndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
             var list = indexEntry.HasValue ? new List<string>(indexEntry.Value.Value) : [];
-            var nodeCompositeKey = $"{request.AppId.ToLowerInvariant()}:{request.InstanceId.ToLowerInvariant()}";
             if (list.Contains(nodeCompositeKey))
             {
                 break;
@@ -73,7 +75,10 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
         return new HeartbeatResponse(true, now);
     }
 
-    public async ValueTask<IReadOnlyCollection<ClientNodeInfo>> GetActiveNodesAsync(CancellationToken cancellationToken = default)
+    public ValueTask<IReadOnlyCollection<ClientNodeInfo>> GetActiveNodesAsync(CancellationToken cancellationToken = default)
+        => GetActiveNodesAsync(clusterId: null, cancellationToken);
+
+    public async ValueTask<IReadOnlyCollection<ClientNodeInfo>> GetActiveNodesAsync(string? clusterId, CancellationToken cancellationToken = default)
     {
         var indexEntry = await _stateStore.GetAsync<List<string>>(_storeName, IndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
         if (!indexEntry.HasValue || indexEntry.Value.Value.Count == 0)
@@ -105,7 +110,10 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
             var key = keys[i];
             if (activeNodesByKey.TryGetValue(key, out var nodeInfo) && nodeInfo.LastHeartbeatUtc >= cutoff)
             {
-                result.Add(nodeInfo);
+                if (string.IsNullOrWhiteSpace(clusterId) || string.Equals(nodeInfo.ClusterId, clusterId, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(nodeInfo);
+                }
             }
             else
             {
@@ -127,14 +135,39 @@ public sealed class StateStoreTopologyTracker : ITopologyTracker
         return result;
     }
 
-    public async ValueTask<ClientNodeInfo?> GetNodeAsync(string appId, string instanceId, CancellationToken cancellationToken = default)
+    public async ValueTask<ClientNodeInfo?> GetNodeAsync(string appId, string instanceId, string? clusterId = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appId);
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
 
-        var key = $"centra:controlplane:topology:{appId.ToLowerInvariant()}:{instanceId.ToLowerInvariant()}";
-        var entry = await _stateStore.GetAsync<ClientNodeInfo>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return entry.HasValue ? entry.Value.Value : null;
+        if (!string.IsNullOrWhiteSpace(clusterId))
+        {
+            var key = $"centra:controlplane:topology:{clusterId.ToLowerInvariant()}:{appId.ToLowerInvariant()}:{instanceId.ToLowerInvariant()}";
+            var entry = await _stateStore.GetAsync<ClientNodeInfo>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return entry.HasValue ? entry.Value.Value : null;
+        }
+
+        var indexEntry = await _stateStore.GetAsync<List<string>>(_storeName, IndexKey, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (!indexEntry.HasValue || indexEntry.Value.Value.Count == 0)
+        {
+            return null;
+        }
+
+        var suffix = $":{appId.ToLowerInvariant()}:{instanceId.ToLowerInvariant()}";
+        foreach (var compositeKey in indexEntry.Value.Value)
+        {
+            if (compositeKey.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                var key = $"centra:controlplane:topology:{compositeKey}";
+                var entry = await _stateStore.GetAsync<ClientNodeInfo>(_storeName, key, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (entry.HasValue)
+                {
+                    return entry.Value.Value;
+                }
+            }
+        }
+
+        return null;
     }
 
     public async ValueTask EvictStaleNodesAsync(TimeSpan timeout, CancellationToken cancellationToken = default)

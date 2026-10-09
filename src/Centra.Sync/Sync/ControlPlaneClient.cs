@@ -2,7 +2,6 @@ using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Centra.Components;
-using Centra.Sync;
 
 namespace Centra.Sync;
 
@@ -26,10 +25,14 @@ public sealed class ControlPlaneClient : IControlPlaneClient
         return response ?? (IReadOnlyCollection<ComponentDefinition>)Array.Empty<ComponentDefinition>();
     }
 
-    public async Task<IReadOnlyCollection<ServiceNodeDto>> GetTopologyAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyCollection<ServiceNodeDto>> GetTopologyAsync(CancellationToken cancellationToken = default)
+        => GetTopologyAsync(null, cancellationToken);
+
+    public async Task<IReadOnlyCollection<ServiceNodeDto>> GetTopologyAsync(string? clusterId, CancellationToken cancellationToken = default)
     {
+        var url = string.IsNullOrWhiteSpace(clusterId) ? "api/v1/topology" : $"api/v1/topology?clusterId={Uri.EscapeDataString(clusterId)}";
         var response = await _httpClient.GetFromJsonAsync<List<ServiceNodeDto>>(
-            "api/v1/topology",
+            url,
             JsonOptions,
             cancellationToken).ConfigureAwait(false);
 
@@ -94,11 +97,20 @@ public sealed class ControlPlaneClient : IControlPlaneClient
         }
     }
 
-    public async Task SendHeartbeatAsync(
+    public Task SendHeartbeatAsync(
         string appId,
         string instanceId,
         string status,
         IReadOnlyDictionary<string, string>? metadata = null,
+        CancellationToken cancellationToken = default)
+        => SendHeartbeatAsync(appId, instanceId, status, metadata, "default", cancellationToken);
+
+    public async Task SendHeartbeatAsync(
+        string appId,
+        string instanceId,
+        string status,
+        IReadOnlyDictionary<string, string>? metadata,
+        string clusterId,
         CancellationToken cancellationToken = default)
     {
         var payload = new
@@ -106,7 +118,8 @@ public sealed class ControlPlaneClient : IControlPlaneClient
             appId,
             instanceId,
             status,
-            metadata
+            metadata,
+            clusterId
         };
 
         var response = await _httpClient.PostAsJsonAsync("api/v1/heartbeat", payload, JsonOptions, cancellationToken).ConfigureAwait(false);
