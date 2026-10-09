@@ -233,8 +233,12 @@ Binds to the `"Centra"` section in `appsettings.json` or `Centra__*` environment
 | `DefaultStateStore` | `string` | `"statestore"` | Default state store component name |
 | `DefaultPubSub` | `string` | `"pubsub"` | Default pub/sub component name |
 | `DefaultLockStore` | `string` | `"lockstore"` | Default distributed lock store component name |
-| `ControlPlaneEndpoint` | `string?` | `null` | URL of the Centra Control Plane service |
+| `ControlPlaneEndpoint` | `string?` | `null` | URL of the primary Centra Control Plane service |
+| `ControlPlane.ClusterId` | `string` | `"default"` | Target cluster partition identifier for topology and actor hash ring isolation |
+| `ControlPlane.Endpoints` | `string[]?` | `null` | Multi-endpoint list of Control Plane replicas for client-side HA failover |
 | `ControlPlane.InstanceId` | `string?` | Machine name / Guid | Unique replica identifier within the cluster |
+| `ControlPlane.ClusterToken` | `string?` | `null` | Pre-shared token or HMAC secret for rogue node admission defense |
+| `ControlPlane.UseHmacAuthentication` | `bool` | `false` | Enables cryptographic timestamp + nonce + HMAC-SHA256 signature verification |
 | `ControlPlane.HeartbeatIntervalSeconds` | `int` | `5` | Heartbeat emission interval in seconds |
 
 ---

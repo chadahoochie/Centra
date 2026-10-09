@@ -8,7 +8,9 @@ using Centra.Core.Workflows;
 using Centra.ControlPlane.Actors;
 using Centra.ControlPlane.Catalog;
 using Centra.ControlPlane.Diagnostics;
+using Centra.ControlPlane.HA;
 using Centra.ControlPlane.Secrets;
+using Centra.ControlPlane.Security;
 using Centra.ControlPlane.Serialization;
 using Centra.ControlPlane.Sync;
 using Centra.ControlPlane.Topology;
@@ -27,6 +29,8 @@ public static class ControlPlaneEndpoints
     public static IEndpointRouteBuilder MapCentraControlPlaneEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1");
+        group.AddEndpointFilter<ControlPlaneLeadershipEndpointFilter>();
+        group.AddEndpointFilter<ClusterAuthenticationEndpointFilter>();
 
         // Component Catalog CRUD
         group.MapGet("/components", async (IComponentCatalog catalog, IControlPlaneSecretResolver secretResolver, CancellationToken ct) =>
@@ -294,19 +298,32 @@ public static class ControlPlaneEndpoints
             return Results.Ok(response);
         });
 
-        group.MapGet("/topology", async (ITopologyTracker topology, CancellationToken ct) =>
+        group.MapGet("/topology", async (string? clusterId, ITopologyTracker topology, CancellationToken ct) =>
         {
-            var nodes = await topology.GetActiveNodesAsync(ct);
+            var nodes = await topology.GetActiveNodesAsync(clusterId, ct);
             return Results.Ok(nodes);
         });
 
-        group.MapGet("/health", (TimeProvider timeProvider) =>
+        group.MapGet("/health", (HttpContext httpContext, TimeProvider timeProvider, IControlPlaneLeaderTracker? leaderTracker) =>
         {
+            var isLeader = leaderTracker is null || leaderTracker.IsLeader;
+            var role = isLeader ? "Active" : "Standby";
+            var leader = leaderTracker?.LeaderEndpoint;
+
+            httpContext.Response.Headers["X-Centra-Role"] = role;
+            if (!string.IsNullOrWhiteSpace(leader))
+            {
+                httpContext.Response.Headers["X-Centra-Leader"] = leader;
+            }
+
             return Results.Ok(new ControlPlaneHealthResponse(
                 "Healthy",
                 "Centra.ControlPlane",
                 "1.0.0",
-                timeProvider.GetUtcNow()));
+                timeProvider.GetUtcNow(),
+                role,
+                isLeader,
+                leader));
         });
 
         // Actor Runtime Inspection & Lifecycle
@@ -395,6 +412,11 @@ public static class ControlPlaneEndpoints
             if (engine is null) return Results.NotFound();
 
             var history = await engine.GetWorkflowHistoryAsync(new WorkflowInstanceId(instanceId), ct);
+            var securityOptions = serviceProvider.GetService<ControlPlaneSecurityOptions>();
+            if (securityOptions is not null && securityOptions.RedactWorkflowData)
+            {
+                history = WorkflowHistoryRedactor.Redact(history);
+            }
             return Results.Ok(history);
         });
 

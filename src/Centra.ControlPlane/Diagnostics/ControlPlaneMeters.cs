@@ -18,6 +18,15 @@ public static class ControlPlaneMeters
     private static readonly Counter<long> HeartbeatsReceivedCounter =
         Meter.CreateCounter<long>("centra.controlplane.heartbeats.received", "count", "Total number of client heartbeats received");
 
+    private static readonly Histogram<double> HeartbeatLatencyHistogram =
+        Meter.CreateHistogram<double>("centra.controlplane.heartbeats.latency", "ms", "Latency of client heartbeat processing");
+
+    private static readonly Counter<long> AdmissionRejectedCounter =
+        Meter.CreateCounter<long>("centra.controlplane.security.admission.rejected", "count", "Total number of rejected cluster admission requests");
+
+    private static readonly UpDownCounter<long> ActiveNodesCounter =
+        Meter.CreateUpDownCounter<long>("centra.controlplane.nodes.active", "count", "Total active nodes across clusters");
+
     public static void RecordComponentRegistered(string componentName, string componentType)
     {
         ComponentsRegisteredCounter.Add(1, new KeyValuePair<string, object?>("component.name", componentName), new KeyValuePair<string, object?>("component.type", componentType));
@@ -31,5 +40,20 @@ public static class ControlPlaneMeters
     public static void RecordHeartbeatReceived(string appId, string status)
     {
         HeartbeatsReceivedCounter.Add(1, new KeyValuePair<string, object?>("app.id", appId), new KeyValuePair<string, object?>("status", status));
+    }
+
+    public static void RecordHeartbeatLatency(double latencyMs, string clusterId)
+    {
+        HeartbeatLatencyHistogram.Record(latencyMs, new KeyValuePair<string, object?>("cluster.id", clusterId));
+    }
+
+    public static void RecordAdmissionRejected(string clusterId, string reason)
+    {
+        AdmissionRejectedCounter.Add(1, new KeyValuePair<string, object?>("cluster.id", clusterId), new KeyValuePair<string, object?>("reason", reason));
+    }
+
+    public static void RecordActiveNodeDelta(int delta, string clusterId)
+    {
+        ActiveNodesCounter.Add(delta, new KeyValuePair<string, object?>("cluster.id", clusterId));
     }
 }

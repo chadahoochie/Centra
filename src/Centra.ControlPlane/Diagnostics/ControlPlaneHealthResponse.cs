@@ -4,4 +4,7 @@ public sealed record ControlPlaneHealthResponse(
     string Status,
     string Service,
     string Version,
-    DateTimeOffset TimestampUtc);
+    DateTimeOffset TimestampUtc,
+    string Role = "Active",
+    bool IsLeader = true,
+    string? LeaderEndpoint = null);

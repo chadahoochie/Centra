@@ -1,0 +1,126 @@
+<div class="app-layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-icon">⚡</span>
+      <div class="brand-text">
+        <span class="brand-title">CENTRA</span>
+        <span class="brand-subtitle">Control Plane</span>
+      </div>
+    </div>
+
+    <nav class="nav-menu">
+      <a routerLink="/overview" routerLinkActive="active" class="nav-item">
+        <span class="nav-icon">📊</span>
+        <span>Overview</span>
+      </a>
+      <a routerLink="/topology" routerLinkActive="active" class="nav-item">
+        <span class="nav-icon">🌐</span>
+        <span>Fleet Topology</span>
+      </a>
+      <a routerLink="/actors" routerLinkActive="active" class="nav-item">
+        <span class="nav-icon">🎭</span>
+        <span>Virtual Actors</span>
+      </a>
+      <a routerLink="/workflows" routerLinkActive="active" class="nav-item">
+        <span class="nav-icon">🔄</span>
+        <span>Workflows & Sagas</span>
+      </a>
+      <a routerLink="/components" routerLinkActive="active" class="nav-item">
+        <span class="nav-icon">🧩</span>
+        <span>Components</span>
+      </a>
+      <a routerLink="/resilience" routerLinkActive="active" class="nav-item">
+        <span class="nav-icon">🛡️</span>
+        <span>Resilience Tuner</span>
+      </a>
+      <a routerLink="/events" routerLinkActive="active" class="nav-item">
+        <span class="nav-icon">📡</span>
+        <span>Live Events</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="system-tag">Centra v1.0.0</div>
+      <div class="system-meta">Zero Sidecars • .NET 10</div>
+    </div>
+  </aside>
+
+  <!-- Main Content Layout -->
+  <div class="main-wrapper">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="role-pill" [class.is-leader]="topologyState.leadership().isLeader">
+          <span class="role-dot"></span>
+          <span>HA Role: <strong>{{ topologyState.leadership().role }}</strong></span>
+        </div>
+        <span class="dd-badge" title="OTLP Telemetry streaming to Datadog">🐶 Datadog OTLP</span>
+      </div>
+
+      <div class="header-right">
+        <app-cluster-selector></app-cluster-selector>
+        <button class="settings-btn" (click)="isAuthModalOpen.set(true)" title="Configure Security Tokens">
+          🔑 Cluster Tokens
+          @if (auth.hasClusterToken() || auth.hasAdminToken()) {
+            <span class="auth-dot"></span>
+          }
+        </button>
+      </div>
+    </header>
+
+    <!-- Page Body -->
+    <main class="page-content">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>
+
+<!-- Toast Notifications Overlay -->
+<div class="toast-container">
+  @for (toast of notifications.toasts(); track toast.id) {
+    <div class="toast-card" [class]="'toast-' + toast.type" (click)="notifications.remove(toast.id)">
+      @if (toast.title) {
+        <div class="toast-title">{{ toast.title }}</div>
+      }
+      <div class="toast-msg">{{ toast.message }}</div>
+    </div>
+  }
+</div>
+
+<!-- Cluster Token Modal -->
+@if (isAuthModalOpen()) {
+  <div class="modal-backdrop" (click)="isAuthModalOpen.set(false)">
+    <div class="modal-dialog" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Cluster Security & Admission Tokens</h3>
+        <button class="close-btn" (click)="isAuthModalOpen.set(false)">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Configure security tokens attached to REST and SSE requests via headers (<code>X-Centra-Cluster-Token</code> and <code>X-Centra-Admin-Token</code>).
+        </p>
+        <div class="form-group">
+          <label>Cluster Admission Token (X-Centra-Cluster-Token)</label>
+          <input
+            type="password"
+            class="form-control"
+            [(ngModel)]="tempClusterToken"
+            placeholder="sec_cluster1_..." />
+        </div>
+        <div class="form-group">
+          <label>Operator Admin Token (X-Centra-Admin-Token)</label>
+          <input
+            type="password"
+            class="form-control"
+            [(ngModel)]="tempAdminToken"
+            placeholder="adm_supersecret_..." />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="isAuthModalOpen.set(false)">Cancel</button>
+        <button class="btn btn-primary" (click)="saveAuthTokens()">Save Tokens</button>
+      </div>
+    </div>
+  </div>
+}

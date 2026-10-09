@@ -6,4 +6,5 @@ public sealed record ServiceNodeDto(
     string Status,
     DateTimeOffset RegisteredAtUtc,
     DateTimeOffset LastHeartbeatUtc,
-    IReadOnlyDictionary<string, string>? Metadata);
+    IReadOnlyDictionary<string, string>? Metadata,
+    string ClusterId = "default");

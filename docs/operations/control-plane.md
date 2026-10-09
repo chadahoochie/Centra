@@ -82,18 +82,37 @@ Application nodes emit heartbeats periodically (default every 5 seconds):
 {
   "appId": "orders-service",
   "instanceId": "node-1",
+  "clusterId": "cluster-alpha",
   "serviceAddress": "http://10.0.0.15:5000",
   "status": "Healthy",
   "metadata": {}
 }
 ```
 
-#### `GET /api/v1/topology`
-Returns all active, non-expired service nodes in the cluster.
+#### `GET /api/v1/topology?clusterId={clusterId}`
+Returns active, non-expired service nodes. When `clusterId` is provided, filters strictly to nodes within that designated cluster partition.
 
 ---
 
-### 5. Virtual Actors & Workflows Inspection
+### 5. High Availability & Diagnostics
+
+#### `GET /api/v1/health`
+Bypasses standby redirection to provide local replica status:
+```json
+{
+  "status": "Healthy",
+  "role": "Active",
+  "isLeader": true
+}
+```
+Standby replicas return:
+- HTTP 200 with `role: "Standby"`, `isLeader: false`, and `leaderEndpoint: "http://cp-1:8080"`
+- Response headers `X-Centra-Role: Standby` and `X-Centra-Leader: http://cp-1:8080`
+- All other API endpoints on a standby replica return `307 Temporary Redirect` to the active leader.
+
+---
+
+### 6. Virtual Actors & Workflows Inspection
 
 #### `GET /api/v1/actors/types`
 Lists all registered actor type names across the cluster.
@@ -110,13 +129,28 @@ Returns metadata of all registered workflows.
 #### `GET /api/v1/workflows/instances/{instanceId}`
 Returns the current execution state, status (`Running`, `Completed`, `Failed`, `Suspended`), and failure details of a workflow.
 
-#### `GET /api/v1/workflows/instances/{instanceId}/history`
+#### `GET /api/v1/workflows/instances/{instanceId}/history?redact=true`
 Returns the append-only event stream of past activities and timers for an orchestration instance.
+When `redact=true` is requested (or `RedactWorkflowData` is configured server-side), payload and failure detail fields are redacted with `[REDACTED]` to enforce zero-PHI boundaries under HIPAA compliance.
+
+---
+
+### 7. Embedded Real-Time Dashboard
+
+#### `GET /dashboard`
+Serves a responsive single-page monitoring dashboard providing real-time views of:
+- High-availability cluster role (Active Leader vs. Standby Replica).
+- Multi-cluster node topology and status.
+- Registered state stores, pub/sub brokers, and bindings.
+- Active virtual actor types and instance activations.
+- Workflow orchestration instances, states, and history.
 
 ---
 
 ## 🔗 Related Documentation
 
 - [When to Use Control Plane (Decision Guide)](when-to-use-control-plane.md)
+- [Control Plane Expansion & Cluster Formation Guide](../plans/control-plane-expansion-plan.md)
+- [Angular Dashboard & Datadog Telemetry Architecture](../architecture/control-plane-dashboard-recommendations.md)
 - [Configuration & Options Reference](configuration-reference.md)
 - [Observability, Distributed Tracing & Metrics](observability.md)

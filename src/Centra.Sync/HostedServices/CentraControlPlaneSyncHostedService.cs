@@ -35,7 +35,7 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var endpoint = _options.ControlPlaneEndpoint ?? _options.ControlPlane.Endpoint;
+        var endpoint = _options.ControlPlaneEndpoint ?? _options.ControlPlane.Endpoint ?? _options.ControlPlane.Endpoints.FirstOrDefault();
         if (string.IsNullOrWhiteSpace(endpoint))
         {
             _logger.LogDebug("No ControlPlane endpoint configured. Live sync disabled.");
@@ -98,7 +98,8 @@ public sealed class CentraControlPlaneSyncHostedService : BackgroundService
             try
             {
                 var metadata = _options.ControlPlane.Metadata.Count > 0 ? _options.ControlPlane.Metadata : null;
-                await _client.SendHeartbeatAsync(_options.AppId, instanceId, "Healthy", metadata, stoppingToken).ConfigureAwait(false);
+                var clusterId = string.IsNullOrWhiteSpace(_options.ControlPlane.ClusterId) ? "default" : _options.ControlPlane.ClusterId;
+                await _client.SendHeartbeatAsync(_options.AppId, instanceId, "Healthy", metadata, clusterId, stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {

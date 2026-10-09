@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>Control plane expansion and dashboard simulation showcasing multi-cluster topology, HA active-passive failover, rogue node admission defense, and embedded dashboard with Centra.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Centra.Abstractions\Centra.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Hosting\Centra.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Centra.ControlPlane\Centra.ControlPlane.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.InMemory\Centra.Providers.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\Centra.Providers.InMemory.Hosting\Centra.Providers.InMemory.Hosting.csproj" />
+  </ItemGroup>
+</Project>

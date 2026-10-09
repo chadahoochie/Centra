@@ -4,6 +4,7 @@ using Centra.Components;
 using Centra.ControlPlane.Actors;
 using Centra.ControlPlane.Catalog;
 using Centra.ControlPlane.Diagnostics;
+using Centra.ControlPlane.Security;
 using Centra.ControlPlane.Topology;
 using Centra.ControlPlane.Workflows;
 using Centra.Core.Workflows;
@@ -15,6 +16,7 @@ namespace Centra.ControlPlane.Serialization;
     JsonSerializerDefaults.Web,
     WriteIndented = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(ClusterAdmissionErrorResponse))]
 [JsonSerializable(typeof(ComponentDefinition))]
 [JsonSerializable(typeof(List<ComponentDefinition>))]
 [JsonSerializable(typeof(IReadOnlyCollection<ComponentDefinition>))]

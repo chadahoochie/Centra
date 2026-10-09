@@ -71,6 +71,7 @@
     <Project Path="samples/Centra.Sample.TenantOffload/Centra.Sample.TenantOffload.csproj" />
     <Project Path="samples/Centra.Sample.DockerStack/Centra.Sample.DockerStack.csproj" />
     <Project Path="samples/Centra.Sample.DockerStack.Simulator/Centra.Sample.DockerStack.Simulator.csproj" />
+    <Project Path="samples/Centra.Sample.ControlPlane/Centra.Sample.ControlPlane.csproj" />
     <Project Path="samples/Centra.AppHost/Centra.AppHost.csproj" />
   </Folder>
   <Folder Name="/samples/RabbitSimulation/">

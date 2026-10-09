@@ -14,6 +14,7 @@ public sealed class ClusterTopologyProviderHostedService : BackgroundService, IC
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
 
     private readonly IControlPlaneClient _controlPlaneClient;
+    private readonly string? _clusterId;
     private readonly ILogger<ClusterTopologyProviderHostedService> _logger;
     private volatile IReadOnlyCollection<ServiceNodeDto> _snapshot = Array.Empty<ServiceNodeDto>();
 
@@ -22,8 +23,17 @@ public sealed class ClusterTopologyProviderHostedService : BackgroundService, IC
     public ClusterTopologyProviderHostedService(
         IControlPlaneClient controlPlaneClient,
         ILogger<ClusterTopologyProviderHostedService>? logger = null)
+        : this(controlPlaneClient, null, logger)
+    {
+    }
+
+    public ClusterTopologyProviderHostedService(
+        IControlPlaneClient controlPlaneClient,
+        string? clusterId,
+        ILogger<ClusterTopologyProviderHostedService>? logger = null)
     {
         _controlPlaneClient = controlPlaneClient ?? throw new ArgumentNullException(nameof(controlPlaneClient));
+        _clusterId = clusterId;
         _logger = logger ?? NullLogger<ClusterTopologyProviderHostedService>.Instance;
     }
 
@@ -35,7 +45,9 @@ public sealed class ClusterTopologyProviderHostedService : BackgroundService, IC
         {
             try
             {
-                var fresh = await _controlPlaneClient.GetTopologyAsync(stoppingToken).ConfigureAwait(false);
+                var fresh = string.IsNullOrWhiteSpace(_clusterId)
+                    ? await _controlPlaneClient.GetTopologyAsync(stoppingToken).ConfigureAwait(false)
+                    : await _controlPlaneClient.GetTopologyAsync(_clusterId, stoppingToken).ConfigureAwait(false);
                 var previous = _snapshot;
                 _snapshot = fresh;
 

@@ -31,6 +31,7 @@ public static class CentraActorServiceCollectionExtensions
             var centraOptions = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
             var localAppId = centraOptions?.AppId ?? Environment.MachineName;
             var localNodeId = centraOptions?.ControlPlane.InstanceId ?? Environment.MachineName;
+            var localClusterId = centraOptions?.ControlPlane.ClusterId ?? "default";
 
             var ring = new ConsistentHashRing();
             ring.AddNode(localNodeId);
@@ -38,12 +39,13 @@ public static class CentraActorServiceCollectionExtensions
             var topologyProvider = sp.GetService<IClusterTopologyProvider>();
             if (topologyProvider is not null)
             {
-                // Actor placement only cares about replicas of this same logical service (AppId) -
+                // Actor placement only cares about replicas of this same logical service (AppId) within our cluster (ClusterId) -
                 // invocation routing separately load-balances across AppId, but the ring must pick
-                // exactly one physical InstanceId to own a given actor among *our* replicas.
+                // exactly one physical InstanceId to own a given actor among *our* replicas in *our* cluster.
                 foreach (var node in topologyProvider.GetSnapshot())
                 {
-                    if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(node.ClusterId, localClusterId, StringComparison.OrdinalIgnoreCase))
                     {
                         ring.AddNode(node.InstanceId);
                     }
@@ -53,7 +55,8 @@ public static class CentraActorServiceCollectionExtensions
                 {
                     foreach (var node in e.AddedNodes)
                     {
-                        if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(node.ClusterId, localClusterId, StringComparison.OrdinalIgnoreCase))
                         {
                             ring.AddNode(node.InstanceId);
                         }
@@ -61,7 +64,8 @@ public static class CentraActorServiceCollectionExtensions
 
                     foreach (var node in e.RemovedNodes)
                     {
-                        if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(node.AppId, localAppId, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(node.ClusterId, localClusterId, StringComparison.OrdinalIgnoreCase))
                         {
                             ring.RemoveNode(node.InstanceId);
                         }

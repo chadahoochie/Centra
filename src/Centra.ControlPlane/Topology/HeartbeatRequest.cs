@@ -4,4 +4,5 @@ public readonly record struct HeartbeatRequest(
     string AppId,
     string InstanceId,
     string Status,
-    IReadOnlyDictionary<string, string>? Metadata);
+    IReadOnlyDictionary<string, string>? Metadata,
+    string ClusterId = "default");
