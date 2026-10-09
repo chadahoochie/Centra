@@ -133,9 +133,11 @@ public sealed class FlotillaPubSubDriverTests
         var encoded = FlotillaWireProtocol.EncodeMessage(topic, metadata, payloadBytes);
 
         var receivedList = new List<string>();
+        var handlerInvoked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         await driver.SubscribeAsync("default", topic, (payload, meta, _) =>
         {
             receivedList.Add(Encoding.UTF8.GetString(payload.Span));
+            handlerInvoked.TrySetResult(true);
             return ValueTask.FromResult(EventHandlingResult.Success);
         });
 
@@ -155,9 +157,9 @@ public sealed class FlotillaPubSubDriverTests
 
         var worker = new FlotillaSubscriptionWorker(_client, driver);
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await worker.StartAsync(cts.Token);
-        await Task.Delay(50);
+        await handlerInvoked.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await worker.StopAsync(CancellationToken.None);
 
         receivedList.Count.ShouldBe(1);

@@ -20,39 +20,85 @@ public sealed class FlotillaTcpClientTests
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
 
+        using var serverCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var proposalHandled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var openSockets = new List<Socket>();
+
         var serverTask = Task.Run(async () =>
         {
-            using var socket = await listener.AcceptSocketAsync();
-            using var stream = new NetworkStream(socket, ownsSocket: true);
+            try
+            {
+                while (!serverCts.IsCancellationRequested && !proposalHandled.Task.IsCompleted)
+                {
+                    var socket = await listener.AcceptSocketAsync(serverCts.Token);
+                    lock (openSockets)
+                    {
+                        openSockets.Add(socket);
+                    }
 
-            var headerBuf = new byte[FlotillaPacketHeader.HeaderSize];
-            await stream.ReadExactlyAsync(headerBuf);
-            var header = FlotillaPacketHeader.ReadFrom(headerBuf);
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var stream = new NetworkStream(socket, ownsSocket: false);
+                            while (!serverCts.IsCancellationRequested && !proposalHandled.Task.IsCompleted)
+                            {
+                                var headerBuf = new byte[FlotillaPacketHeader.HeaderSize];
+                                await stream.ReadExactlyAsync(headerBuf, serverCts.Token);
+                                var header = FlotillaPacketHeader.ReadFrom(headerBuf);
 
-            var payloadBuf = new byte[header.PayloadLen];
-            await stream.ReadExactlyAsync(payloadBuf);
+                                var payloadBuf = new byte[header.PayloadLen];
+                                if (header.PayloadLen > 0)
+                                {
+                                    await stream.ReadExactlyAsync(payloadBuf, serverCts.Token);
+                                }
 
-            // Send reply: success = 1, index = 42, term = 1, leader_id = 1
-            var reply = new FlotillaClientProposalReply(1, 42, 1, 1);
-            var replyPayload = new byte[FlotillaClientProposalReply.ReplySize];
-            reply.WriteTo(replyPayload);
+                                if (header.MsgType == (ushort)FlotillaFrameType.HeartbeatArgs)
+                                {
+                                    // Subscriber connection handshake; maintain connection
+                                    continue;
+                                }
 
-            var replyHeader = new FlotillaPacketHeader(
-                magic: FlotillaPacketHeader.ExpectedMagic,
-                version: FlotillaPacketHeader.CurrentVersion,
-                msgType: (ushort)FlotillaFrameType.ClientProposalReply,
-                senderId: 1,
-                receiverId: 0,
-                term: 1,
-                checksum: FlotillaCrc32.Calculate(replyPayload),
-                payloadLen: (uint)replyPayload.Length);
+                                if (header.MsgType == (ushort)FlotillaFrameType.ClientProposal)
+                                {
+                                    // Send reply: success = 1, index = 42, term = 1, leader_id = 1
+                                    var reply = new FlotillaClientProposalReply(1, 42, 1, 1);
+                                    var replyPayload = new byte[FlotillaClientProposalReply.ReplySize];
+                                    reply.WriteTo(replyPayload);
 
-            var responsePacket = new byte[FlotillaPacketHeader.HeaderSize + replyPayload.Length];
-            replyHeader.WriteTo(responsePacket);
-            replyPayload.CopyTo(responsePacket.AsSpan(FlotillaPacketHeader.HeaderSize));
+                                    var replyHeader = new FlotillaPacketHeader(
+                                        magic: FlotillaPacketHeader.ExpectedMagic,
+                                        version: FlotillaPacketHeader.CurrentVersion,
+                                        msgType: (ushort)FlotillaFrameType.ClientProposalReply,
+                                        senderId: 1,
+                                        receiverId: 0,
+                                        term: 1,
+                                        checksum: FlotillaCrc32.Calculate(replyPayload),
+                                        payloadLen: (uint)replyPayload.Length);
 
-            await stream.WriteAsync(responsePacket);
-            await stream.FlushAsync();
+                                    var responsePacket = new byte[FlotillaPacketHeader.HeaderSize + replyPayload.Length];
+                                    replyHeader.WriteTo(responsePacket);
+                                    replyPayload.CopyTo(responsePacket.AsSpan(FlotillaPacketHeader.HeaderSize));
+
+                                    await stream.WriteAsync(responsePacket, serverCts.Token);
+                                    await stream.FlushAsync(serverCts.Token);
+                                    proposalHandled.TrySetResult();
+                                    break;
+                                }
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }, serverCts.Token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (SocketException)
+            {
+            }
         });
 
         try
@@ -82,11 +128,20 @@ public sealed class FlotillaTcpClientTests
             commits.Count.ShouldBe(1);
             commits[0].ShouldBe(42UL);
 
-            await serverTask;
+            await proposalHandled.Task.WaitAsync(TimeSpan.FromSeconds(5));
         }
         finally
         {
+            serverCts.Cancel();
             listener.Stop();
+            try { await serverTask; } catch { }
+            lock (openSockets)
+            {
+                foreach (var s in openSockets)
+                {
+                    try { s.Dispose(); } catch { }
+                }
+            }
         }
     }
 
@@ -97,39 +152,85 @@ public sealed class FlotillaTcpClientTests
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
 
+        using var serverCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var proposalHandled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var openSockets = new List<Socket>();
+
         var serverTask = Task.Run(async () =>
         {
-            using var socket = await listener.AcceptSocketAsync();
-            using var stream = new NetworkStream(socket, ownsSocket: true);
+            try
+            {
+                while (!serverCts.IsCancellationRequested && !proposalHandled.Task.IsCompleted)
+                {
+                    var socket = await listener.AcceptSocketAsync(serverCts.Token);
+                    lock (openSockets)
+                    {
+                        openSockets.Add(socket);
+                    }
 
-            var headerBuf = new byte[FlotillaPacketHeader.HeaderSize];
-            await stream.ReadExactlyAsync(headerBuf);
-            var header = FlotillaPacketHeader.ReadFrom(headerBuf);
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var stream = new NetworkStream(socket, ownsSocket: false);
+                            while (!serverCts.IsCancellationRequested && !proposalHandled.Task.IsCompleted)
+                            {
+                                var headerBuf = new byte[FlotillaPacketHeader.HeaderSize];
+                                await stream.ReadExactlyAsync(headerBuf, serverCts.Token);
+                                var header = FlotillaPacketHeader.ReadFrom(headerBuf);
 
-            var payloadBuf = new byte[header.PayloadLen];
-            await stream.ReadExactlyAsync(payloadBuf);
+                                var payloadBuf = new byte[header.PayloadLen];
+                                if (header.PayloadLen > 0)
+                                {
+                                    await stream.ReadExactlyAsync(payloadBuf, serverCts.Token);
+                                }
 
-            // Send rejection: success = 0, index = 0, term = 2, leader_id = 99
-            var reply = new FlotillaClientProposalReply(0, 0, 2, 99);
-            var replyPayload = new byte[FlotillaClientProposalReply.ReplySize];
-            reply.WriteTo(replyPayload);
+                                if (header.MsgType == (ushort)FlotillaFrameType.HeartbeatArgs)
+                                {
+                                    // Subscriber connection handshake; maintain connection
+                                    continue;
+                                }
 
-            var replyHeader = new FlotillaPacketHeader(
-                magic: FlotillaPacketHeader.ExpectedMagic,
-                version: FlotillaPacketHeader.CurrentVersion,
-                msgType: (ushort)FlotillaFrameType.ClientProposalReply,
-                senderId: 2,
-                receiverId: 0,
-                term: 2,
-                checksum: FlotillaCrc32.Calculate(replyPayload),
-                payloadLen: (uint)replyPayload.Length);
+                                if (header.MsgType == (ushort)FlotillaFrameType.ClientProposal)
+                                {
+                                    // Send rejection: success = 0, index = 0, term = 2, leader_id = 99
+                                    var reply = new FlotillaClientProposalReply(0, 0, 2, 99);
+                                    var replyPayload = new byte[FlotillaClientProposalReply.ReplySize];
+                                    reply.WriteTo(replyPayload);
 
-            var responsePacket = new byte[FlotillaPacketHeader.HeaderSize + replyPayload.Length];
-            replyHeader.WriteTo(responsePacket);
-            replyPayload.CopyTo(responsePacket.AsSpan(FlotillaPacketHeader.HeaderSize));
+                                    var replyHeader = new FlotillaPacketHeader(
+                                        magic: FlotillaPacketHeader.ExpectedMagic,
+                                        version: FlotillaPacketHeader.CurrentVersion,
+                                        msgType: (ushort)FlotillaFrameType.ClientProposalReply,
+                                        senderId: 2,
+                                        receiverId: 0,
+                                        term: 2,
+                                        checksum: FlotillaCrc32.Calculate(replyPayload),
+                                        payloadLen: (uint)replyPayload.Length);
 
-            await stream.WriteAsync(responsePacket);
-            await stream.FlushAsync();
+                                    var responsePacket = new byte[FlotillaPacketHeader.HeaderSize + replyPayload.Length];
+                                    replyHeader.WriteTo(responsePacket);
+                                    replyPayload.CopyTo(responsePacket.AsSpan(FlotillaPacketHeader.HeaderSize));
+
+                                    await stream.WriteAsync(responsePacket, serverCts.Token);
+                                    await stream.FlushAsync(serverCts.Token);
+                                    proposalHandled.TrySetResult();
+                                    break;
+                                }
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }, serverCts.Token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (SocketException)
+            {
+            }
         });
 
         try
@@ -147,11 +248,20 @@ public sealed class FlotillaTcpClientTests
             result.ErrorMessage.ShouldNotBeNull();
             result.ErrorMessage.ShouldContain("leader is node 99");
 
-            await serverTask;
+            await proposalHandled.Task.WaitAsync(TimeSpan.FromSeconds(5));
         }
         finally
         {
+            serverCts.Cancel();
             listener.Stop();
+            try { await serverTask; } catch { }
+            lock (openSockets)
+            {
+                foreach (var s in openSockets)
+                {
+                    try { s.Dispose(); } catch { }
+                }
+            }
         }
     }
 
