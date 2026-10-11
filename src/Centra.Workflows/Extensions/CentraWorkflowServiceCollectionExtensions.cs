@@ -25,7 +25,15 @@ public static class CentraWorkflowServiceCollectionExtensions
         Action<WorkflowOptions>? configure = null)
     {
         services.AddCentraSerialization();
-        services.AddOptions<WorkflowOptions>();
+        services.AddOptions<WorkflowOptions>().Configure<IServiceProvider>((opts, sp) =>
+        {
+            var config = sp.GetService<Microsoft.Extensions.Configuration.IConfiguration>();
+            if (config is not null)
+            {
+                Microsoft.Extensions.Configuration.ConfigurationBinder.Bind(config.GetSection("Centra:Workflows"), opts);
+            }
+        });
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<WorkflowOptions>, WorkflowOptionsPostSetup>());
         if (configure is not null)
         {
             services.Configure(configure);
@@ -50,12 +58,8 @@ public static class CentraWorkflowServiceCollectionExtensions
         services.TryAddSingleton<IWorkflowHistoryStore>(sp =>
         {
             var stateStore = sp.GetRequiredService<IStateStore>();
-            var opt = sp.GetRequiredService<WorkflowOptions>();
-            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
-            var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
-                ? opt.DefaultStateStore
-                : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
-            return new WorkflowHistoryStore(stateStore, storeName);
+            var opt = sp.GetRequiredService<IOptions<WorkflowOptions>>().Value;
+            return new WorkflowHistoryStore(stateStore, opt.DefaultStateStore);
         });
 
         services.TryAddSingleton<IWorkflowActivityDispatcher>(sp =>
@@ -69,12 +73,8 @@ public static class CentraWorkflowServiceCollectionExtensions
         services.TryAddSingleton<IDurableWorkflowTimerStore>(sp =>
         {
             var stateStore = sp.GetRequiredService<IStateStore>();
-            var opt = sp.GetRequiredService<WorkflowOptions>();
-            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
-            var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
-                ? opt.DefaultStateStore
-                : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
-            return new StateStoreDurableWorkflowTimerStore(stateStore, storeName);
+            var opt = sp.GetRequiredService<IOptions<WorkflowOptions>>().Value;
+            return new StateStoreDurableWorkflowTimerStore(stateStore, opt.DefaultStateStore);
         });
 
         services.TryAddSingleton<IWorkflowEngine>(sp =>
