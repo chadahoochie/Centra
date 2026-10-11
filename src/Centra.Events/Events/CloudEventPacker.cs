@@ -15,7 +15,9 @@ public static class CloudEventPacker
         string source,
         CloudEventMode mode = CloudEventMode.Binary,
         string? subject = null,
-        IReadOnlyDictionary<string, string>? additionalMetadata = null)
+        IReadOnlyDictionary<string, string>? additionalMetadata = null,
+        ICentraSerializer? serializer = null,
+        string? contentType = null)
     {
         var eventId = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
@@ -79,10 +81,14 @@ public static class CloudEventPacker
             }
         }
 
+        var effectiveSerializer = serializer ?? Serializer;
+        var effectiveContentType = contentType
+            ?? (headers.TryGetValue(CloudEventConstants.DataContentTypeHeader, out var customCt) ? customCt : effectiveSerializer.ContentType);
+
         if (mode == CloudEventMode.Binary)
         {
-            headers[CloudEventConstants.DataContentTypeHeader] = CloudEventConstants.DefaultContentType;
-            var payload = Serializer.Serialize(data);
+            headers[CloudEventConstants.DataContentTypeHeader] = effectiveContentType;
+            var payload = effectiveSerializer.Serialize(data);
             return new PackedCloudEvent(payload, headers, CloudEventMode.Binary);
         }
         else
@@ -94,7 +100,7 @@ public static class CloudEventPacker
                 Source = source,
                 SpecVersion = CloudEventConstants.SpecVersion10,
                 Type = eventType,
-                DataContentType = CloudEventConstants.DefaultContentType,
+                DataContentType = effectiveContentType,
                 DataSchema = dataSchema,
                 Subject = subject,
                 Time = now,
@@ -105,7 +111,7 @@ public static class CloudEventPacker
                 SchemaVersion = schemaVersion
             };
 
-            var payload = Serializer.Serialize(cloudEvent);
+            var payload = effectiveSerializer.Serialize(cloudEvent);
             return new PackedCloudEvent(payload, headers, CloudEventMode.Structured);
         }
     }

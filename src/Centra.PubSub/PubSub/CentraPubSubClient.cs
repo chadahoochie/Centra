@@ -5,6 +5,7 @@ using Centra.Events;
 using Centra.PubSub;
 using Centra.Registry;
 using Centra.Resilience;
+using Centra.Serialization;
 
 namespace Centra.PubSub;
 
@@ -15,28 +16,25 @@ public sealed class CentraPubSubClient : IPubSubClient
     private readonly string _defaultPubSubName;
     private readonly IResiliencePipelineProvider? _resilienceProvider;
     private readonly Tenancy.ITenantOffloadCoordinator? _offloadCoordinator;
+    private readonly ICentraSerializer _serializer;
+    private readonly IPubSubSerializerRegistry? _serializerRegistry;
 
     public CentraPubSubClient(
         ComponentRegistry registry,
         string appId,
         string defaultPubSubName = "pubsub",
-        IResiliencePipelineProvider? resilienceProvider = null)
-        : this(registry, appId, defaultPubSubName, resilienceProvider, offloadCoordinator: null)
-    {
-    }
-
-    public CentraPubSubClient(
-        ComponentRegistry registry,
-        string appId,
-        string defaultPubSubName,
-        IResiliencePipelineProvider? resilienceProvider,
-        Tenancy.ITenantOffloadCoordinator? offloadCoordinator)
+        IResiliencePipelineProvider? resilienceProvider = null,
+        Tenancy.ITenantOffloadCoordinator? offloadCoordinator = null,
+        ICentraSerializer? serializer = null,
+        IPubSubSerializerRegistry? serializerRegistry = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _appId = !string.IsNullOrWhiteSpace(appId) ? appId : "centra-app";
         _defaultPubSubName = !string.IsNullOrWhiteSpace(defaultPubSubName) ? defaultPubSubName : "pubsub";
         _resilienceProvider = resilienceProvider;
         _offloadCoordinator = offloadCoordinator;
+        _serializer = serializer ?? JsonCentraSerializer.Default;
+        _serializerRegistry = serializerRegistry;
     }
 
     public ValueTask PublishAsync<T>(
@@ -74,7 +72,10 @@ public sealed class CentraPubSubClient : IPubSubClient
         using var activity = CentraDiagnostics.StartPublishActivity(pubSubName, targetTopic);
 
         var mode = options?.Mode ?? CloudEventMode.Binary;
-        var packed = CloudEventPacker.Pack(data, _appId, mode, subject: null, additionalMetadata: options?.Metadata);
+        var effectiveSerializer = (options?.ContentType is not null ? _serializerRegistry?.GetSerializer(options.ContentType) : null)
+            ?? _serializer;
+        var effectiveContentType = options?.ContentType ?? effectiveSerializer.ContentType;
+        var packed = CloudEventPacker.Pack(data, _appId, mode, subject: null, additionalMetadata: options?.Metadata, serializer: effectiveSerializer, contentType: effectiveContentType);
 
         try
         {
@@ -141,10 +142,13 @@ public sealed class CentraPubSubClient : IPubSubClient
         using var activity = CentraDiagnostics.StartPublishActivity(pubSubName, targetTopic);
 
         var mode = options?.Mode ?? CloudEventMode.Binary;
+        var effectiveSerializer = (options?.ContentType is not null ? _serializerRegistry?.GetSerializer(options.ContentType) : null)
+            ?? _serializer;
+        var effectiveContentType = options?.ContentType ?? effectiveSerializer.ContentType;
         var messages = items is IReadOnlyCollection<T> col ? new List<PubSubMessage>(col.Count) : new List<PubSubMessage>();
         foreach (var item in items)
         {
-            var packed = CloudEventPacker.Pack(item, _appId, mode, subject: null, additionalMetadata: options?.Metadata);
+            var packed = CloudEventPacker.Pack(item, _appId, mode, subject: null, additionalMetadata: options?.Metadata, serializer: effectiveSerializer, contentType: effectiveContentType);
             messages.Add(new PubSubMessage(packed.Payload, packed.Headers));
         }
 

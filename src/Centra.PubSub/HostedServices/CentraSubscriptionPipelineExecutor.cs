@@ -37,6 +37,8 @@ internal static class CentraSubscriptionPipelineExecutor
             return EventHandlingResult.Drop;
         }
 
+        var serializer = CentraPubSubSerializerResolver.Resolve(scope.ServiceProvider, reg, headers);
+
         var resilienceProvider = serviceProvider.GetService<IResiliencePipelineProvider>();
         EventHandlingResult result;
         if (resilienceProvider is not null)
@@ -44,12 +46,12 @@ internal static class CentraSubscriptionPipelineExecutor
             var pipeline = resilienceProvider.GetPubSubPipeline(reg.PubSubName);
             result = await pipeline.ExecuteAsync(async ct =>
             {
-                return await reg.Invoker(handler, payload, headers, ct).ConfigureAwait(false);
+                return await reg.InvokeAsync(handler, payload, headers, serializer, ct).ConfigureAwait(false);
             }, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            result = await reg.Invoker(handler, payload, headers, cancellationToken).ConfigureAwait(false);
+            result = await reg.InvokeAsync(handler, payload, headers, serializer, cancellationToken).ConfigureAwait(false);
         }
 
         if (inboxStore is not null && !string.IsNullOrWhiteSpace(messageId) && result == EventHandlingResult.Success)

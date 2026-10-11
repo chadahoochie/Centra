@@ -57,7 +57,8 @@ public static class CentraEndpointRouteBuilderExtensions
                         return Results.NotFound();
                     }
 
-                    var result = await reg.Invoker(handler, new ReadOnlyMemory<byte>(payload), headers, context.RequestAborted).ConfigureAwait(false);
+                    var serializer = CentraPubSubSerializerResolver.Resolve(context.RequestServices, reg, headers);
+                    var result = await reg.InvokeAsync(handler, new ReadOnlyMemory<byte>(payload), headers, serializer, context.RequestAborted).ConfigureAwait(false);
 
                     var durationMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
                     CentraMeters.RecordPubSubConsumed(reg.PubSubName, reg.Topic, result.ToString(), durationMs);

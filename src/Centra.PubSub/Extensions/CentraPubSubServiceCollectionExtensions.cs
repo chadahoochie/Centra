@@ -8,6 +8,7 @@ using Centra.PubSub.Outbox;
 using Centra.PubSub.Routing;
 using Centra.Registry;
 using Centra.Resilience;
+using Centra.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -17,11 +18,34 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 public static class CentraPubSubServiceCollectionExtensions
 {
+    public static IServiceCollection TryAddCentraPubSubSerializerRegistry(this IServiceCollection services)
+    {
+        services.TryAddSingleton<IPubSubSerializerRegistry>(sp =>
+        {
+            var registry = new CentraPubSubSerializerRegistry();
+            var registrations = sp.GetServices<PubSubSerializerRegistration>();
+            foreach (var r in registrations)
+            {
+                var serializer = r.SerializerInstance ?? (ICentraSerializer)sp.GetRequiredService(r.SerializerType!);
+                var ct = !string.IsNullOrWhiteSpace(r.ContentType) ? r.ContentType : serializer.ContentType;
+                if (!string.IsNullOrWhiteSpace(ct))
+                {
+                    registry.Register(ct, serializer);
+                }
+            }
+            return registry;
+        });
+
+        return services;
+    }
+
     public static IServiceCollection AddCentraPubSub(
         this IServiceCollection services,
         Action<CentraOptions>? configure = null)
     {
         services.AddCentraCore(configure);
+
+        services.TryAddCentraPubSubSerializerRegistry();
 
         services.TryAddSingleton<IRuleFilterEvaluator, Centra.PubSub.Routing.Rules.RuleFilterEvaluator>();
 
@@ -31,10 +55,58 @@ public static class CentraPubSubServiceCollectionExtensions
             var options = sp.GetRequiredService<IOptions<CentraOptions>>().Value;
             var resilience = sp.GetService<IResiliencePipelineProvider>();
             var offloadCoordinator = sp.GetService<Centra.PubSub.Tenancy.ITenantOffloadCoordinator>();
-            return new CentraPubSubClient(registry, options.AppId, options.DefaultPubSub, resilience, offloadCoordinator);
+            var serializer = sp.GetService<IPubSubSerializer>() ?? sp.GetService<ICentraSerializer>();
+            var serializerRegistry = sp.GetService<IPubSubSerializerRegistry>();
+            return new CentraPubSubClient(registry, options.AppId, options.DefaultPubSub, resilience, offloadCoordinator, serializer, serializerRegistry);
         });
 
         services.AddHostedService<CentraRuntimeHostedService>();
+
+        return services;
+    }
+
+    public static IServiceCollection AddCentraPubSubSerializer<TSerializer>(
+        this IServiceCollection services,
+        string? contentType = null)
+        where TSerializer : class, ICentraSerializer
+    {
+        services.TryAddCentraPubSubSerializerRegistry();
+
+        services.TryAddSingleton<TSerializer>();
+        if (typeof(IPubSubSerializer).IsAssignableFrom(typeof(TSerializer)))
+        {
+            services.AddSingleton<IPubSubSerializer>(sp => (IPubSubSerializer)sp.GetRequiredService<TSerializer>());
+        }
+        else
+        {
+            services.AddSingleton<IPubSubSerializer>(sp => new PubSubSerializerAdapter(sp.GetRequiredService<TSerializer>()));
+        }
+
+        services.AddSingleton(new PubSubSerializerRegistration(contentType ?? string.Empty, typeof(TSerializer), null));
+
+        return services;
+    }
+
+    public static IServiceCollection AddCentraPubSubSerializer(
+        this IServiceCollection services,
+        ICentraSerializer serializer,
+        string? contentType = null)
+    {
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        services.TryAddCentraPubSubSerializerRegistry();
+
+        if (serializer is IPubSubSerializer pubSubSerializer)
+        {
+            services.AddSingleton(pubSubSerializer);
+        }
+        else
+        {
+            services.AddSingleton<IPubSubSerializer>(new PubSubSerializerAdapter(serializer));
+        }
+
+        var ct = !string.IsNullOrWhiteSpace(contentType) ? contentType : serializer.ContentType;
+        services.AddSingleton(new PubSubSerializerRegistration(ct, null, serializer));
 
         return services;
     }
@@ -51,7 +123,10 @@ public static class CentraPubSubServiceCollectionExtensions
         bool? autoDelete = null,
         IReadOnlyDictionary<string, object?>? customArguments = null,
         string? ruleFilter = null,
-        int? priority = null)
+        int? priority = null,
+        Type? serializerType = null,
+        ICentraSerializer? serializer = null,
+        string? contentType = null)
         where THandler : class, IEventHandler<TEvent>
     {
         services.TryAddTransient<THandler>();
@@ -68,6 +143,8 @@ public static class CentraPubSubServiceCollectionExtensions
         var resolvedMaxConcurrentCalls = maxConcurrentCalls ?? (topicAttr?.MaxConcurrentCalls > 0 ? topicAttr.MaxConcurrentCalls : null);
         var resolvedTtl = messageTimeToLive ?? (topicAttr?.MessageTtlSeconds > 0 ? TimeSpan.FromSeconds(topicAttr.MessageTtlSeconds) : null);
         var resolvedAutoDelete = autoDelete ?? topicAttr?.AutoDelete ?? false;
+        var resolvedSerializerType = serializerType ?? topicAttr?.SerializerType;
+        var resolvedContentType = contentType ?? topicAttr?.ContentType;
 
         ICompiledRuleFilter? compiledFilter = null;
         if (!string.IsNullOrWhiteSpace(resolvedRuleFilter))
@@ -86,7 +163,7 @@ public static class CentraPubSubServiceCollectionExtensions
                 typeof(TEvent),
                 typeof(THandler),
                 resolvedDlTopic,
-                CentraTopicRegistration.CreateTypedInvoker<TEvent>(),
+                invoker: null,
                 resolvedRuleFilter,
                 resolvedPriority,
                 compiledFilter,
@@ -96,7 +173,10 @@ public static class CentraPubSubServiceCollectionExtensions
                 resolvedMaxConcurrentCalls,
                 resolvedTtl,
                 resolvedAutoDelete,
-                customArguments));
+                customArguments,
+                resolvedSerializerType,
+                serializer,
+                resolvedContentType));
 
         return services;
     }
@@ -113,7 +193,10 @@ public static class CentraPubSubServiceCollectionExtensions
         int? maxConcurrentCalls = null,
         TimeSpan? messageTimeToLive = null,
         bool? autoDelete = null,
-        IReadOnlyDictionary<string, object?>? customArguments = null)
+        IReadOnlyDictionary<string, object?>? customArguments = null,
+        Type? serializerType = null,
+        ICentraSerializer? serializer = null,
+        string? contentType = null)
         where THandler : class, IEventHandler<TEvent>
     {
         ArgumentNullException.ThrowIfNull(predicate);
@@ -130,10 +213,12 @@ public static class CentraPubSubServiceCollectionExtensions
         var resolvedMaxConcurrentCalls = maxConcurrentCalls ?? (topicAttr?.MaxConcurrentCalls > 0 ? topicAttr.MaxConcurrentCalls : null);
         var resolvedTtl = messageTimeToLive ?? (topicAttr?.MessageTtlSeconds > 0 ? TimeSpan.FromSeconds(topicAttr.MessageTtlSeconds) : null);
         var resolvedAutoDelete = autoDelete ?? topicAttr?.AutoDelete ?? false;
+        var resolvedSerializerType = serializerType ?? topicAttr?.SerializerType;
+        var resolvedContentType = contentType ?? topicAttr?.ContentType;
 
         Func<EventContext, ReadOnlyMemory<byte>, bool> untypedPredicate = (ctx, payload) =>
         {
-            var unpacked = Centra.Events.CloudEventUnpacker.Unpack<TEvent>(payload, ctx.Headers);
+            var unpacked = Centra.Events.CloudEventUnpacker.Unpack<TEvent>(payload, ctx.Headers, serializer);
             if (unpacked.Data is null)
             {
                 return false;
@@ -151,7 +236,7 @@ public static class CentraPubSubServiceCollectionExtensions
                 typeof(TEvent),
                 typeof(THandler),
                 resolvedDlTopic,
-                CentraTopicRegistration.CreateTypedInvoker<TEvent>(),
+                invoker: null,
                 ruleFilter: null,
                 resolvedPriority,
                 compiledFilter: null,
@@ -161,7 +246,10 @@ public static class CentraPubSubServiceCollectionExtensions
                 resolvedMaxConcurrentCalls,
                 resolvedTtl,
                 resolvedAutoDelete,
-                customArguments));
+                customArguments,
+                resolvedSerializerType,
+                serializer,
+                resolvedContentType));
 
         return services;
     }
@@ -189,7 +277,9 @@ public static class CentraPubSubServiceCollectionExtensions
             var options = sp.GetRequiredService<IOptions<CentraOptions>>().Value;
             var outboxOpts = sp.GetService<IOptions<OutboxOptions>>()?.Value;
             var defaultPubSub = outboxOpts?.DefaultPubSubName ?? options.DefaultPubSub;
-            return new CentraOutboxPublisher(store, defaultPubSub, options.AppId);
+            var serializer = sp.GetService<IPubSubSerializer>() ?? sp.GetService<ICentraSerializer>();
+            var serializerRegistry = sp.GetService<IPubSubSerializerRegistry>();
+            return new CentraOutboxPublisher(store, defaultPubSub, options.AppId, serializer, serializerRegistry);
         });
 
         services.TryAddSingleton<OutboxProcessor>(sp =>

@@ -15,6 +15,8 @@ public sealed class JsonCentraSerializer : ICentraSerializer
 
     public static JsonCentraSerializer Default { get; } = new(DefaultOptions);
 
+    public string ContentType => "application/json";
+
     public JsonCentraSerializer(JsonSerializerOptions? options = null)
     {
         _options = options ?? DefaultOptions;

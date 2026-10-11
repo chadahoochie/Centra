@@ -4,6 +4,7 @@ namespace Centra.Serialization;
 
 public interface ICentraSerializer
 {
+    string ContentType => "application/json";
     void Serialize<T>(T value, IBufferWriter<byte> writer);
     byte[] Serialize<T>(T value);
     byte[] Serialize(object? value, Type inputType);
