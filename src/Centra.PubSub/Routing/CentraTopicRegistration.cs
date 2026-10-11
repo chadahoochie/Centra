@@ -1,6 +1,7 @@
 using System.Reflection;
 using Centra.Events;
 using Centra.PubSub;
+using Centra.Serialization;
 
 namespace Centra.PubSub.Routing;
 
@@ -25,6 +26,10 @@ public sealed record CentraTopicRegistration
     public ICompiledRuleFilter? CompiledFilter { get; init; }
     public Func<EventContext, ReadOnlyMemory<byte>, bool>? Predicate { get; init; }
     public Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>> Invoker { get; init; }
+    public Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, ICentraSerializer?, CancellationToken, Task<EventHandlingResult>>? SerializerAwareInvoker { get; init; }
+    public Type? SerializerType { get; init; }
+    public ICentraSerializer? Serializer { get; init; }
+    public string? ContentType { get; init; }
 
     public CentraTopicRegistration(
         string pubSubName,
@@ -38,7 +43,11 @@ public sealed record CentraTopicRegistration
         int? maxConcurrentCalls = null,
         TimeSpan? messageTimeToLive = null,
         bool autoDelete = false,
-        IReadOnlyDictionary<string, object?>? customArguments = null)
+        IReadOnlyDictionary<string, object?>? customArguments = null,
+        Type? serializerType = null,
+        ICentraSerializer? serializer = null,
+        string? contentType = null,
+        Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, ICentraSerializer?, CancellationToken, Task<EventHandlingResult>>? serializerAwareInvoker = null)
         : this(
             pubSubName,
             topic,
@@ -55,7 +64,11 @@ public sealed record CentraTopicRegistration
             maxConcurrentCalls: maxConcurrentCalls,
             messageTimeToLive: messageTimeToLive,
             autoDelete: autoDelete,
-            customArguments: customArguments)
+            customArguments: customArguments,
+            serializerType: serializerType,
+            serializer: serializer,
+            contentType: contentType,
+            serializerAwareInvoker: serializerAwareInvoker)
     {
     }
 
@@ -75,7 +88,11 @@ public sealed record CentraTopicRegistration
         int? maxConcurrentCalls = null,
         TimeSpan? messageTimeToLive = null,
         bool autoDelete = false,
-        IReadOnlyDictionary<string, object?>? customArguments = null)
+        IReadOnlyDictionary<string, object?>? customArguments = null,
+        Type? serializerType = null,
+        ICentraSerializer? serializer = null,
+        string? contentType = null,
+        Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, ICentraSerializer?, CancellationToken, Task<EventHandlingResult>>? serializerAwareInvoker = null)
     {
         PubSubName = pubSubName;
         Topic = topic;
@@ -92,21 +109,55 @@ public sealed record CentraTopicRegistration
         Priority = priority;
         CompiledFilter = compiledFilter;
         Predicate = predicate;
-        Invoker = invoker ?? CreateInvoker(eventType);
+        SerializerType = serializerType;
+        Serializer = serializer;
+        ContentType = contentType;
+
+        if (serializerAwareInvoker != null)
+        {
+            SerializerAwareInvoker = serializerAwareInvoker;
+            Invoker = invoker ?? ((h, p, hdrs, ct) => serializerAwareInvoker(h, p, hdrs, null, ct));
+        }
+        else if (invoker != null)
+        {
+            Invoker = invoker;
+            SerializerAwareInvoker = (h, p, hdrs, s, ct) => invoker(h, p, hdrs, ct);
+        }
+        else
+        {
+            var typedInvoker = CreateInvoker(eventType);
+            SerializerAwareInvoker = typedInvoker;
+            Invoker = (h, p, hdrs, ct) => typedInvoker(h, p, hdrs, null, ct);
+        }
     }
 
-    internal static Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>> CreateInvoker(Type eventType)
+    public Task<EventHandlingResult> InvokeAsync(
+        object handler,
+        ReadOnlyMemory<byte> payload,
+        IReadOnlyDictionary<string, string> headers,
+        ICentraSerializer? serializer,
+        CancellationToken cancellationToken)
+    {
+        if (SerializerAwareInvoker != null)
+        {
+            return SerializerAwareInvoker(handler, payload, headers, serializer, cancellationToken);
+        }
+
+        return Invoker(handler, payload, headers, cancellationToken);
+    }
+
+    internal static Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, ICentraSerializer?, CancellationToken, Task<EventHandlingResult>> CreateInvoker(Type eventType)
     {
         var genericMethod = CreateTypedInvokerMethod.MakeGenericMethod(eventType);
-        return (Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>>)genericMethod.Invoke(null, null)!;
+        return (Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, ICentraSerializer?, CancellationToken, Task<EventHandlingResult>>)genericMethod.Invoke(null, null)!;
     }
 
-    internal static Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, CancellationToken, Task<EventHandlingResult>> CreateTypedInvoker<TEvent>()
+    internal static Func<object, ReadOnlyMemory<byte>, IReadOnlyDictionary<string, string>, ICentraSerializer?, CancellationToken, Task<EventHandlingResult>> CreateTypedInvoker<TEvent>()
     {
-        return static async (handlerObj, payload, headers, ct) =>
+        return static async (handlerObj, payload, headers, serializer, ct) =>
         {
             var handler = (IEventHandler<TEvent>)handlerObj;
-            var unpacked = CloudEventUnpacker.Unpack<TEvent>(payload, headers);
+            var unpacked = CloudEventUnpacker.Unpack<TEvent>(payload, headers, serializer);
             if (unpacked.Data is null)
             {
                 return EventHandlingResult.Drop;

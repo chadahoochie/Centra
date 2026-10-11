@@ -10,15 +10,18 @@ public static class CloudEventUnpacker
 
     public static UnpackedCloudEvent<T> Unpack<T>(
         ReadOnlyMemory<byte> payload,
-        IReadOnlyDictionary<string, string> headers)
+        IReadOnlyDictionary<string, string> headers,
+        ICentraSerializer? serializer = null)
     {
+        var effectiveSerializer = serializer ?? Serializer;
+
         // Check if structured mode by content type
         var isStructured = headers.TryGetValue(CloudEventConstants.DataContentTypeHeader, out var ct)
             && ct.Contains("cloudevents", StringComparison.OrdinalIgnoreCase);
 
         if (isStructured)
         {
-            var envelope = Serializer.Deserialize<CloudEvent<T>>(payload);
+            var envelope = effectiveSerializer.Deserialize<CloudEvent<T>>(payload);
             if (envelope is null)
             {
                 throw new InvalidOperationException("Failed to deserialize structured CloudEvent envelope");
@@ -41,7 +44,7 @@ public static class CloudEventUnpacker
         else
         {
             // Binary mode: domain data is the raw payload
-            var data = Serializer.Deserialize<T>(payload);
+            var data = effectiveSerializer.Deserialize<T>(payload);
 
             var id = headers.TryGetValue(CloudEventConstants.IdHeader, out var hId) ? hId : Guid.NewGuid().ToString("N");
             var source = headers.TryGetValue(CloudEventConstants.SourceHeader, out var hSource) ? hSource : "unknown";

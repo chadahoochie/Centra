@@ -15,4 +15,6 @@ public sealed class TopicAttribute(string pubSubName, string topic, string? dead
     public bool AutoDelete { get; init; } = false;
     public bool EnableTenantOffload { get; init; } = false;
     public string? OffloadTopicPattern { get; init; }
+    public Type? SerializerType { get; init; }
+    public string? ContentType { get; init; }
 }

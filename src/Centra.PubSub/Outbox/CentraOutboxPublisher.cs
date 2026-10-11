@@ -14,15 +14,21 @@ public sealed class CentraOutboxPublisher : IOutboxPublisher
     private readonly IOutboxStore _outboxStore;
     private readonly string _defaultPubSubName;
     private readonly string _appId;
+    private readonly Centra.Serialization.ICentraSerializer _serializer;
+    private readonly IPubSubSerializerRegistry? _serializerRegistry;
 
     public CentraOutboxPublisher(
         IOutboxStore outboxStore,
         string defaultPubSubName = "pubsub",
-        string? appId = null)
+        string? appId = null,
+        Centra.Serialization.ICentraSerializer? serializer = null,
+        IPubSubSerializerRegistry? serializerRegistry = null)
     {
         _outboxStore = outboxStore ?? throw new ArgumentNullException(nameof(outboxStore));
         _defaultPubSubName = defaultPubSubName;
         _appId = appId ?? "centra-app";
+        _serializer = serializer ?? Centra.Serialization.JsonCentraSerializer.Default;
+        _serializerRegistry = serializerRegistry;
     }
 
     public ValueTask EnqueueAsync<T>(
@@ -34,7 +40,11 @@ public sealed class CentraOutboxPublisher : IOutboxPublisher
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
 
-        var packed = CloudEventPacker.Pack(data, _appId, CloudEventMode.Binary, subject: null, additionalMetadata: headers);
+        string? customContentType = headers != null && headers.TryGetValue(CloudEventConstants.DataContentTypeHeader, out var ct) ? ct : null;
+        var effectiveSerializer = (customContentType is not null ? _serializerRegistry?.GetSerializer(customContentType) : null)
+            ?? _serializer;
+        var effectiveContentType = customContentType ?? effectiveSerializer.ContentType;
+        var packed = CloudEventPacker.Pack(data, _appId, CloudEventMode.Binary, subject: null, additionalMetadata: headers, serializer: effectiveSerializer, contentType: effectiveContentType);
         var mutableHeaders = new Dictionary<string, string>(packed.Headers, StringComparer.OrdinalIgnoreCase);
 
         // Inject active trace context into headers

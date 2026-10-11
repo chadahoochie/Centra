@@ -87,7 +87,10 @@ internal static class CentraAttributeScanner
                 topicAttr.AutoDelete,
                 null,
                 topicAttr.RuleFilter,
-                topicAttr.Priority
+                topicAttr.Priority,
+                topicAttr.SerializerType,
+                null,
+                topicAttr.ContentType
             ]);
 
             if (topicAttr.EnableTenantOffload)
@@ -108,7 +111,10 @@ internal static class CentraAttributeScanner
                         topicAttr.AutoDelete,
                         null,
                         topicAttr.RuleFilter,
-                        topicAttr.Priority
+                        topicAttr.Priority,
+                        topicAttr.SerializerType,
+                        null,
+                        topicAttr.ContentType
                     ]);
                 }
             }

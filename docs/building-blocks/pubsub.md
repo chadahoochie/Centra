@@ -507,3 +507,96 @@ public sealed class OrderProcessorHandler : IEventHandler<TenantOrderEvent>
     }
 }
 ```
+
+---
+
+## 🔌 Pluggable Serializers & Content-Type Negotiation
+
+Centra Pub/Sub decouples event serialization from CloudEvents transport. While JSON is the default (`application/json`), you can plug in custom serializers (MessagePack, Protobuf, Avro, custom binary, etc.) for high-throughput or polyglot environments.
+
+### 1. Registering Serializers in DI
+
+Implement `IPubSubSerializer` (or `ICentraSerializer`):
+
+```csharp
+public sealed class MessagePackPubSubSerializer : IPubSubSerializer
+{
+    public string ContentType => "application/x-msgpack";
+
+    public byte[] Serialize<T>(T value) => MessagePackSerializer.Serialize(value);
+    public byte[] Serialize(object? value, Type inputType) => MessagePackSerializer.Serialize(inputType, value);
+    public void Serialize<T>(T value, IBufferWriter<byte> writer) => MessagePackSerializer.Serialize(writer, value);
+    public T? Deserialize<T>(ReadOnlyMemory<byte> buffer) => MessagePackSerializer.Deserialize<T>(buffer);
+    public object? Deserialize(ReadOnlyMemory<byte> buffer, Type returnType) => MessagePackSerializer.Deserialize(returnType, buffer);
+}
+```
+
+Register it in DI:
+
+```csharp
+// Register as the default pubsub serializer and map to its ContentType in IPubSubSerializerRegistry
+builder.Services.AddCentraPubSubSerializer<MessagePackPubSubSerializer>();
+
+// Or register an existing instance
+builder.Services.AddCentraPubSubSerializer(new MessagePackPubSubSerializer());
+
+// Or register with an explicit content-type override
+builder.Services.AddCentraPubSubSerializer<MessagePackPubSubSerializer>("application/msgpack");
+```
+
+### 2. Publishing with Pluggable Serializers
+
+Centra automatically sets `ce-datacontenttype` on the CloudEvent envelope to match the active serializer.
+
+```csharp
+// 1. Publishes using default serializer registered in DI (MessagePack)
+await pubSub.PublishAsync("orders.created", orderEvent);
+
+// 2. Or dynamically override the content type per publish operation:
+var options = new PubSubPublishOptions
+{
+    ContentType = "application/x-msgpack" // Resolves serializer from IPubSubSerializerRegistry
+};
+await pubSub.PublishAsync("orders.created", orderEvent, options);
+```
+
+### 3. Consuming with Serializer Configuration
+
+#### Option A: Declarative via `[Topic]`
+Specify `SerializerType` or `ContentType` on `[Topic]`:
+
+```csharp
+[Topic("pubsub", "orders.created", SerializerType = typeof(MessagePackPubSubSerializer))]
+public sealed class OrderHandler : IEventHandler<OrderCreatedEvent>
+{
+    public Task<EventHandlingResult> HandleAsync(OrderCreatedEvent @event, EventContext context, CancellationToken ct)
+    {
+        // Deserialized via MessagePackPubSubSerializer
+        return Task.FromResult(EventHandlingResult.Success);
+    }
+}
+```
+
+#### Option B: Programmatic via `AddCentraEventHandler`
+```csharp
+builder.Services.AddCentraEventHandler<OrderHandler, OrderCreatedEvent>(
+    serializer: new MessagePackPubSubSerializer(),
+    contentType: "application/x-msgpack");
+```
+
+### 4. Dynamic Content-Type Dispatch
+
+When multiple publishers send events encoded with different serialization formats to the same topic, Centra inspects the incoming CloudEvent `ce-datacontenttype` header (e.g., `application/x-msgpack` or `application/json`) and resolves the corresponding serializer from `IPubSubSerializerRegistry` dynamically at runtime.
+
+### 5. Precedence & Fallback Chain
+
+When an event arrives, [`CentraPubSubSerializerResolver`](../../src/Centra.PubSub/Serialization/CentraPubSubSerializerResolver.cs) selects the serializer in this order:
+
+1. **Registration-Level Instance**: Explicit `CentraTopicRegistration.Serializer` instance.
+2. **Registration-Level Type**: `CentraTopicRegistration.SerializerType` resolved from DI or instantiated via `ActivatorUtilities`.
+3. **Incoming Header Match**: `ce-datacontenttype` resolved from `IPubSubSerializerRegistry`.
+4. **Registration Content-Type Match**: `CentraTopicRegistration.ContentType` resolved from `IPubSubSerializerRegistry`.
+5. **DI Default `IPubSubSerializer`**: Registered via `AddCentraPubSubSerializer`.
+6. **DI Default `ICentraSerializer`**: General framework serializer registered in DI.
+7. **Framework Fallback**: `JsonCentraSerializer.Default` (`application/json`).
+
