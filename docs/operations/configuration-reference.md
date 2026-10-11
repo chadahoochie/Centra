@@ -4,27 +4,28 @@
 
 ---
 
-## 🧭 Configuration Paradigms: Attributes vs. Service Collection Extensions
+## 🧭 Configuration Paradigms: Attributes, Extensions & Builder Pattern
 
-Centra provides two distinct, complementary configuration paradigms:
+Centra provides three distinct, complementary configuration paradigms:
 
-1. **Declarative Configuration via Attributes**: Metadata is co-located directly on domain classes, interfaces, and methods using C# attributes. The assembly scanner automatically registers and configures components when calling `builder.Services.AddCentra()`.
-2. **Programmatic Configuration via Service Collection Extensions**: Components, options, and infrastructure are explicitly wired using fluent `IServiceCollection` extension methods in startup code (`Program.cs`).
+1. **Declarative Configuration via Attributes**: Metadata is co-located directly on domain classes, interfaces, and methods using C# attributes (`[Topic]`, `[ServiceClient]`, `[Actor]`, `[Workflow]`). The assembly scanner automatically registers and configures components when calling `builder.Services.AddCentra()`.
+2. **Programmatic Configuration via Service Collection Extensions**: Components, options, and infrastructure are explicitly wired using modular `IServiceCollection` extension methods (`AddCentraPubSub()`, `AddCentraState()`, etc.) in startup code (`Program.cs`), adhering strictly to the Interface Segregation Principle (ISP).
+3. **Fluent Config Builder via `ICentraBuilder`**: A unified, fluent configuration builder pattern returned by `builder.Services.AddCentra()` or configured via `builder.Services.AddCentraBuilder(...)`, allowing expressive method chaining for options and component registrations.
 
-Both paradigms share the same underlying runtime primitives and driver contracts. You can use either paradigm exclusively or combine them freely across your services.
+All three paradigms share the same underlying runtime primitives, driver contracts, and hierarchical options binding. You can use any paradigm exclusively or combine them freely across your services.
 
 ### Feature & Paradigm Comparison
 
-| Dimension | Declarative Attributes | Programmatic `IServiceCollection` Extensions |
-| :--- | :--- | :--- |
-| **Primary Mechanism** | `[Topic]`, `[ServiceClient]`, `[Actor]`, `[Workflow]`, `[WorkflowActivity]`, `[CronBinding]`, `[Binding]` | `AddCentraEventHandler<T, E>()`, `AddCentraServiceClient<T>()`, `AddCentraActor<T, I>()`, `AddCentraWorkflow<T>()`, `AddCentraCronJob<T>()`, `AddCentraInputBindingHandler<T>()` |
-| **Code Location** | Co-located with domain classes, interfaces, and methods | Centralized in `Program.cs` or modular DI extensions |
-| **Discovery Mechanism** | Automatic reflection scan via `builder.Services.AddCentra()` | Explicit registration call per component |
-| **Runtime / Dynamic Values** | Compile-time constants only (e.g., hardcoded string literals) | Dynamic (resolves values from `IConfiguration`, environment variables, databases) |
-| **Modularity & ISP** | Full assembly scan across all concerns | Granular: register only needed concerns (`AddCentraPubSub()`, `AddCentraState()`, etc.) |
-| **Precedence & Overrides** | Acts as baseline/default configuration | **Highest precedence**: explicit registrations override scanned attributes |
-| **Testability & Mocking** | Fixed to class definition | Easy to substitute mock topics, staging stores, or fake clients in integration test fixtures |
-| **Actor Interface Disambiguation** | Requires class to implement exactly one domain `IActor` interface | Can bind any arbitrary domain interface via `AddCentraActor<TActor, TActorInterface>()` |
+| Dimension | Declarative Attributes | Modular `IServiceCollection` Extensions | Fluent `ICentraBuilder` Pattern |
+| :--- | :--- | :--- | :--- |
+| **Primary Mechanism** | `[Topic]`, `[ServiceClient]`, `[Actor]`, `[Workflow]`, `[WorkflowActivity]`, `[CronBinding]`, `[Binding]` | `AddCentraEventHandler<T, E>()`, `AddCentraServiceClient<T>()`, `AddCentraActor<T, I>()`, `AddCentraWorkflow<T>()`, `AddCentraCronJob<T>()` | `services.AddCentra().WithAppId(...).ConfigureState(...).AddActor<T, I>().AddWorkflow<T>()` |
+| **Code Location** | Co-located with domain classes, interfaces, and methods | Centralized in `Program.cs` or modular DI extensions | Fluent chain in `Program.cs` |
+| **Discovery Mechanism** | Automatic reflection scan via `builder.Services.AddCentra()` | Explicit registration call per component | Combined: auto-scans assemblies while allowing fluent overrides |
+| **Runtime / Dynamic Values** | Compile-time constants only (e.g., hardcoded string literals) | Dynamic (resolves values from `IConfiguration`, environment variables, databases) | Dynamic (fluent lambdas, strongly typed subsystem options, providers) |
+| **Modularity & ISP** | Full assembly scan across all concerns | Granular: register only needed concerns (`AddCentraPubSub()`, `AddCentraState()`, etc.) | Full-stack or modular chaining with provider builder extensions |
+| **Precedence & Overrides** | Acts as baseline/default configuration | **Highest precedence**: explicit registrations override scanned attributes | **Highest precedence**: explicit chained registrations override scanned attributes |
+| **Testability & Mocking** | Fixed to class definition | Easy to substitute mock topics, staging stores, or fake clients in integration test fixtures | Expressive chaining for testing fixtures (`.AddInMemory()`, `.ConfigureState(...)`) |
+| **Actor Interface Disambiguation** | Requires class to implement exactly one domain `IActor` interface | Can bind any arbitrary domain interface via `AddCentraActor<TActor, TActorInterface>()` | Fluent binding via `.AddActor<TActor, TActorInterface>()` or `.AddActor(type, iface)` |
 
 ---
 
@@ -207,87 +208,290 @@ Centra's DI registration system is strictly **idempotent** and adheres to the **
 
 ## ⚙️ Core Configuration (`CentraOptions`)
 
-Binds to the `"Centra"` section in `appsettings.json` or `Centra__*` environment variables:
+`CentraOptions` serves as the root configuration model for the Centra Distributed Application Framework. It supports both top-level convenience properties (which seamlessly forward to their respective subsystem option objects for backwards compatibility) and strongly-typed hierarchical sections for all major concerns.
+
+### Hierarchical `appsettings.json` Schema
+
+Centra automatically binds the `"Centra"` section in `appsettings.json` (or double-underscore environment variables such as `Centra__State__DefaultStore`) to `CentraOptions` and its child options:
 
 ```json
 {
   "Centra": {
     "AppId": "orders-service",
+    "DefaultCloudEventMode": "Binary",
     "DefaultStateStore": "statestore",
     "DefaultPubSub": "pubsub",
     "DefaultLockStore": "lockstore",
     "ControlPlaneEndpoint": "http://control-plane:5000",
+    "State": {
+      "DefaultStore": "statestore"
+    },
+    "PubSub": {
+      "DefaultStore": "pubsub"
+    },
+    "Locks": {
+      "DefaultStore": "lockstore",
+      "DefaultExpiry": "00:00:30",
+      "DefaultTimeout": "00:00:05"
+    },
     "ControlPlane": {
       "Endpoint": "http://control-plane:5000",
+      "Endpoints": ["http://control-plane-1:5000", "http://control-plane-2:5000"],
+      "ClusterId": "default",
       "InstanceId": "node-1",
-      "HeartbeatIntervalSeconds": 5,
-      "HeartbeatTimeoutSeconds": 15
+      "HeartbeatInterval": "00:00:05",
+      "EnableLiveSync": true,
+      "ClusterToken": "secret-token",
+      "UseHmacAuthentication": false
+    },
+    "Actors": {
+      "ActorIdleTimeout": "00:15:00",
+      "ActorScanInterval": "00:00:30",
+      "DrainTimeout": "00:00:30",
+      "ReminderInterval": "00:00:10",
+      "DefaultStateStore": "statestore",
+      "DefaultLockStore": "lockstore"
+    },
+    "Workflows": {
+      "DefaultExecutionTimeout": "00:30:00",
+      "PollingInterval": "00:00:01",
+      "DefaultStateStore": "statestore",
+      "DefaultPubSub": "pubsub",
+      "DefaultLockStore": "lockstore"
     }
   }
 }
 ```
 
+### `CentraOptions` Root Properties
+
 | Property | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `AppId` | `string` | Entry assembly name | Logical application identifier for discovery and invocation |
-| `DefaultStateStore` | `string` | `"statestore"` | Default state store component name |
-| `DefaultPubSub` | `string` | `"pubsub"` | Default pub/sub component name |
-| `DefaultLockStore` | `string` | `"lockstore"` | Default distributed lock store component name |
-| `ControlPlaneEndpoint` | `string?` | `null` | URL of the primary Centra Control Plane service |
-| `ControlPlane.ClusterId` | `string` | `"default"` | Target cluster partition identifier for topology and actor hash ring isolation |
-| `ControlPlane.Endpoints` | `string[]?` | `null` | Multi-endpoint list of Control Plane replicas for client-side HA failover |
-| `ControlPlane.InstanceId` | `string?` | Machine name / Guid | Unique replica identifier within the cluster |
-| `ControlPlane.ClusterToken` | `string?` | `null` | Pre-shared token or HMAC secret for rogue node admission defense |
-| `ControlPlane.UseHmacAuthentication` | `bool` | `false` | Enables cryptographic timestamp + nonce + HMAC-SHA256 signature verification |
-| `ControlPlane.HeartbeatIntervalSeconds` | `int` | `5` | Heartbeat emission interval in seconds |
+| `AppId` | `string` | `"centra-app"` | Logical application identifier for discovery and invocation |
+| `DefaultCloudEventMode` | `CloudEventMode` | `Binary` | Default CloudEvents serialization mode (`Binary` or `Structured`) |
+| `DefaultStateStore` | `string` | `"statestore"` | Forwards to `State.DefaultStore` |
+| `DefaultPubSub` | `string` | `"pubsub"` | Forwards to `PubSub.DefaultStore` |
+| `DefaultLockStore` | `string` | `"lockstore"` | Forwards to `Locks.DefaultStore` |
+| `ControlPlaneEndpoint` | `string?` | `null` | Forwards to `ControlPlane.Endpoint` |
+| `ClusterId` | `string` | `"default"` | Forwards to `ControlPlane.ClusterId` |
+| `ControlPlane` | `CentraControlPlaneOptions` | `new()` | Control plane connection and cluster coordination options |
+| `State` | `CentraStateOptions` | `new()` | Options for state persistence and optimistic concurrency |
+| `PubSub` | `CentraPubSubOptions` | `new()` | Options for pub/sub messaging and CloudEvents routing |
+| `Locks` | `CentraLocksOptions` | `new()` | Options for distributed locks and lease timeouts |
+| `Actors` | `ActorOptions` | `new()` | Options for virtual actor turn mailbox and passivation |
+| `Workflows` | `WorkflowOptions` | `new()` | Options for distributed workflows and saga coordination |
+| `Resilience` | `CentraResilienceOptions` | `new()` | Options for Polly Core v8 composite resilience policies |
+
+---
+
+## 🎛️ Control Plane Options (`CentraControlPlaneOptions`)
+
+Package: `Centra.Runtime` | Namespace: `Centra`
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `Endpoint` | `string?` | `null` | URL of the primary Centra Control Plane service |
+| `Endpoints` | `IReadOnlyList<string>` | `[]` | Multi-endpoint list of Control Plane replicas for client-side HA failover |
+| `HeartbeatInterval` | `TimeSpan` | `5 seconds` | Heartbeat emission interval |
+| `EnableLiveSync` | `bool` | `true` | Enables real-time SSE hot-reload event consumption |
+| `ClusterId` | `string` | `"default"` | Target cluster partition identifier for topology and actor hash ring isolation |
+| `InstanceId` | `string` | `Guid.NewGuid().ToString("N")` | Unique replica identifier within the cluster |
+| `ClusterToken` | `string?` | `null` | Pre-shared token or HMAC secret for rogue node admission defense |
+| `UseHmacAuthentication` | `bool` | `false` | Enables cryptographic timestamp + nonce + HMAC-SHA256 signature verification |
+| `Metadata` | `Dictionary<string, string>` | `new()` | Arbitrary replica metadata sent during heartbeats |
+
+---
+
+## 💾 State Store Options (`CentraStateOptions`)
+
+Package: `Centra.State.Abstractions` | Namespace: `Centra.State`
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `DefaultStore` | `string` | `"statestore"` | Default state store component name for state operations |
+
+---
+
+## 📨 Pub/Sub Messaging Options (`CentraPubSubOptions`)
+
+Package: `Centra.PubSub.Abstractions` | Namespace: `Centra.PubSub`
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `DefaultStore` | `string` | `"pubsub"` | Default pub/sub broker component name for event publishing and subscription |
+
+---
+
+## 🔒 Distributed Locks Options (`CentraLocksOptions`)
+
+Package: `Centra.Locks.Abstractions` | Namespace: `Centra.Locks`
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `DefaultStore` | `string` | `"lockstore"` | Default distributed lock store component name |
+| `DefaultExpiry` | `TimeSpan` | `30 seconds` | Default lease expiry duration when acquiring locks |
+| `DefaultTimeout` | `TimeSpan` | `5 seconds` | Default wait timeout when attempting to acquire a lock |
 
 ---
 
 ## 🎭 Virtual Actor Options (`ActorOptions`)
 
-Configure via `builder.Services.AddCentraActors(options => ...)`:
+Package: `Centra.Actors.Abstractions` | Namespace: `Centra.Actors`
+
+Configured via `services.AddCentraActors(options => ...)` or builder `.ConfigureActors(options => ...)`:
 
 ```csharp
 builder.Services.AddCentraActors(options =>
 {
-    options.ActorIdleTimeout = TimeSpan.FromMinutes(15);
-    options.ActorScanInterval = TimeSpan.FromMinutes(1);
-    options.DefaultStateStore = "statestore";
-    options.ReminderLockExpiry = TimeSpan.FromSeconds(30);
+    options.ActorIdleTimeout = TimeSpan.FromMinutes(20);
+    options.ActorScanInterval = TimeSpan.FromSeconds(30);
+    options.DrainTimeout = TimeSpan.FromSeconds(30);
+    options.ReminderInterval = TimeSpan.FromSeconds(10);
+    options.DefaultStateStore = "custom-statestore";
+    options.DefaultLockStore = "custom-lockstore";
 });
 ```
 
 | Property | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `ActorIdleTimeout` | `TimeSpan` | `15 minutes` | Inactivity duration before an actor is passivated |
-| `ActorScanInterval` | `TimeSpan` | `1 minute` | Interval between passivation sweeps |
-| `DefaultStateStore` | `string` | `"statestore"` | State store used to persist actor state and durable reminders |
-| `ReminderLockExpiry` | `TimeSpan` | `30 seconds` | Distributed lock lease duration for reminder executions |
+| `ActorIdleTimeout` | `TimeSpan` | `15 minutes` | Inactivity duration before an idle actor is passivated |
+| `ActorScanInterval` | `TimeSpan` | `30 seconds` | Periodic interval between idle actor passivation sweeps |
+| `DrainTimeout` | `TimeSpan` | `30 seconds` | Maximum duration allowed to drain active mailbox turns during passivation or shutdown |
+| `ReminderInterval` | `TimeSpan` | `10 seconds` | Polling tick interval for evaluating and dispatching durable reminders |
+| `DefaultStateStore` | `string` | `"statestore"` | State store used to persist actor state and durable reminders (cascades from `CentraOptions.DefaultStateStore`) |
+| `DefaultLockStore` | `string` | `"lockstore"` | Distributed lock store used for reminder leader election (cascades from `CentraOptions.DefaultLockStore`) |
+| `HasExplicitStateStore` | `bool` | `false` | Indicates whether `DefaultStateStore` was explicitly overridden away from `"statestore"` |
+| `HasExplicitLockStore` | `bool` | `false` | Indicates whether `DefaultLockStore` was explicitly overridden away from `"lockstore"` |
 
 ---
 
 ## 🔄 Workflow Engine Options (`WorkflowOptions`)
 
-Configure via `builder.Services.AddCentraWorkflows(options => ...)`:
+Package: `Centra.Workflows.Abstractions` | Namespace: `Centra.Workflows`
+
+Configured via `services.AddCentraWorkflows(options => ...)` or builder `.ConfigureWorkflows(options => ...)`:
 
 ```csharp
 builder.Services.AddCentraWorkflows(options =>
 {
-    options.DefaultStateStore = "statestore";
-    options.ActivityDefaultTimeout = TimeSpan.FromSeconds(60);
+    options.DefaultExecutionTimeout = TimeSpan.FromHours(1);
+    options.PollingInterval = TimeSpan.FromSeconds(2);
+    options.DefaultStateStore = "custom-statestore";
+    options.DefaultPubSub = "custom-pubsub";
+    options.DefaultLockStore = "custom-lockstore";
 });
 ```
 
 | Property | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `DefaultStateStore` | `string` | `"statestore"` | State store used for workflow state records and history stream |
-| `ActivityDefaultTimeout`| `TimeSpan` | `60 seconds` | Default timeout for activity execution steps |
+| `DefaultExecutionTimeout` | `TimeSpan` | `30 minutes` | Default timeout ceiling for an entire workflow orchestration run |
+| `PollingInterval` | `TimeSpan` | `1 second` | Polling interval for evaluating durable timers and checking pending external event completions |
+| `DefaultStateStore` | `string` | `"statestore"` | State store used for workflow execution history and timer storage (cascades from `CentraOptions.DefaultStateStore`) |
+| `DefaultPubSub` | `string` | `"pubsub"` | Pub/Sub broker used for external workflow event subscriptions (cascades from `CentraOptions.DefaultPubSub`) |
+| `DefaultLockStore` | `string` | `"lockstore"` | Distributed lock store used for durable timer coordinator locks (cascades from `CentraOptions.DefaultLockStore`) |
+| `HasExplicitStateStore` | `bool` | `false` | Indicates whether `DefaultStateStore` was explicitly overridden away from `"statestore"` |
+| `HasExplicitPubSub` | `bool` | `false` | Indicates whether `DefaultPubSub` was explicitly overridden away from `"pubsub"` |
+| `HasExplicitLockStore` | `bool` | `false` | Indicates whether `DefaultLockStore` was explicitly overridden away from `"lockstore"` |
+
+---
+
+## 🌊 Automatic Store Cascading & Post-Configuration
+
+In enterprise distributed applications, configuring the same state store, lock store, or pub/sub broker name repeatedly across multiple subsystems introduces friction and configuration drift.
+
+Centra uses Microsoft.Extensions.Options post-configuration (`ActorOptionsPostSetup` and `WorkflowOptionsPostSetup`) to automatically **cascade root store defaults**:
+
+1. **Automatic Fallback to Root Defaults**: If an application sets `DefaultStateStore = "production-pg"` on `CentraOptions`, both `ActorOptions.DefaultStateStore` and `WorkflowOptions.DefaultStateStore` automatically adopt `"production-pg"` unless specifically configured otherwise.
+2. **Explicit Wins**: If configuration explicitly defines `Centra:Actors:DefaultStateStore = "actor-redis"`, or code executes `builder.ConfigureActors(a => a.DefaultStateStore = "actor-redis")`, the explicit setting wins and overrides the cascade.
+3. **Precedence Hierarchy**:
+   ```
+   [Explicit Configuration Key] (e.g. Centra:Actors:DefaultStateStore)
+            │ (if unset)
+            ▼
+   [Explicit Programmatic Call] (e.g. options.DefaultStateStore = "custom")
+            │ (if default)
+            ▼
+   [Root CentraOptions Setting] (e.g. CentraOptions.DefaultStateStore)
+            │ (if unset)
+            ▼
+   [Framework Global Default] ("statestore", "pubsub", "lockstore")
+   ```
+
+---
+
+## 🏗️ Fluent Config Builder (`ICentraBuilder`)
+
+Calling `builder.Services.AddCentra(...)` returns an `ICentraBuilder` instance, allowing clean, fluent chaining of all configuration options, components, and provider drivers:
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddCentra()
+    .WithAppId("orders-service")
+    .WithCloudEventMode(CloudEventMode.Binary)
+    .ConfigureControlPlane(cp => cp.Endpoint = "http://control-plane:5000")
+    .ConfigureState(s => s.DefaultStore = "cluster-statestore")
+    .ConfigurePubSub(p => p.DefaultStore = "cluster-pubsub")
+    .ConfigureLocks(l => l.DefaultStore = "cluster-lockstore")
+    .ConfigureActors(a => a.ActorIdleTimeout = TimeSpan.FromMinutes(20))
+    .AddActor<AccountActor, IAccountActor>()
+    .ConfigureWorkflows(w => w.DefaultExecutionTimeout = TimeSpan.FromHours(1))
+    .AddWorkflow<OrderWorkflow>()
+    .AddWorkflowActivity<ReserveInventoryActivity>()
+    .AddEventHandler<PaymentNotificationHandler, OrderCreatedEvent>()
+    .AddServiceClient<IInventoryClient>()
+    .ConfigureResilience(r => r.AddPolicy(new CentraResiliencePolicyDefinition("orders-retry", ...)))
+    .AddRedis(redis => redis.Configuration = "redis:6379");
+```
+
+Alternatively, you can use the action-based syntax via `AddCentraBuilder`:
+
+```csharp
+builder.Services.AddCentraBuilder(centra =>
+{
+    centra.WithAppId("orders-service")
+          .ConfigureActors(a => a.ActorIdleTimeout = TimeSpan.FromMinutes(20))
+          .AddInMemory();
+});
+```
+
+### `ICentraBuilder` Extension Methods Reference
+
+| Extension Method | Assembly | Description |
+| :--- | :--- | :--- |
+| `.WithAppId(string)` | `Centra.Runtime` | Sets the application identifier in `CentraOptions.AppId` |
+| `.WithCloudEventMode(CloudEventMode)` | `Centra.Runtime` | Sets default CloudEvents serialization mode (`Binary` or `Structured`) |
+| `.Configure(Action<CentraOptions>)` | `Centra.Runtime` | Configures root `CentraOptions` |
+| `.ConfigureControlPlane(Action<CentraControlPlaneOptions>)` | `Centra.Runtime` | Configures Control Plane coordination and sync options |
+| `.ConfigureState(Action<CentraStateOptions>)` | `Centra.Runtime` | Configures State Store building block options |
+| `.ConfigurePubSub(Action<CentraPubSubOptions>)` | `Centra.Runtime` | Configures Pub/Sub messaging building block options |
+| `.ConfigureLocks(Action<CentraLocksOptions>)` | `Centra.Runtime` | Configures Distributed Locks building block options |
+| `.ConfigureActors(Action<ActorOptions>)` | `Centra.Actors` | Configures Virtual Actors runtime options |
+| `.AddActor<TActor, TActorInterface>()` | `Centra.Actors` | Registers a virtual actor implementation and its domain `IActor` interface |
+| `.AddActor(Type, Type)` | `Centra.Actors` | Registers a virtual actor type and its domain interface dynamically |
+| `.ConfigureWorkflows(Action<WorkflowOptions>)` | `Centra.Workflows` | Configures Distributed Workflows and Sagas runtime options |
+| `.AddWorkflow<TWorkflow>()` | `Centra.Workflows` | Registers a distributed workflow orchestration in DI and the workflow registry |
+| `.AddWorkflowActivity<TActivity>()` | `Centra.Workflows` | Registers a workflow activity step in DI and the activity registry |
+| `.AddEventHandler<THandler, TEvent>(...)` | `Centra.PubSub` | Registers a pub/sub event handler with optional topic, filter, and priority |
+| `.AddOutbox(Action<OutboxOptions>?)` | `Centra.PubSub` | Adds transactional outbox publisher background service and repository |
+| `.AddInbox(Action<InboxOptions>?)` | `Centra.PubSub` | Adds idempotent inbox deduplication background cleanup and repository |
+| `.AddTenantOffload(Action<TenantOffloadOptions>?)` | `Centra.PubSub` | Adds multi-tenant noisy neighbor offload coordinator and dynamic dispatcher |
+| `.ConfigureResilience(Action<CentraResilienceOptions>)` | `Centra.Resilience` | Configures Resilience policies and default pipelines |
+| `.AddResiliencePolicy(CentraResiliencePolicyDefinition)` | `Centra.Resilience` | Adds a resilience policy definition |
+| `.AddServiceClient<TInterface>()` | `Centra.Invocation` | Registers a strongly typed RPC client proxy for a `[ServiceClient]` interface |
+| `.AddInMemory(...)` | `Centra.Providers.InMemory` | Registers zero-dependency in-memory providers for testing |
+| `.AddRedis(Action<RedisProviderOptions>?)` | `Centra.Providers.Redis` | Registers Redis for state store, pub/sub, and distributed locks |
+| `.AddRedisStateStore(string, ...)` | `Centra.Providers.Redis` | Registers a named Redis State Store component |
+| `.AddRedisPubSub(string, ...)` | `Centra.Providers.Redis` | Registers a named Redis Pub/Sub broker component |
+| `.AddRedisLocks(string, ...)` | `Centra.Providers.Redis` | Registers a named Redis Distributed Lock store component |
 
 ---
 
 ## 🛡️ Resilience Options (`CentraResilienceOptions`)
 
-Configure via `builder.Services.AddCentraResilience(options => ...)`:
+Package: `Centra.Resilience.Abstractions` | Namespace: `Centra.Resilience`
+
+Configure via `builder.Services.AddCentraResilience(options => ...)` or builder `.ConfigureResilience(options => ...)`:
 
 ```csharp
 builder.Services.AddCentraResilience(options =>
@@ -311,6 +515,11 @@ builder.Services.AddCentraResilience(options =>
         Timeout: new TimeoutPolicyOptions(TimeSpan.FromSeconds(5))));
 });
 ```
+
+| Property / Method | Type | Description |
+| :--- | :--- | :--- |
+| `Policies` | `IReadOnlyList<CentraResiliencePolicyDefinition>` | Read-only list of configured resilience policy definitions |
+| `AddPolicy(definition)` | `CentraResilienceOptions` | Fluent method to add a policy definition to the options |
 
 ---
 

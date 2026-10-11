@@ -221,10 +221,6 @@ internal static class CentraAttributeScanner
                 "expected exactly one. Register it explicitly with AddCentraActor<TActor, TActorInterface>() instead.");
         }
 
-        var method = typeof(CentraActorServiceCollectionExtensions)
-            .GetMethod(nameof(CentraActorServiceCollectionExtensions.AddCentraActor))!
-            .MakeGenericMethod(type, actorInterfaces[0]);
-
-        method.Invoke(null, [services]);
+        services.AddCentraActor(type, actorInterfaces[0]);
     }
 }

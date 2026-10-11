@@ -139,9 +139,9 @@ public sealed class PaymentNotificationHandler : IEventHandler<OrderCreatedEvent
 
 ## 🔌 Step 3: Wire Centra in `Program.cs`
 
-Centra supports two configuration models: **Declarative via Attributes** (with automatic reflection scanning) and **Programmatic via `IServiceCollection` Extensions** (for explicit wiring and overrides).
+Centra supports three complementary configuration models: **Declarative via Attributes** (with automatic reflection scanning), **Programmatic via `IServiceCollection` Extensions** (for modular wiring), and the **Fluent Config Builder (`ICentraBuilder`)** returned directly by `AddCentra()`.
 
-When you invoke `builder.Services.AddCentra()`, Centra automatically scans your assembly and registers all classes and interfaces decorated with attributes (like `[Topic]` on `PaymentNotificationHandler` and `[ServiceClient]` on `IInventoryClient`). You can also invoke explicit extension methods (such as `AddCentraServiceClient<IInventoryClient>()` or `AddCentraEventHandler<THandler, TEvent>()`) to override attribute settings or wire components selectively.
+When you invoke `builder.Services.AddCentra()`, Centra automatically scans your assembly and registers all classes and interfaces decorated with attributes (like `[Topic]` on `PaymentNotificationHandler` and `[ServiceClient]` on `IInventoryClient`). You can also chain builder methods or invoke explicit extension methods to override settings or wire components selectively.
 
 ```csharp
 // Program.cs
@@ -156,18 +156,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. Full-Stack Registration & Automatic Attribute Discovery:
 // Scans entry assembly for [Topic], [ServiceClient], [Actor], [Workflow], etc.
+// Returns ICentraBuilder for fluent provider & component chaining.
 builder.Services.AddCentra(options =>
 {
     options.AppId = "orders-service";
     options.DefaultStateStore = "statestore";
     options.DefaultPubSub = "pubsub";
     options.DefaultLockStore = "lockstore";
-});
+})
+.AddInMemory(); // Chained directly via ICentraBuilder!
 
-// 2. Add In-Memory providers for testing (or Redis, RabbitMQ, PostgreSQL, etc.)
-builder.Services.AddCentraInMemory();
-
-// 3. (Optional) Explicit Service Collection Extensions:
+// 2. (Optional) Explicit Extensions / Builder Overrides:
 // Can be used to explicitly register clients or override attribute values at runtime.
 // If omitted, AddCentra() above already auto-discovered IInventoryClient via [ServiceClient].
 builder.Services.AddCentraServiceClient<IInventoryClient>();

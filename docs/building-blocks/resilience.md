@@ -36,14 +36,44 @@ A resilience pipeline composes up to 5 strategies in strict order:
 
 ## 🛠️ Configuring Pipelines in C#
 
-In `Program.cs`:
+In `Program.cs`, you can register resilience policies using the fluent config builder or modular service collection extensions:
 
 ```csharp
 using Centra.Resilience;
 
+// Option A: Fluent Builder via ICentraBuilder
+builder.Services.AddCentra()
+    .AddResiliencePolicy(new CentraResiliencePolicyDefinition(
+        PolicyName: "invocation:payment-gateway",
+        Retry: new RetryPolicyOptions(
+            MaxRetries: 3,
+            BackoffType: CentraBackoffType.Exponential,
+            BaseDelay: TimeSpan.FromMilliseconds(50),
+            MaxDelay: TimeSpan.FromSeconds(2),
+            UseJitter: true),
+        CircuitBreaker: new CircuitBreakerPolicyOptions(
+            FailureRatio: 0.5,
+            SamplingDuration: TimeSpan.FromSeconds(10),
+            MinimumThroughput: 5,
+            BreakDuration: TimeSpan.FromSeconds(5)),
+        RateLimiter: new RateLimiterPolicyOptions(
+            PermitLimit: 100,
+            Window: TimeSpan.FromSeconds(1)),
+        Timeout: new TimeoutPolicyOptions(TimeSpan.FromSeconds(3))))
+    .ConfigureResilience(options =>
+    {
+        // Or configure multiple policies via Action<CentraResilienceOptions>
+        options.AddPolicy(new CentraResiliencePolicyDefinition(
+            PolicyName: "default-state",
+            Retry: new RetryPolicyOptions(
+                MaxRetries: 3,
+                BackoffType: CentraBackoffType.Linear,
+                BaseDelay: TimeSpan.FromMilliseconds(20))));
+    });
+
+// Option B: Modular Service Collection Registration (ISP)
 builder.Services.AddCentraResilience(options =>
 {
-    // Configure pipeline for outbound payment gateway
     options.AddPolicy(new CentraResiliencePolicyDefinition(
         PolicyName: "invocation:payment-gateway",
         Retry: new RetryPolicyOptions(
@@ -61,14 +91,6 @@ builder.Services.AddCentraResilience(options =>
             PermitLimit: 100,
             Window: TimeSpan.FromSeconds(1)),
         Timeout: new TimeoutPolicyOptions(TimeSpan.FromSeconds(3))));
-
-    // Configure fallback pipeline for state stores
-    options.AddPolicy(new CentraResiliencePolicyDefinition(
-        PolicyName: "default-state",
-        Retry: new RetryPolicyOptions(
-            MaxRetries: 3,
-            BackoffType: CentraBackoffType.Linear,
-            BaseDelay: TimeSpan.FromMilliseconds(20))));
 });
 ```
 

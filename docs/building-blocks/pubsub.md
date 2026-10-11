@@ -33,7 +33,23 @@ builder.Services.AddCentraRabbitMQ(options =>
 });
 ```
 
-### Option B: Programmatic via `AddCentraEventHandler` Extension (Explicit & Dynamic Overrides)
+### Option B: Fluent Builder via `ICentraBuilder`
+Chain pub/sub options, explicit event handlers, outbox, inbox, and tenant offload directly onto `builder.Services.AddCentra()`:
+
+```csharp
+builder.Services.AddCentra()
+    .ConfigurePubSub(options => options.DefaultStore = "orders-bus")
+    .AddEventHandler<PaymentNotificationHandler, OrderCreatedEvent>(
+        pubSubName: "orders-bus",
+        topic: "orders.created",
+        ruleFilter: "data.totalAmount >= 500",
+        priority: 10)
+    .AddOutbox()
+    .AddInbox()
+    .AddTenantOffload();
+```
+
+### Option C: Programmatic via `AddCentraEventHandler` Extension (Explicit & Dynamic Overrides)
 Use `AddCentraEventHandler<THandler, TEvent>()` to explicitly register a handler or dynamically configure topic names, pub/sub brokers, dead-letter topics, or consumer modes from runtime settings:
 
 ```csharp
@@ -56,7 +72,7 @@ builder.Services.AddCentraEventHandler<PaymentNotificationHandler, OrderCreatedE
 ```
 
 > [!TIP]
-> **Precedence & Fallback Rule**: Explicit parameters passed to `AddCentraEventHandler` take precedence and override values declared on the `[Topic]` attribute. Any argument left as `null` falls back to the `[Topic]` attribute on the handler, and if omitted there, to framework defaults.
+> **Precedence & Fallback Rule**: Explicit parameters passed to `AddCentraEventHandler` or `builder.AddEventHandler` take precedence and override values declared on the `[Topic]` attribute. Any argument left as `null` falls back to the `[Topic]` attribute on the handler, and if omitted there, to framework defaults.
 
 ---
 

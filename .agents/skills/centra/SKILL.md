@@ -109,21 +109,38 @@ Centra decouples domain APIs from physical infrastructure via clean Driver SPI c
 
 ## 🛠️ 4. Dependency Injection & Configuration Patterns
 
-### Composable Modular Registration (Interface Segregation)
+### Three Complementary Registration Paradigms
 
-Choose between full-stack registration or fine-grained modular components:
+Centra supports three complementary configuration models sharing the same underlying hierarchical options architecture:
 
 ```csharp
-// Full-Stack Registration
+// 1. Fluent Config Builder via ICentraBuilder (Method Chaining)
+builder.Services.AddCentra()
+    .WithAppId("orders-service")
+    .WithCloudEventMode(CloudEventMode.Binary)
+    .ConfigureState(s => s.DefaultStore = "statestore")
+    .ConfigurePubSub(p => p.DefaultStore = "pubsub")
+    .ConfigureLocks(l => l.DefaultStore = "lockstore")
+    .ConfigureActors(a => a.ActorIdleTimeout = TimeSpan.FromMinutes(20))
+    .AddActor<AccountActor, IAccountActor>()
+    .ConfigureWorkflows(w => w.DefaultExecutionTimeout = TimeSpan.FromHours(1))
+    .AddWorkflow<OrderWorkflow>()
+    .AddWorkflowActivity<ReserveInventoryActivity>()
+    .AddEventHandler<PaymentNotificationHandler, OrderCreatedEvent>()
+    .AddServiceClient<IInventoryClient>()
+    .AddRedis(options => options.Configuration = "localhost:6379");
+
+// 2. Full-Stack Registration with Store Cascading (AddCentra returns ICentraBuilder)
 builder.Services.AddCentra(options =>
 {
     options.AppId = "orders-service";
-    options.DefaultStateStore = "statestore";
+    options.DefaultStateStore = "statestore"; // Automatically cascades to Actors & Workflows!
     options.DefaultPubSub = "pubsub";
     options.DefaultLockStore = "lockstore";
-});
+})
+.AddInMemory();
 
-// Composable Modular Registration (Only what you need!)
+// 3. Composable Modular Registration (Interface Segregation Principle - only what you need!)
 builder.Services.AddCentraPubSub();
 builder.Services.AddCentraState();
 builder.Services.AddCentraLocks();

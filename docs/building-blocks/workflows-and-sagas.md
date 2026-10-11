@@ -126,7 +126,7 @@ public sealed class OrderProcessingWorkflow : Workflow<OrderRequest, OrderResult
 
 ## ⚙️ Step 3: Registration in `Program.cs`
 
-Centra provides two ways to register workflows and activities:
+Centra provides three flexible ways to register workflows and activities:
 
 ### Option A: Declarative via `[Workflow]` and `[WorkflowActivity]` Attributes (Automatic Discovery)
 Decorate your workflow classes with `[Workflow]` and activity classes with `[WorkflowActivity]`, then invoke `builder.Services.AddCentra()`:
@@ -135,7 +135,9 @@ Decorate your workflow classes with `[Workflow]` and activity classes with `[Wor
 // Registers workflow engine and automatically scans assembly for [Workflow] and [WorkflowActivity]
 builder.Services.AddCentra(options =>
 {
-    options.DefaultStateStore = "statestore";
+    options.DefaultStateStore = "statestore"; // Automatically cascades to WorkflowOptions.DefaultStateStore!
+    options.DefaultPubSub = "pubsub";         // Automatically cascades to WorkflowOptions.DefaultPubSub!
+    options.DefaultLockStore = "lockstore";   // Automatically cascades to WorkflowOptions.DefaultLockStore!
 });
 
 var app = builder.Build();
@@ -144,14 +146,36 @@ app.MapCentraWorkflowEndpoints(); // Mounts workflow HTTP endpoints
 
 Centra's reflection scanner discovers all decorated classes, extracts their generic input and output types, and registers them into the `IWorkflowRegistry`.
 
-### Option B: Programmatic via Service Collection Extensions (Explicit Modular Registration)
+### Option B: Fluent Builder via `ICentraBuilder`
+Chain workflow options, workflows, and activities directly onto `builder.Services.AddCentra()`:
+
+```csharp
+builder.Services.AddCentra()
+    .ConfigureWorkflows(options =>
+    {
+        options.DefaultExecutionTimeout = TimeSpan.FromHours(1);
+        options.PollingInterval = TimeSpan.FromSeconds(2);
+    })
+    .AddWorkflow<OrderProcessingWorkflow>()
+    .AddWorkflowActivity<ReserveInventoryActivity>()
+    .AddWorkflowActivity<ReleaseInventoryCompensationActivity>()
+    .AddWorkflowActivity<ProcessPaymentActivity>();
+
+var app = builder.Build();
+app.MapCentraWorkflowEndpoints();
+```
+
+### Option C: Programmatic via Service Collection Extensions (Modular Registration)
 When registering workflow engine building blocks modularly without the full framework umbrella, register them explicitly:
 
 ```csharp
 // 1. Add workflow engine only (modular registration adhering to ISP)
 builder.Services.AddCentraWorkflows(options =>
 {
+    options.DefaultExecutionTimeout = TimeSpan.FromHours(1);
     options.DefaultStateStore = "statestore";
+    options.DefaultPubSub = "pubsub";
+    options.DefaultLockStore = "lockstore";
 });
 
 // 2. Explicitly register workflows and activities
@@ -163,6 +187,9 @@ builder.Services.AddCentraWorkflowActivity<ProcessPaymentActivity>();
 var app = builder.Build();
 app.MapCentraWorkflowEndpoints();
 ```
+
+> [!TIP]
+> **Store Cascading**: When using `AddCentra(...)`, `WorkflowOptions.DefaultStateStore`, `WorkflowOptions.DefaultPubSub`, and `WorkflowOptions.DefaultLockStore` automatically inherit the root stores configured in `CentraOptions` unless explicitly overridden.
 
 ---
 

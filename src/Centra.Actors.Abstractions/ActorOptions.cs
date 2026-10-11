@@ -9,6 +9,11 @@ public sealed class ActorOptions
     public TimeSpan ActorScanInterval { get; set; } = TimeSpan.FromSeconds(30);
     public TimeSpan DrainTimeout { get; set; } = TimeSpan.FromSeconds(30);
     public TimeSpan ReminderInterval { get; set; } = TimeSpan.FromSeconds(10);
+
     public string DefaultStateStore { get; set; } = "statestore";
     public string DefaultLockStore { get; set; } = "lockstore";
+
+    public bool HasExplicitStateStore => DefaultStateStore != "statestore";
+    public bool HasExplicitLockStore => DefaultLockStore != "lockstore";
 }
+

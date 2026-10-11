@@ -14,17 +14,20 @@
 
 ## 🛠️ Registration
 
-In `Program.cs`:
+In `Program.cs`, you can register state management using the fluent config builder or modular service collection extensions:
 
 ```csharp
-// Register state building blocks
-builder.Services.AddCentraState();
+// Option A: Fluent Builder via ICentraBuilder
+builder.Services.AddCentra()
+    .ConfigureState(options => options.DefaultStore = "orders-store")
+    .AddRedis(options => options.Configuration = "localhost:6379");
 
-// Register provider (e.g. Redis, PostgreSQL, SQL Server, Cosmos DB, or InMemory)
+// Option B: Modular Service Collection Registration (ISP)
+builder.Services.AddCentraState();
 builder.Services.AddCentraRedis(options => options.Configuration = "localhost:6379");
 ```
 
-To bind a specific store name to a type:
+To bind a specific store name to an entity type:
 
 ```csharp
 builder.Services.AddCentraStateStore<Order>("orders-store");

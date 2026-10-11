@@ -18,7 +18,15 @@ public static class CentraActorServiceCollectionExtensions
         this IServiceCollection services,
         Action<ActorOptions>? configure = null)
     {
-        services.AddOptions<ActorOptions>();
+        services.AddOptions<ActorOptions>().Configure<IServiceProvider>((opts, sp) =>
+        {
+            var config = sp.GetService<Microsoft.Extensions.Configuration.IConfiguration>();
+            if (config is not null)
+            {
+                Microsoft.Extensions.Configuration.ConfigurationBinder.Bind(config.GetSection("Centra:Actors"), opts);
+            }
+        });
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<ActorOptions>, ActorOptionsPostSetup>());
         if (configure is not null)
         {
             services.Configure(configure);
@@ -79,13 +87,7 @@ public static class CentraActorServiceCollectionExtensions
         services.TryAddSingleton<ActorManager>(sp =>
         {
             var stateStore = sp.GetRequiredService<IStateStore>();
-            var opt = sp.GetRequiredService<ActorOptions>();
-            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
-            var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
-                ? opt.DefaultStateStore
-                : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
-            opt.DefaultStateStore = storeName;
-
+            var opt = sp.GetRequiredService<IOptions<ActorOptions>>().Value;
             var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
             var registrations = sp.GetServices<ActorRegistration>();
             return new ActorManager(sp, stateStore, opt, timeProvider, registrations);
@@ -95,13 +97,7 @@ public static class CentraActorServiceCollectionExtensions
         {
             var manager = sp.GetRequiredService<ActorManager>();
             var stateStore = sp.GetRequiredService<IStateStore>();
-            var opt = sp.GetRequiredService<ActorOptions>();
-            var centraOpt = sp.GetService<CentraOptions>() ?? sp.GetService<IOptions<CentraOptions>>()?.Value;
-            var storeName = !string.IsNullOrWhiteSpace(opt.DefaultStateStore) && opt.DefaultStateStore != "statestore"
-                ? opt.DefaultStateStore
-                : (centraOpt?.DefaultStateStore ?? opt.DefaultStateStore);
-            opt.DefaultStateStore = storeName;
-
+            var opt = sp.GetRequiredService<IOptions<ActorOptions>>().Value;
             var lockProvider = sp.GetService<IDistributedLockProvider>();
             var timeProvider = sp.GetService<TimeProvider>() ?? TimeProvider.System;
             return new ActorReminderCoordinator(manager, stateStore, opt, lockProvider, timeProvider);
@@ -123,13 +119,23 @@ public static class CentraActorServiceCollectionExtensions
     public static IServiceCollection AddCentraActor<TActor, TActorInterface>(
         this IServiceCollection services)
         where TActor : Actor, TActorInterface
-        where TActorInterface : class, IActor
+        where TActorInterface : class, IActor =>
+        services.AddCentraActor(typeof(TActor), typeof(TActorInterface));
+
+    public static IServiceCollection AddCentraActor(
+        this IServiceCollection services,
+        Type actorType,
+        Type interfaceType)
     {
-        services.TryAddTransient<TActor>();
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(actorType);
+        ArgumentNullException.ThrowIfNull(interfaceType);
+
+        services.TryAddTransient(actorType);
 
         services.ReplaceRegistrationFor<ActorRegistration>(
-            r => r.ActorType == typeof(TActor),
-            new ActorRegistration(typeof(TActor), typeof(TActorInterface)));
+            r => r.ActorType == actorType,
+            new ActorRegistration(actorType, interfaceType));
 
         return services;
     }
@@ -139,4 +145,10 @@ public static class CentraActorServiceCollectionExtensions
         where TActor : Actor, TActorInterface
         where TActorInterface : class, IActor =>
         services.AddCentraActor<TActor, TActorInterface>();
+
+    public static IServiceCollection AddActor(
+        this IServiceCollection services,
+        Type actorType,
+        Type interfaceType) =>
+        services.AddCentraActor(actorType, interfaceType);
 }
