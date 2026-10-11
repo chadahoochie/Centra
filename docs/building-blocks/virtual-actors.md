@@ -107,7 +107,7 @@ public sealed class AccountActor : Actor, IAccountActor
 
 ## ⚙️ Step 3: Registration in `Program.cs`
 
-Centra provides two ways to register virtual actors:
+Centra provides three flexible ways to register virtual actors:
 
 ### Option A: Declarative via `[Actor]` Attribute (Automatic Discovery)
 Decorate your actor implementation with `[Actor("AccountActor")]` and invoke `builder.Services.AddCentra()`:
@@ -116,7 +116,8 @@ Decorate your actor implementation with `[Actor("AccountActor")]` and invoke `bu
 // Registers actor runtime and automatically scans assembly for [Actor] classes
 builder.Services.AddCentra(options =>
 {
-    options.DefaultStateStore = "statestore";
+    options.DefaultStateStore = "statestore"; // Automatically cascades to ActorOptions.DefaultStateStore!
+    options.DefaultLockStore = "lockstore";   // Automatically cascades to ActorOptions.DefaultLockStore!
 });
 
 var app = builder.Build();
@@ -124,9 +125,25 @@ app.MapCentraActorEndpoints(); // Mounts inter-node actor invocation routes
 ```
 
 > [!NOTE]
-> For automatic discovery, your actor class must implement **exactly one** domain interface derived from `IActor` (e.g. `IAccountActor`). If an actor implements multiple `IActor` interfaces, register it explicitly using Option B.
+> For automatic discovery, your actor class must implement **exactly one** domain interface derived from `IActor` (e.g. `IAccountActor`). If an actor implements multiple `IActor` interfaces, register it explicitly using Option B or C.
 
-### Option B: Programmatic via `AddCentraActor` Extension (Explicit Modular Registration)
+### Option B: Fluent Builder via `ICentraBuilder`
+Chain actor options and type registrations directly onto `builder.Services.AddCentra()`:
+
+```csharp
+builder.Services.AddCentra()
+    .ConfigureActors(options =>
+    {
+        options.ActorIdleTimeout = TimeSpan.FromMinutes(20);
+        options.DrainTimeout = TimeSpan.FromSeconds(30);
+    })
+    .AddActor<AccountActor, IAccountActor>();
+
+var app = builder.Build();
+app.MapCentraActorEndpoints();
+```
+
+### Option C: Programmatic via `AddCentraActor` Extension (Modular Registration)
 When registering actor building blocks modularly without the umbrella metapackage, or when disambiguating actor interfaces, register explicitly:
 
 ```csharp
@@ -135,6 +152,7 @@ builder.Services.AddCentraActors(options =>
 {
     options.ActorIdleTimeout = TimeSpan.FromMinutes(15);
     options.DefaultStateStore = "statestore";
+    options.DefaultLockStore = "lockstore";
 });
 
 // 2. Explicitly register actor implementation and interface
@@ -143,6 +161,9 @@ builder.Services.AddCentraActor<AccountActor, IAccountActor>();
 var app = builder.Build();
 app.MapCentraActorEndpoints();
 ```
+
+> [!TIP]
+> **Store Cascading**: When using `AddCentra(...)`, `ActorOptions.DefaultStateStore` and `ActorOptions.DefaultLockStore` automatically inherit the root stores configured in `CentraOptions` unless explicitly overridden.
 
 ---
 

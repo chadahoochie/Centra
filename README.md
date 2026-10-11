@@ -105,16 +105,15 @@ using Centra.State;
 var builder = WebApplication.CreateBuilder(args);
 
 // 1. Register Centra (scans assembly for [Topic], [ServiceClient], [Actor], [Workflow])
+// Returns ICentraBuilder for fluent configuration and provider chaining:
 builder.Services.AddCentra(options =>
 {
     options.AppId = "orders-service";
     options.DefaultStateStore = "statestore";
     options.DefaultPubSub = "pubsub";
     options.DefaultLockStore = "lockstore";
-});
-
-// 2. Add Providers (In-Memory for testing; or Redis, RabbitMQ, PostgreSQL, etc.)
-builder.Services.AddCentraInMemory();
+})
+.AddInMemory(); // Or .AddRedis(), .AddRabbitMQ(), .AddPostgreSql(), etc.
 
 var app = builder.Build();
 

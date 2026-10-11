@@ -38,7 +38,7 @@ public interface IInventoryClient
 
 ## ⚙️ Registration in `Program.cs`
 
-Centra provides two ways to register RPC client proxies:
+Centra provides three flexible ways to register RPC client proxies:
 
 ### Option A: Declarative via `[ServiceClient]` Attribute (Automatic Discovery)
 Decorate your interface with `[ServiceClient("app-id")]` and call `builder.Services.AddCentra()`:
@@ -50,11 +50,19 @@ builder.Services.AddCentra();
 
 Centra's assembly scanner automatically finds decorated interfaces and registers high-performance dynamic proxies into `IServiceCollection` with zero manual wiring.
 
-### Option B: Programmatic via `AddCentraServiceClient` Extension (Explicit Modular Registration)
+### Option B: Fluent Builder via `ICentraBuilder`
+Chain client registrations directly onto `builder.Services.AddCentra()`:
+
+```csharp
+builder.Services.AddCentra()
+    .AddServiceClient<IInventoryClient>();
+```
+
+### Option C: Programmatic via `AddCentraServiceClient` Extension (Modular Registration)
 When adhering strictly to the **Interface Segregation Principle (ISP)** by not referencing the full framework umbrella, or when writing focused integration test harnesses, register the invocation runtime and typed clients explicitly:
 
 ```csharp
-// 1. Add invocation building blocks only (modular registration)
+// 1. Add invocation building blocks only (modular registration adhering to ISP)
 builder.Services.AddCentraInvocation();
 
 // 2. Explicitly register typed client proxy

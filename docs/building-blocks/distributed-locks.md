@@ -13,13 +13,21 @@
 
 ## 🛠️ Registration
 
-In `Program.cs`:
+In `Program.cs`, you can register distributed locks using the fluent config builder or modular service collection extensions:
 
 ```csharp
-// 1. Add locks building block
-builder.Services.AddCentraLocks();
+// Option A: Fluent Builder via ICentraBuilder
+builder.Services.AddCentra()
+    .ConfigureLocks(options =>
+    {
+        options.DefaultStore = "lockstore";
+        options.DefaultExpiry = TimeSpan.FromSeconds(30);
+        options.DefaultTimeout = TimeSpan.FromSeconds(5);
+    })
+    .AddRedis(options => options.Configuration = "localhost:6379");
 
-// 2. Add distributed provider (Redis, PostgreSQL, SQL Server, Cosmos DB, or InMemory)
+// Option B: Modular Service Collection Registration (ISP)
+builder.Services.AddCentraLocks();
 builder.Services.AddCentraRedis(options => options.Configuration = "localhost:6379");
 ```
 

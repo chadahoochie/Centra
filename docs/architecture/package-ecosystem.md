@@ -125,15 +125,15 @@ These packages contain zero third-party dependencies, zero heavy runtime logic, 
 | :--- | :--- | :--- |
 | `Centra.Events.Abstractions` | CNCF CloudEvents v1.0 specifications | `CloudEvent`, `EventContext`, `CentraAmbientContext` |
 | `Centra.Components.Abstractions` | Component definitions & registration metadata | `ComponentDefinition`, `ComponentType`, `IComponentRegistry` |
-| `Centra.PubSub.Abstractions` | Pub/Sub producer & consumer contracts | `IPubSubClient`, `IEventHandler<T>`, `[Topic]`, `IPubSubDriver`, `IRuleFilterEvaluator`, `ICompiledRuleFilter` |
-| `Centra.State.Abstractions` | Key/value state store, transactions & ETags | `IStateStore<T>`, `StateEntry<T>`, `ITransactionalStateStore`, `IStateStoreDriver` |
-| `Centra.Locks.Abstractions` | Distributed mutual exclusion & lease contracts | `IDistributedLockProvider`, `IDistributedLock`, `IDistributedLockDriver` |
+| `Centra.PubSub.Abstractions` | Pub/Sub producer & consumer contracts | `IPubSubClient`, `IEventHandler<T>`, `[Topic]`, `IPubSubDriver`, `CentraPubSubOptions`, `IRuleFilterEvaluator`, `ICompiledRuleFilter` |
+| `Centra.State.Abstractions` | Key/value state store, transactions & ETags | `IStateStore<T>`, `StateEntry<T>`, `ITransactionalStateStore`, `CentraStateOptions`, `IStateStoreDriver` |
+| `Centra.Locks.Abstractions` | Distributed mutual exclusion & lease contracts | `IDistributedLockProvider`, `IDistributedLock`, `CentraLocksOptions`, `IDistributedLockDriver` |
 | `Centra.Invocation.Abstractions` | Declarative RPC interfaces & routing | `IServiceInvoker`, `[ServiceClient]`, `[ServiceMethod]`, `IServiceEndpointResolver` |
 | `Centra.Bindings.Abstractions` | Schedulers, cron triggers & I/O bindings | `IScheduler`, `[CronBinding]`, `IJobHandler`, `IInputBinding`, `IOutputBinding`, `IBindingDriver` |
 | `Centra.Sync.Abstractions` | Control plane sync protocols & topology | `IControlPlaneClient`, `IClusterTopologyProvider`, `ComponentSyncEventDto` |
-| `Centra.Resilience.Abstractions` | Fault tolerance & Polly composite options | `IResiliencePipelineProvider`, `IResiliencePipeline`, `CentraResiliencePolicyDefinition` |
-| `Centra.Actors.Abstractions` | Distributed virtual actors runtime contracts | `IActor`, `Actor`, `ActorIdentity`, `IActorProxyFactory`, `IActorStateManager`, `IActorReminderManager` |
-| `Centra.Workflows.Abstractions` | Durable orchestrations & sagas | `IWorkflow`, `Workflow<TIn, TOut>`, `IWorkflowActivity`, `WorkflowActivity<TIn, TOut>`, `IWorkflowSaga` |
+| `Centra.Resilience.Abstractions` | Fault tolerance & Polly composite options | `IResiliencePipelineProvider`, `IResiliencePipeline`, `CentraResiliencePolicyDefinition`, `CentraResilienceOptions` |
+| `Centra.Actors.Abstractions` | Distributed virtual actors runtime contracts | `IActor`, `Actor`, `ActorIdentity`, `ActorOptions`, `IActorProxyFactory`, `IActorStateManager`, `IActorReminderManager` |
+| `Centra.Workflows.Abstractions` | Durable orchestrations & sagas | `IWorkflow`, `Workflow<TIn, TOut>`, `IWorkflowActivity`, `WorkflowActivity<TIn, TOut>`, `WorkflowOptions`, `IWorkflowSaga` |
 
 ---
 
@@ -143,7 +143,7 @@ These packages implement the runtime execution pipelines, serialization, and coo
 
 | Package | Contents |
 | :--- | :--- |
-| `Centra.Runtime` | OpenTelemetry tracing (`CentraDiagnostics`), metrics (`CentraMeters`), logging, `PooledByteBufferWriter`, component registry. |
+| `Centra.Runtime` | OpenTelemetry tracing (`CentraDiagnostics`), metrics (`CentraMeters`), logging, `PooledByteBufferWriter`, component registry, `ICentraBuilder`, `CentraBuilder`, `CentraOptions`, `CentraControlPlaneOptions`. |
 | `Centra.Serialization` | `JsonCentraSerializer` with System.Text.Json high-performance serialization. |
 | `Centra.Events` | `CloudEventPacker` and `CloudEventUnpacker` supporting Binary and Structured framing. |
 | `Centra.Resilience` | Polly Core v8 composite pipelines (Timeout -> Bulkhead -> RateLimiter -> CircuitBreaker -> Retry). |
@@ -177,7 +177,7 @@ Centra's driver SPI decouples physical drivers from domain logic:
 
 ## 🚀 Hosting & Control Plane
 
-- **`Centra.Hosting`**: Integrates Centra into ASP.NET Core and Microsoft.Extensions.Hosting. Supports two complementary configuration models: declarative auto-discovery via the attribute reflection scanner (`CentraAttributeScanner`) and programmatic wiring via fluent `IServiceCollection` extension methods. Also provides minimal API route builders (`MapCentraEndpoints`, `MapCentraActorEndpoints`, `MapCentraWorkflowEndpoints`) and hosted services.
+- **`Centra.Hosting`**: Integrates Centra into ASP.NET Core and Microsoft.Extensions.Hosting. Returns `ICentraBuilder` from `services.AddCentra()` and supports `services.AddCentraBuilder(...)` for fluent configuration chaining. Supports two complementary configuration models: declarative auto-discovery via the attribute reflection scanner (`CentraAttributeScanner`) and programmatic wiring via fluent `IServiceCollection` / `ICentraBuilder` extension methods. Also provides minimal API route builders (`MapCentraEndpoints`, `MapCentraActorEndpoints`, `MapCentraWorkflowEndpoints`) and hosted services.
 - **`Centra.ControlPlane`**: Standalone ASP.NET Core service providing centralized component catalog management, secret resolution, cluster topology heartbeats, real-time SSE event broadcasting, and actor/workflow inspection APIs.
 - **`Centra.Aspire.Hosting`**: .NET Aspire AppHost integration extensions (`AddCentraControlPlane`, `WithCentra`) for local multi-replica orchestration.
 
